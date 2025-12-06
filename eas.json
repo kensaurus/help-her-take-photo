@@ -11,10 +11,8 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "credentialsSource": "local"
-      },
-      "prebuildCommand": "bash ./scripts/setup-credentials.sh"
+        "buildType": "apk"
+      }
     },
     "production": {
       "autoIncrement": true
