@@ -9,14 +9,14 @@ import {
   Text, 
   StyleSheet, 
   Pressable, 
-  FlatList, 
   Modal, 
   Dimensions,
-  Image,
   Share,
   Alert,
   RefreshControl,
 } from 'react-native'
+import { FlashList } from '@shopify/flash-list'
+import { Image } from 'expo-image'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
   FadeIn,
@@ -334,7 +334,7 @@ export default function GalleryScreen() {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
         }}
       >
-        <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+        <Image source={item.uri} style={styles.thumbnail} contentFit="cover" />
         {!item.byMe && (
           <View style={[styles.partnerBadge, { backgroundColor: colors.primary }]}>
             <Icon name="user" size={10} color={colors.primaryText} />
@@ -411,13 +411,14 @@ export default function GalleryScreen() {
           </Animated.View>
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={filteredPhotos}
           keyExtractor={item => item.id}
           numColumns={COLUMN_COUNT}
           renderItem={renderPhoto}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
+          estimatedItemSize={PHOTO_SIZE}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
