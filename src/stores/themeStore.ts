@@ -23,6 +23,10 @@ interface ThemeColors {
   success: string
   error: string
   overlay: string
+  // Switch-specific colors
+  switchTrackOff: string
+  switchTrackOn: string
+  switchThumb: string
 }
 
 const lightTheme: ThemeColors = {
@@ -41,6 +45,9 @@ const lightTheme: ThemeColors = {
   success: '#10B981',
   error: '#EF4444',
   overlay: 'rgba(250, 250, 248, 0.95)',
+  switchTrackOff: '#D1D5DB',
+  switchTrackOn: '#0A0A0A',
+  switchThumb: '#FFFFFF',
 }
 
 const darkTheme: ThemeColors = {
@@ -50,8 +57,8 @@ const darkTheme: ThemeColors = {
   text: '#FAFAFA',
   textSecondary: '#A3A3A3',
   textMuted: '#6B6B6B',
-  border: '#262626',
-  borderLight: '#1F1F1F',
+  border: '#333333',
+  borderLight: '#252525',
   primary: '#FAFAFA',
   primaryText: '#0A0A0A',
   accent: '#818CF8',
@@ -59,6 +66,9 @@ const darkTheme: ThemeColors = {
   success: '#34D399',
   error: '#F87171',
   overlay: 'rgba(10, 10, 10, 0.95)',
+  switchTrackOff: '#404040',
+  switchTrackOn: '#818CF8',
+  switchThumb: '#FAFAFA',
 }
 
 interface ThemeState {

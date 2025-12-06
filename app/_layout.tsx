@@ -102,6 +102,18 @@ export default function RootLayout() {
               title: t.settings.title,
             }} 
           />
+          <Stack.Screen 
+            name="feedback" 
+            options={{ 
+              title: 'Feedback',
+            }} 
+          />
+          <Stack.Screen 
+            name="changelog" 
+            options={{ 
+              title: "What's New",
+            }} 
+          />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

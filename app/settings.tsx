@@ -1,5 +1,5 @@
 /**
- * Settings - With language and theme selection
+ * Settings - Clean, minimal design
  */
 
 import { useState } from 'react'
@@ -29,6 +29,7 @@ import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
+import { getBuildInfo } from '../src/config/build'
 
 function SettingRow({ 
   label, 
@@ -51,12 +52,12 @@ function SettingRow({
   }))
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 50).duration(300)}>
+    <Animated.View entering={FadeInUp.delay(index * 40).duration(250)}>
       <Pressable 
         style={styles.settingRow} 
         onPress={onToggle}
         onPressIn={() => {
-          scale.value = withSpring(0.98, { damping: 15 })
+          scale.value = withSpring(0.99, { damping: 15 })
         }}
         onPressOut={() => {
           scale.value = withSpring(1, { damping: 15 })
@@ -74,9 +75,9 @@ function SettingRow({
           <Switch
             value={value}
             onValueChange={onToggle}
-            trackColor={{ false: colors.border, true: colors.primary }}
-            thumbColor={colors.surface}
-            ios_backgroundColor={colors.border}
+            trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+            thumbColor={colors.switchThumb}
+            ios_backgroundColor={colors.switchTrackOff}
           />
         </Animated.View>
       </Pressable>
@@ -106,7 +107,7 @@ function LanguageOption({
     <Pressable
       onPress={onSelect}
       onPressIn={() => { 
-        scale.value = withSpring(0.97, { damping: 15 }) 
+        scale.value = withSpring(0.98, { damping: 15 }) 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       }}
       onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
@@ -171,37 +172,36 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         {/* Appearance */}
-        <Animated.View entering={FadeIn.delay(50).duration(300)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(50).duration(250)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             APPEARANCE
           </Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Pressable 
-              style={styles.settingRow} 
-              onPress={() => {
-                toggleMode()
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              }}
-            >
-              <View style={styles.settingInfo}>
-                <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
-                <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
-                  {mode === 'dark' ? 'Currently dark' : 'Currently light'}
-                </Text>
+            <View style={styles.settingRow}>
+              <View style={styles.settingRowInner}>
+                <View style={styles.settingInfo}>
+                  <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                    {mode === 'dark' ? 'On' : 'Off'}
+                  </Text>
+                </View>
+                <Switch
+                  value={mode === 'dark'}
+                  onValueChange={() => {
+                    toggleMode()
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                  }}
+                  trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+                  thumbColor={colors.switchThumb}
+                  ios_backgroundColor={colors.switchTrackOff}
+                />
               </View>
-              <Switch
-                value={mode === 'dark'}
-                onValueChange={toggleMode}
-                trackColor={{ false: colors.border, true: colors.accent }}
-                thumbColor={colors.surface}
-                ios_backgroundColor={colors.border}
-              />
-            </Pressable>
+            </View>
           </View>
         </Animated.View>
 
         {/* Camera Settings */}
-        <Animated.View entering={FadeIn.delay(100).duration(300)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(80).duration(250)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.camera.toUpperCase()}
           </Text>
@@ -239,7 +239,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Language */}
-        <Animated.View entering={FadeIn.delay(150).duration(300)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(110).duration(250)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.language.toUpperCase()}
           </Text>
@@ -262,7 +262,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Connection */}
-        <Animated.View entering={FadeIn.delay(200).duration(300)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(140).duration(250)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.connection.toUpperCase()}
           </Text>
@@ -288,7 +288,6 @@ export default function SettingsScreen() {
               <Pressable 
                 style={styles.actionRow} 
                 onPress={handleUnpair}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text style={[styles.actionTextDanger, { color: colors.error }]}>
                   {t.profile.disconnect}
@@ -298,7 +297,6 @@ export default function SettingsScreen() {
               <Pressable 
                 style={styles.actionRow} 
                 onPress={() => router.replace('/pairing')}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text style={[styles.actionText, { color: colors.accent }]}>
                   {t.profile.connect}
@@ -308,10 +306,32 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
+        {/* Feedback */}
+        <Animated.View entering={FadeIn.delay(170).duration(250)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            FEEDBACK
+          </Text>
+          <Pressable 
+            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+            onPress={() => router.push('/feedback')}
+          >
+            <View style={styles.languageRow}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>
+                Send Feedback
+              </Text>
+              <Text style={[styles.chevron, { color: colors.textMuted }]}>→</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
+
         {/* About */}
-        <Animated.View entering={FadeIn.delay(250).duration(300)} style={styles.footer}>
+        <Animated.View entering={FadeIn.delay(200).duration(250)} style={styles.footer}>
           <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
-          <Text style={[styles.version, { color: colors.textMuted }]}>v1.0.0</Text>
+          <Pressable onPress={() => router.push('/changelog')}>
+            <Text style={[styles.version, { color: colors.accent }]}>
+              {getBuildInfo().fullVersion}
+            </Text>
+          </Pressable>
           <Text style={[styles.taglineFooter, { color: colors.textMuted }]}>
             {t.tagline}
           </Text>
@@ -319,7 +339,6 @@ export default function SettingsScreen() {
           <Pressable 
             style={styles.creditLink}
             onPress={() => Linking.openURL('https://kensaur.us')}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={[styles.creditText, { color: colors.textMuted }]}>
               © 2025 kensaur.us
@@ -343,7 +362,6 @@ export default function SettingsScreen() {
             <Pressable 
               style={styles.modalClose} 
               onPress={() => setShowLanguageModal(false)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
               <Text style={[styles.modalCloseText, { color: colors.accent }]}>
                 {t.common.done}
@@ -375,88 +393,87 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 32,
   },
   section: {
-    marginTop: 28,
-    paddingHorizontal: 24,
+    marginTop: 24,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    marginBottom: 12,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   settingRow: {
-    minHeight: 64,
+    minHeight: 56,
   },
   settingRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   settingInfo: {
     flex: 1,
-    marginRight: 16,
+    marginRight: 12,
   },
   settingLabel: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '500',
   },
   settingDesc: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
   divider: {
     height: 1,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
   },
   languageRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minHeight: 64,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 56,
   },
   languageValue: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   languageValueText: {
-    fontSize: 16,
+    fontSize: 15,
   },
   chevron: {
-    fontSize: 18,
-    fontWeight: '300',
+    fontSize: 16,
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minHeight: 64,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 56,
   },
   infoLabel: {
-    fontSize: 16,
+    fontSize: 15,
   },
   infoValue: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
   },
   statusValue: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   statusDot: {
     width: 8,
@@ -464,47 +481,45 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   actionRow: {
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    minHeight: 56,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 48,
     justifyContent: 'center',
   },
   actionText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
   },
   actionTextDanger: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
   },
   footer: {
     alignItems: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
   },
   appName: {
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
   },
   version: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
   taglineFooter: {
-    fontSize: 13,
-    marginTop: 12,
-    fontStyle: 'italic',
+    fontSize: 12,
+    marginTop: 8,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 18,
   },
   creditLink: {
-    marginTop: 24,
-    paddingVertical: 8,
+    marginTop: 16,
+    paddingVertical: 6,
   },
   creditText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
-    letterSpacing: 0.5,
   },
   // Modal styles
   modalContainer: {
@@ -514,41 +529,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  modalClose: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  modalCloseText: {
     fontSize: 17,
     fontWeight: '600',
   },
+  modalClose: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  modalCloseText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
   languageList: {
-    padding: 24,
+    padding: 20,
   },
   languageOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    marginBottom: 12,
+    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 8,
   },
   languageText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '500',
   },
   checkmark: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '600',
   },
 })

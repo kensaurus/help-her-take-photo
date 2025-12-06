@@ -130,3 +130,39 @@ export const pairingApi = {
   },
 }
 
+/**
+ * Feedback API
+ */
+export interface FeedbackInput {
+  deviceToken?: string
+  type: 'feature' | 'bug' | 'other'
+  message: string
+  email?: string
+  rating?: number
+}
+
+export const feedbackApi = {
+  async submit(input: FeedbackInput): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      })
+      
+      const data = await response.json()
+      
+      if (!response.ok) {
+        return { success: false, error: data.error || 'Failed to submit feedback' }
+      }
+      
+      return { success: true }
+    } catch (error) {
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Network error' 
+      }
+    }
+  },
+}
+

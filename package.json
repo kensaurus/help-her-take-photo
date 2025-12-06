@@ -13,10 +13,11 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "build:preview": "eas build --profile preview --platform all",
-    "build:production": "eas build --profile production --platform all",
-    "update:preview": "eas update --branch preview",
-    "update:production": "eas update --branch production"
+    "update-build": "node scripts/update-build.js",
+    "build:preview": "npm run update-build && eas build --profile preview --platform all",
+    "build:production": "npm run update-build && eas build --profile production --platform all",
+    "update:preview": "npm run update-build && eas update --branch preview",
+    "update:production": "npm run update-build && eas update --branch production"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

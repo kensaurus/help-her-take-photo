@@ -1,9 +1,9 @@
 /**
- * Profile - With stats, ranking, and SSO options
- * Enhanced with theme support and micro-interactions
+ * Profile - Stats, ranking, and connection management
+ * Clean minimal design
  */
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { 
   View, 
   Text, 
@@ -20,7 +20,6 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
   FadeIn,
   FadeInUp,
-  FadeInDown,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring 
@@ -34,12 +33,10 @@ import { useThemeStore } from '../src/stores/themeStore'
 function StatCard({ 
   value, 
   label, 
-  emoji,
   index = 0,
 }: { 
   value: number
   label: string
-  emoji: string
   index?: number
 }) {
   const { colors } = useThemeStore()
@@ -51,20 +48,19 @@ function StatCard({
 
   return (
     <Animated.View 
-      entering={FadeInUp.delay(index * 80).duration(400).springify()}
-      style={animatedStyle}
+      entering={FadeInUp.delay(index * 60).duration(300)}
+      style={[{ flex: 1 }, animatedStyle]}
     >
       <Pressable 
         style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
         onPressIn={() => {
-          scale.value = withSpring(0.95, { damping: 15 })
+          scale.value = withSpring(0.97, { damping: 15 })
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
         }}
         onPressOut={() => {
           scale.value = withSpring(1, { damping: 15 })
         }}
       >
-        <Text style={styles.statEmoji}>{emoji}</Text>
         <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
         <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
       </Pressable>
@@ -72,122 +68,40 @@ function StatCard({
   )
 }
 
-function SSOButton({ 
-  provider, 
-  icon, 
-  onPress,
-  index = 0,
-}: { 
-  provider: string
-  icon: string
-  onPress: () => void
-  index?: number
-}) {
-  const { colors } = useThemeStore()
-  const scale = useSharedValue(1)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-
-  return (
-    <Animated.View entering={FadeInUp.delay(100 + index * 60).duration(300)}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={() => { 
-          scale.value = withSpring(0.97, { damping: 15 })
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        }}
-        onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
-      >
-        <Animated.View style={[
-          styles.ssoButton, 
-          { backgroundColor: colors.surface, borderColor: colors.border },
-          animatedStyle
-        ]}>
-          <Text style={styles.ssoIcon}>{icon}</Text>
-          <Text style={[styles.ssoText, { color: colors.text }]}>
-            Continue with {provider}
-          </Text>
-        </Animated.View>
-      </Pressable>
-    </Animated.View>
-  )
-}
-
-// Rank messages (funny)
-const rankMessages = {
-  rookie: [
-    "Just getting started. Don't worry, everyone fails at first! 😅",
-    "Even pro photographers started somewhere... probably not here though.",
-    "Your girlfriend is being very patient. Treasure that.",
-  ],
-  amateur: [
-    "Making progress! She only sighed 3 times last session!",
-    "You're learning! The photos are... recognizable now.",
-    "Keep going! Rome wasn't photographed in a day.",
-  ],
-  decent: [
-    "Not bad! She actually smiled at one of your shots!",
-    "Getting there! Only 2 retakes per photo now!",
-    "Your Instagram game is improving. Slightly.",
-  ],
-  pro: [
-    "Impressive! She's posting your photos without editing!",
-    "You've unlocked 'boyfriend photographer' achievement!",
-    "She's bragging about you to her friends. Savor it.",
-  ],
-  legend: [
-    "Legendary! Other boyfriends are asking for tips!",
-    "She's considering letting you take engagement photos!",
-    "Your photos get more likes than hers. Don't tell her.",
-  ],
-  master: [
-    "MAXIMUM LEVEL ACHIEVED! You are the chosen one!",
-    "She wants to make a photobook of YOUR shots!",
-    "Relationship status: Photographer > Boyfriend 📸👑",
-  ],
+// Rank descriptions
+const rankDescriptions: Record<string, string> = {
+  rookie: "Just getting started",
+  amateur: "Making progress!",
+  decent: "Getting better",
+  pro: "Impressive skills",
+  legend: "Legendary status",
+  master: "Maximum level!",
 }
 
 export default function ProfileScreen() {
   const router = useRouter()
-  const { colors } = useThemeStore()
+  const { colors, mode } = useThemeStore()
   const { myDeviceId, isPaired, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats, getRank } = useStatsStore()
-  const [displayName, setDisplayName] = useState('Photography Survivor')
+  const [displayName, setDisplayName] = useState('User')
   const [refreshing, setRefreshing] = useState(false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
 
   const rank = getRank()
   const rankText = t.profile.ranks[rank as keyof typeof t.profile.ranks]
-  
-  // Memoize to prevent re-random on every render
-  const rankMessage = useMemo(() => {
-    const messages = rankMessages[rank as keyof typeof rankMessages]
-    return messages[Math.floor(Math.random() * messages.length)]
-  }, [rank])
+  const rankDescription = rankDescriptions[rank] || ''
 
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 600))
+    await new Promise(r => setTimeout(r, 500))
     setRefreshing(false)
-  }
-
-  const handleSSO = (provider: string) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    Alert.alert(
-      'Coming Soon!',
-      `${provider} login will be available in the next update. For now, your stats are saved locally.`,
-      [{ text: 'OK' }]
-    )
   }
 
   const handleDisconnect = () => {
     Alert.alert(
       t.profile.disconnect,
-      'Disconnect from your partner? (You can reconnect anytime)',
+      'Disconnect from your partner?',
       [
         { text: t.common.cancel, style: 'cancel' },
         { 
@@ -228,30 +142,28 @@ export default function ProfileScreen() {
       >
         {/* Rank Banner */}
         <Animated.View 
-          entering={FadeIn.duration(500)} 
+          entering={FadeIn.duration(400)} 
           style={[styles.rankBanner, { backgroundColor: colors.primary }]}
         >
-          <Text style={styles.rankEmoji}>{rankText.split(' ')[0]}</Text>
           <Text style={[styles.rankTitle, { color: colors.primaryText }]}>
-            {rankText.slice(2)}
+            {rankText}
           </Text>
-          <Text style={[styles.rankMessage, { color: `${colors.primaryText}99` }]}>
-            {rankMessage}
+          <Text style={[styles.rankDesc, { color: `${colors.primaryText}99` }]}>
+            {rankDescription}
           </Text>
           
           {nextRank && (
             <View style={styles.progressContainer}>
               <View style={[styles.progressBar, { backgroundColor: `${colors.primaryText}30` }]}>
-                <Animated.View 
-                  entering={FadeIn.delay(300).duration(800)}
+                <View 
                   style={[
                     styles.progressFill, 
                     { width: `${progress * 100}%`, backgroundColor: colors.accent }
                   ]} 
                 />
               </View>
-              <Text style={[styles.progressText, { color: `${colors.primaryText}66` }]}>
-                {stats.scoldingsSaved}/{nextThreshold} to {t.profile.ranks[nextRank as keyof typeof t.profile.ranks]}
+              <Text style={[styles.progressText, { color: `${colors.primaryText}80` }]}>
+                {stats.scoldingsSaved}/{nextThreshold} to next rank
               </Text>
             </View>
           )}
@@ -261,37 +173,34 @@ export default function ProfileScreen() {
         <View style={styles.statsRow}>
           <StatCard 
             value={stats.scoldingsSaved} 
-            label={t.profile.scoldingsSaved} 
-            emoji="🛡️"
+            label={t.profile.scoldingsSaved}
             index={0}
           />
           <StatCard 
             value={stats.photosTaken} 
-            label={t.profile.photosTaken} 
-            emoji="📸"
+            label={t.profile.photosTaken}
             index={1}
           />
           <StatCard 
             value={stats.sessionsCompleted} 
-            label={t.profile.sessions} 
-            emoji="✨"
+            label={t.profile.sessions}
             index={2}
           />
         </View>
 
         {/* Profile Info */}
         <Animated.View 
-          entering={FadeInUp.delay(200).duration(400)} 
+          entering={FadeInUp.delay(150).duration(300)} 
           style={styles.section}
         >
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PROFILE</Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.inputRow}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+            <View style={styles.cardRow}>
+              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
                 {t.profile.displayName}
               </Text>
               <TextInput
-                style={[styles.textInput, { color: colors.text }]}
+                style={[styles.textInput, { color: colors.text, backgroundColor: colors.surfaceAlt }]}
                 value={displayName}
                 onChangeText={setDisplayName}
                 placeholder="Your name"
@@ -299,13 +208,13 @@ export default function ProfileScreen() {
               />
             </View>
             
-            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            <View style={[styles.divider, { backgroundColor: colors.border }]} />
             
-            <View style={styles.infoRow}>
-              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+            <View style={styles.cardRow}>
+              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
                 {t.profile.deviceId}
               </Text>
-              <Text style={[styles.infoValue, { color: colors.text }]}>
+              <Text style={[styles.cardValue, { color: colors.text }]}>
                 {myDeviceId?.slice(0, 8) || '...'}
               </Text>
             </View>
@@ -314,14 +223,14 @@ export default function ProfileScreen() {
 
         {/* Connection Status */}
         <Animated.View 
-          entering={FadeInUp.delay(250).duration(400)} 
+          entering={FadeInUp.delay(200).duration(300)} 
           style={styles.section}
         >
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CONNECTION</Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.connectionRow}>
-              <View>
-                <Text style={[styles.connectionLabel, { color: colors.textMuted }]}>
+              <View style={styles.connectionInfo}>
+                <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
                   {t.profile.status}
                 </Text>
                 <View style={styles.statusRow}>
@@ -337,21 +246,25 @@ export default function ProfileScreen() {
               
               {isPaired ? (
                 <Pressable 
-                  style={[styles.disconnectButton, { borderColor: colors.error }]} 
+                  style={[
+                    styles.actionButton, 
+                    { 
+                      backgroundColor: mode === 'dark' ? colors.surfaceAlt : 'transparent',
+                      borderColor: colors.error,
+                    }
+                  ]} 
                   onPress={handleDisconnect}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={[styles.disconnectText, { color: colors.error }]}>
+                  <Text style={[styles.actionButtonText, { color: colors.error }]}>
                     {t.profile.disconnect}
                   </Text>
                 </Pressable>
               ) : (
                 <Pressable 
-                  style={[styles.connectButton, { backgroundColor: colors.primary }]} 
+                  style={[styles.actionButton, { backgroundColor: colors.primary }]} 
                   onPress={() => router.push('/pairing')}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text style={[styles.connectText, { color: colors.primaryText }]}>
+                  <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>
                     {t.profile.connect}
                   </Text>
                 </Pressable>
@@ -360,46 +273,9 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-        {/* SSO Login */}
-        {!isLoggedIn && (
-          <Animated.View 
-            entering={FadeInUp.delay(300).duration(400)} 
-            style={styles.section}
-          >
-            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
-              SYNC YOUR PROGRESS
-            </Text>
-            <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>
-              Login to backup your stats and compete on the global leaderboard!
-            </Text>
-            
-            <View style={styles.ssoContainer}>
-              <SSOButton provider="Google" icon="🔵" onPress={() => handleSSO('Google')} index={0} />
-              <SSOButton provider="Apple" icon="🍎" onPress={() => handleSSO('Apple')} index={1} />
-              <SSOButton provider="LINE" icon="💚" onPress={() => handleSSO('LINE')} index={2} />
-            </View>
-          </Animated.View>
-        )}
-
-        {/* Fun facts */}
-        <Animated.View 
-          entering={FadeInUp.delay(350).duration(400)} 
-          style={[styles.funFacts, { backgroundColor: colors.surfaceAlt }]}
-        >
-          <Text style={[styles.funFactTitle, { color: colors.accent }]}>💡 Did you know?</Text>
-          <Text style={[styles.funFactText, { color: colors.textSecondary }]}>
-            The average boyfriend takes 23 photos before one is "acceptable". 
-            You're now at {stats.photosTaken} lifetime shots. 
-            {stats.photosTaken > 23 ? " You're above average! 🎉" : " Keep practicing!"}
-          </Text>
-        </Animated.View>
-
         {/* Credit */}
         <View style={styles.credit}>
-          <Pressable 
-            onPress={() => Linking.openURL('https://kensaur.us')}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
+          <Pressable onPress={() => Linking.openURL('https://kensaur.us')}>
             <Text style={[styles.creditText, { color: colors.textMuted }]}>
               © 2025 kensaur.us
             </Text>
@@ -415,208 +291,152 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 32,
   },
   rankBanner: {
-    margin: 24,
-    marginBottom: 20,
-    padding: 28,
-    borderRadius: 20,
+    margin: 20,
+    marginBottom: 16,
+    padding: 20,
+    borderRadius: 8,
     alignItems: 'center',
   },
-  rankEmoji: {
-    fontSize: 56,
-    marginBottom: 12,
-  },
   rankTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    marginBottom: 10,
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  rankMessage: {
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
+  rankDesc: {
+    fontSize: 14,
   },
   progressContainer: {
     width: '100%',
-    marginTop: 20,
+    marginTop: 16,
   },
   progressBar: {
-    height: 8,
-    borderRadius: 4,
+    height: 6,
+    borderRadius: 3,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: 3,
   },
   progressText: {
-    fontSize: 13,
-    marginTop: 10,
+    fontSize: 12,
+    marginTop: 8,
     textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: 24,
-    gap: 12,
-    marginBottom: 28,
+    paddingHorizontal: 20,
+    gap: 10,
+    marginBottom: 24,
   },
   statCard: {
-    flex: 1,
     borderWidth: 1,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: 'center',
-  },
-  statEmoji: {
-    fontSize: 28,
-    marginBottom: 8,
+    minHeight: 80,
   },
   statValue: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -1,
+    fontSize: 24,
+    fontWeight: '700',
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 10,
     marginTop: 4,
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   section: {
-    paddingHorizontal: 24,
-    marginBottom: 28,
+    paddingHorizontal: 20,
+    marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  sectionDesc: {
-    fontSize: 15,
-    marginBottom: 16,
-    lineHeight: 22,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: 8,
   },
   card: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 8,
     overflow: 'hidden',
   },
-  inputRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+  cardRow: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
-  inputLabel: {
-    fontSize: 12,
+  cardLabel: {
+    fontSize: 11,
     fontWeight: '600',
     marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  cardValue: {
+    fontSize: 15,
+    fontWeight: '600',
+    fontFamily: 'monospace',
   },
   textInput: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '500',
-    paddingVertical: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
   divider: {
     height: 1,
-    marginHorizontal: 20,
-  },
-  infoRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-  },
-  infoValue: {
-    fontSize: 17,
-    fontWeight: '600',
-    fontFamily: 'monospace',
+    marginHorizontal: 16,
   },
   connectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
   },
-  connectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 6,
+  connectionInfo: {
+    flex: 1,
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   statusText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '500',
   },
-  disconnectButton: {
+  actionButton: {
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderWidth: 1.5,
-    borderRadius: 10,
-  },
-  disconnectText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  connectButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 10,
-  },
-  connectText: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  ssoContainer: {
-    gap: 12,
-  },
-  ssoButton: {
-    flexDirection: 'row',
+    borderRadius: 6,
+    borderColor: 'transparent',
+    minWidth: 100,
     alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    gap: 14,
   },
-  ssoIcon: {
-    fontSize: 22,
-  },
-  ssoText: {
-    fontSize: 17,
+  actionButtonText: {
+    fontSize: 14,
     fontWeight: '600',
-  },
-  funFacts: {
-    marginHorizontal: 24,
-    marginBottom: 24,
-    padding: 20,
-    borderRadius: 16,
-  },
-  funFactTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  funFactText: {
-    fontSize: 15,
-    lineHeight: 22,
   },
   credit: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 16,
   },
   creditText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '500',
-    letterSpacing: 0.5,
   },
 })
