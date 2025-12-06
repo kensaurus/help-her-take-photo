@@ -1,13 +1,24 @@
 /**
- * Settings - With language selection
+ * Settings - With language and theme selection
  */
 
 import { useState } from 'react'
-import { View, Text, StyleSheet, Pressable, Switch, Modal, FlatList } from 'react-native'
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Pressable, 
+  Switch, 
+  Modal, 
+  FlatList,
+  ScrollView,
+  Linking,
+} from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
-  FadeIn, 
+  FadeIn,
+  FadeInUp,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring 
@@ -16,6 +27,7 @@ import * as Haptics from 'expo-haptics'
 import { useSettingsStore } from '../src/stores/settingsStore'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
+import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
 
 function SettingRow({ 
@@ -23,26 +35,52 @@ function SettingRow({
   description, 
   value, 
   onToggle,
+  index = 0,
 }: { 
   label: string
   description?: string
   value: boolean
   onToggle: () => void
+  index?: number
 }) {
+  const { colors } = useThemeStore()
+  const scale = useSharedValue(1)
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
+
   return (
-    <Pressable style={styles.settingRow} onPress={onToggle}>
-      <View style={styles.settingInfo}>
-        <Text style={styles.settingLabel}>{label}</Text>
-        {description && <Text style={styles.settingDesc}>{description}</Text>}
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        trackColor={{ false: '#E5E5E5', true: '#1a1a1a' }}
-        thumbColor="#fff"
-        ios_backgroundColor="#E5E5E5"
-      />
-    </Pressable>
+    <Animated.View entering={FadeInUp.delay(index * 50).duration(300)}>
+      <Pressable 
+        style={styles.settingRow} 
+        onPress={onToggle}
+        onPressIn={() => {
+          scale.value = withSpring(0.98, { damping: 15 })
+        }}
+        onPressOut={() => {
+          scale.value = withSpring(1, { damping: 15 })
+        }}
+      >
+        <Animated.View style={[styles.settingRowInner, animatedStyle]}>
+          <View style={styles.settingInfo}>
+            <Text style={[styles.settingLabel, { color: colors.text }]}>{label}</Text>
+            {description && (
+              <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                {description}
+              </Text>
+            )}
+          </View>
+          <Switch
+            value={value}
+            onValueChange={onToggle}
+            trackColor={{ false: colors.border, true: colors.primary }}
+            thumbColor={colors.surface}
+            ios_backgroundColor={colors.border}
+          />
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
   )
 }
 
@@ -57,6 +95,7 @@ function LanguageOption({
   selected: boolean
   onSelect: () => void 
 }) {
+  const { colors } = useThemeStore()
   const scale = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
@@ -66,12 +105,29 @@ function LanguageOption({
   return (
     <Pressable
       onPress={onSelect}
-      onPressIn={() => { scale.value = withSpring(0.97) }}
-      onPressOut={() => { scale.value = withSpring(1) }}
+      onPressIn={() => { 
+        scale.value = withSpring(0.97, { damping: 15 }) 
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      }}
+      onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
     >
-      <Animated.View style={[styles.languageOption, selected && styles.languageOptionSelected, animatedStyle]}>
-        <Text style={[styles.languageText, selected && styles.languageTextSelected]}>{name}</Text>
-        {selected && <Text style={styles.checkmark}>✓</Text>}
+      <Animated.View style={[
+        styles.languageOption, 
+        { 
+          backgroundColor: selected ? colors.primary : colors.surface,
+          borderColor: selected ? colors.primary : colors.border,
+        },
+        animatedStyle
+      ]}>
+        <Text style={[
+          styles.languageText, 
+          { color: selected ? colors.primaryText : colors.text }
+        ]}>
+          {name}
+        </Text>
+        {selected && (
+          <Text style={[styles.checkmark, { color: colors.primaryText }]}>✓</Text>
+        )}
       </Animated.View>
     </Pressable>
   )
@@ -79,6 +135,7 @@ function LanguageOption({
 
 export default function SettingsScreen() {
   const router = useRouter()
+  const { colors, mode, toggleMode } = useThemeStore()
   const { settings, updateSettings } = useSettingsStore()
   const { isPaired, clearPairing } = usePairingStore()
   const { language, setLanguage, t } = useLanguageStore()
@@ -108,90 +165,168 @@ export default function SettingsScreen() {
   ]
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      {/* Camera Settings */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.settings.camera}</Text>
-        <View style={styles.card}>
-          <SettingRow
-            label={t.settings.gridOverlay}
-            description={t.settings.gridDesc}
-            value={settings.showGrid}
-            onToggle={() => toggleSetting('showGrid')}
-          />
-          <View style={styles.divider} />
-          <SettingRow
-            label={t.settings.flash}
-            description={t.settings.flashDesc}
-            value={settings.flash}
-            onToggle={() => toggleSetting('flash')}
-          />
-          <View style={styles.divider} />
-          <SettingRow
-            label={t.settings.sound}
-            value={settings.sound}
-            onToggle={() => toggleSetting('sound')}
-          />
-          <View style={styles.divider} />
-          <SettingRow
-            label={t.settings.autoSave}
-            value={settings.autoSave}
-            onToggle={() => toggleSetting('autoSave')}
-          />
-        </View>
-      </View>
-
-      {/* Language */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.settings.language}</Text>
-        <Pressable style={styles.card} onPress={() => setShowLanguageModal(true)}>
-          <View style={styles.languageRow}>
-            <Text style={styles.settingLabel}>{t.settings.selectLanguage}</Text>
-            <View style={styles.languageValue}>
-              <Text style={styles.languageValueText}>{languageNames[language]}</Text>
-              <Text style={styles.chevron}>›</Text>
-            </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Appearance */}
+        <Animated.View entering={FadeIn.delay(50).duration(300)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            APPEARANCE
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Pressable 
+              style={styles.settingRow} 
+              onPress={() => {
+                toggleMode()
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              }}
+            >
+              <View style={styles.settingInfo}>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
+                <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                  {mode === 'dark' ? 'Currently dark' : 'Currently light'}
+                </Text>
+              </View>
+              <Switch
+                value={mode === 'dark'}
+                onValueChange={toggleMode}
+                trackColor={{ false: colors.border, true: colors.accent }}
+                thumbColor={colors.surface}
+                ios_backgroundColor={colors.border}
+              />
+            </Pressable>
           </View>
-        </Pressable>
-      </View>
+        </Animated.View>
 
-      {/* Connection */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.settings.connection}</Text>
-        <View style={styles.card}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>{t.profile.status}</Text>
-            <View style={styles.statusValue}>
-              <View style={[
-                styles.statusDot,
-                isPaired ? styles.statusDotOn : styles.statusDotOff
-              ]} />
-              <Text style={styles.infoValue}>
-                {isPaired ? t.profile.connected : t.profile.notConnected}
+        {/* Camera Settings */}
+        <Animated.View entering={FadeIn.delay(100).duration(300)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            {t.settings.camera.toUpperCase()}
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <SettingRow
+              label={t.settings.gridOverlay}
+              description={t.settings.gridDesc}
+              value={settings.showGrid}
+              onToggle={() => toggleSetting('showGrid')}
+              index={0}
+            />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            <SettingRow
+              label={t.settings.flash}
+              description={t.settings.flashDesc}
+              value={settings.flash}
+              onToggle={() => toggleSetting('flash')}
+              index={1}
+            />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            <SettingRow
+              label={t.settings.sound}
+              value={settings.sound}
+              onToggle={() => toggleSetting('sound')}
+              index={2}
+            />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            <SettingRow
+              label={t.settings.autoSave}
+              value={settings.autoSave}
+              onToggle={() => toggleSetting('autoSave')}
+              index={3}
+            />
+          </View>
+        </Animated.View>
+
+        {/* Language */}
+        <Animated.View entering={FadeIn.delay(150).duration(300)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            {t.settings.language.toUpperCase()}
+          </Text>
+          <Pressable 
+            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+            onPress={() => setShowLanguageModal(true)}
+          >
+            <View style={styles.languageRow}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>
+                {t.settings.selectLanguage}
               </Text>
+              <View style={styles.languageValue}>
+                <Text style={[styles.languageValueText, { color: colors.textSecondary }]}>
+                  {languageNames[language]}
+                </Text>
+                <Text style={[styles.chevron, { color: colors.textMuted }]}>→</Text>
+              </View>
             </View>
-          </View>
-          
-          <View style={styles.divider} />
-          
-          {isPaired ? (
-            <Pressable style={styles.actionRow} onPress={handleUnpair}>
-              <Text style={styles.actionTextDanger}>{t.profile.disconnect}</Text>
-            </Pressable>
-          ) : (
-            <Pressable style={styles.actionRow} onPress={() => router.replace('/pairing')}>
-              <Text style={styles.actionText}>{t.profile.connect}</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
+          </Pressable>
+        </Animated.View>
 
-      {/* About */}
-      <View style={styles.footer}>
-        <Text style={styles.appName}>{t.appName}</Text>
-        <Text style={styles.version}>v1.0.0</Text>
-        <Text style={styles.taglineFooter}>{t.tagline}</Text>
-      </View>
+        {/* Connection */}
+        <Animated.View entering={FadeIn.delay(200).duration(300)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            {t.settings.connection.toUpperCase()}
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.infoRow}>
+              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                {t.profile.status}
+              </Text>
+              <View style={styles.statusValue}>
+                <View style={[
+                  styles.statusDot,
+                  { backgroundColor: isPaired ? colors.success : colors.error }
+                ]} />
+                <Text style={[styles.infoValue, { color: colors.text }]}>
+                  {isPaired ? t.profile.connected : t.profile.notConnected}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            
+            {isPaired ? (
+              <Pressable 
+                style={styles.actionRow} 
+                onPress={handleUnpair}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[styles.actionTextDanger, { color: colors.error }]}>
+                  {t.profile.disconnect}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable 
+                style={styles.actionRow} 
+                onPress={() => router.replace('/pairing')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[styles.actionText, { color: colors.accent }]}>
+                  {t.profile.connect}
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        </Animated.View>
+
+        {/* About */}
+        <Animated.View entering={FadeIn.delay(250).duration(300)} style={styles.footer}>
+          <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
+          <Text style={[styles.version, { color: colors.textMuted }]}>v1.0.0</Text>
+          <Text style={[styles.taglineFooter, { color: colors.textMuted }]}>
+            {t.tagline}
+          </Text>
+          
+          <Pressable 
+            style={styles.creditLink}
+            onPress={() => Linking.openURL('https://kensaur.us')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.creditText, { color: colors.textMuted }]}>
+              © 2025 kensaur.us
+            </Text>
+          </Pressable>
+        </Animated.View>
+      </ScrollView>
 
       {/* Language Modal */}
       <Modal
@@ -200,11 +335,19 @@ export default function SettingsScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowLanguageModal(false)}
       >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{t.settings.selectLanguage}</Text>
-            <Pressable style={styles.modalClose} onPress={() => setShowLanguageModal(false)}>
-              <Text style={styles.modalCloseText}>{t.common.done}</Text>
+        <SafeAreaView style={[styles.modalContainer, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {t.settings.selectLanguage}
+            </Text>
+            <Pressable 
+              style={styles.modalClose} 
+              onPress={() => setShowLanguageModal(false)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={[styles.modalCloseText, { color: colors.accent }]}>
+                {t.common.done}
+              </Text>
             </Pressable>
           </View>
           
@@ -230,203 +373,182 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   section: {
-    marginTop: 24,
-    paddingHorizontal: 20,
+    marginTop: 28,
+    paddingHorizontal: 24,
   },
   sectionTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#999',
-    letterSpacing: 1,
-    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginBottom: 12,
   },
   card: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   settingRow: {
+    minHeight: 64,
+  },
+  settingRowInner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
-    paddingHorizontal: 16,
-    minHeight: 60,
+    paddingHorizontal: 20,
   },
   settingInfo: {
     flex: 1,
     marginRight: 16,
   },
   settingLabel: {
-    fontSize: 16,
-    color: '#1a1a1a',
+    fontSize: 17,
     fontWeight: '500',
   },
   settingDesc: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 2,
+    fontSize: 14,
+    marginTop: 4,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
-    marginHorizontal: 16,
+    marginHorizontal: 20,
   },
   languageRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    minHeight: 60,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    minHeight: 64,
   },
   languageValue: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   languageValueText: {
     fontSize: 16,
-    color: '#666',
   },
   chevron: {
-    fontSize: 20,
-    color: '#CCC',
+    fontSize: 18,
+    fontWeight: '300',
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    minHeight: 60,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    minHeight: 64,
   },
   infoLabel: {
     fontSize: 16,
-    color: '#666',
   },
   infoValue: {
     fontSize: 16,
-    color: '#1a1a1a',
+    fontWeight: '500',
   },
   statusValue: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-  statusDotOn: {
-    backgroundColor: '#22C55E',
-  },
-  statusDotOff: {
-    backgroundColor: '#DC2626',
-  },
   actionRow: {
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     minHeight: 56,
     justifyContent: 'center',
   },
   actionText: {
-    fontSize: 16,
-    color: '#1a1a1a',
-    fontWeight: '500',
+    fontSize: 17,
+    fontWeight: '600',
   },
   actionTextDanger: {
-    fontSize: 16,
-    color: '#DC2626',
-    fontWeight: '500',
+    fontSize: 17,
+    fontWeight: '600',
   },
   footer: {
-    flex: 1,
-    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 24,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
   },
   appName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontSize: 17,
+    fontWeight: '700',
   },
   version: {
-    fontSize: 13,
-    color: '#888',
-    marginTop: 2,
+    fontSize: 14,
+    marginTop: 4,
   },
   taglineFooter: {
-    fontSize: 12,
-    color: '#AAA',
-    marginTop: 8,
+    fontSize: 13,
+    marginTop: 12,
     fontStyle: 'italic',
     textAlign: 'center',
-    paddingHorizontal: 40,
+    lineHeight: 20,
+  },
+  creditLink: {
+    marginTop: 24,
+    paddingVertical: 8,
+  },
+  creditText: {
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
   // Modal styles
   modalContainer: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E5E5',
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontSize: 20,
+    fontWeight: '700',
   },
   modalClose: {
     paddingVertical: 8,
     paddingHorizontal: 16,
   },
   modalCloseText: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
-    color: '#1a1a1a',
   },
   languageList: {
-    padding: 20,
+    padding: 24,
   },
   languageOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    marginBottom: 8,
-  },
-  languageOptionSelected: {
-    borderColor: '#1a1a1a',
-    backgroundColor: '#1a1a1a',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    marginBottom: 12,
   },
   languageText: {
-    fontSize: 17,
-    color: '#1a1a1a',
+    fontSize: 18,
     fontWeight: '500',
-  },
-  languageTextSelected: {
-    color: '#fff',
   },
   checkmark: {
     fontSize: 18,
-    color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
   },
 })

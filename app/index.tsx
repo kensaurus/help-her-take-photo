@@ -1,70 +1,152 @@
 /**
  * Home - Your relationship's photography insurance
+ * Minimal, artistic design with micro-interactions
  */
 
-import { useEffect, useState } from 'react'
-import { View, Text, StyleSheet, Pressable, ScrollView, RefreshControl } from 'react-native'
+import { useEffect, useState, useCallback } from 'react'
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  Pressable, 
+  ScrollView, 
+  RefreshControl,
+  Linking,
+  Dimensions,
+} from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
-  FadeIn, 
+  FadeIn,
+  FadeInDown,
+  FadeInUp,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring,
+  withTiming,
+  withSequence,
+  withDelay,
+  interpolate,
+  Extrapolation,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useConnectionStore } from '../src/stores/connectionStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
+import { useThemeStore } from '../src/stores/themeStore'
 
-function BigButton({ 
+const { width: SCREEN_WIDTH } = Dimensions.get('window')
+
+/**
+ * Animated action card with press feedback
+ */
+function ActionCard({ 
   label, 
   subtitle, 
   onPress,
   highlight = false,
+  index = 0,
 }: { 
   label: string
   subtitle: string
   onPress: () => void
   highlight?: boolean
+  index?: number
 }) {
+  const { colors } = useThemeStore()
+  const scale = useSharedValue(1)
+  const bgOpacity = useSharedValue(0)
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    backgroundColor: highlight 
+      ? colors.primary 
+      : `rgba(${colors.mode === 'dark' ? '255,255,255' : '0,0,0'}, ${bgOpacity.value * 0.02})`,
+  }))
+  
+  const handlePressIn = () => {
+    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 })
+    bgOpacity.value = withTiming(1, { duration: 100 })
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+  
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 300 })
+    bgOpacity.value = withTiming(0, { duration: 200 })
+  }
+
+  return (
+    <Animated.View 
+      entering={FadeInUp.delay(100 + index * 80).duration(500).springify()}
+    >
+      <Pressable 
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={styles.cardPressable}
+      >
+        <Animated.View style={[
+          styles.card, 
+          { borderColor: colors.border },
+          highlight && { backgroundColor: colors.primary, borderColor: colors.primary },
+          animatedStyle
+        ]}>
+          <View style={styles.cardContent}>
+            <Text style={[
+              styles.cardLabel, 
+              { color: highlight ? colors.primaryText : colors.text }
+            ]}>
+              {label}
+            </Text>
+            <Text style={[
+              styles.cardSubtitle, 
+              { color: highlight ? `${colors.primaryText}99` : colors.textMuted }
+            ]}>
+              {subtitle}
+            </Text>
+          </View>
+          <Text style={[
+            styles.cardArrow, 
+            { color: highlight ? `${colors.primaryText}66` : colors.textMuted }
+          ]}>
+            →
+          </Text>
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
+  )
+}
+
+/**
+ * Minimal nav button
+ */
+function NavButton({ label, onPress }: { label: string; onPress: () => void }) {
+  const { colors } = useThemeStore()
   const scale = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
-  
-  const handlePressIn = () => {
-    scale.value = withSpring(0.97, { damping: 15 })
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }
-  
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15 })
-  }
 
   return (
     <Pressable 
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      style={styles.bigButtonPressable}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        onPress()
+      }}
+      onPressIn={() => {
+        scale.value = withSpring(0.95, { damping: 15 })
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15 })
+      }}
+      hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
     >
-      <Animated.View style={[
-        styles.bigButton, 
-        highlight && styles.bigButtonHighlight,
-        animatedStyle
-      ]}>
-        <View style={styles.bigButtonContent}>
-          <Text style={[styles.bigButtonLabel, highlight && styles.bigButtonLabelHighlight]}>
-            {label}
-          </Text>
-          <Text style={[styles.bigButtonSubtitle, highlight && styles.bigButtonSubtitleHighlight]}>
-            {subtitle}
-          </Text>
-        </View>
-        <Text style={[styles.bigButtonArrow, highlight && styles.bigButtonArrowHighlight]}>›</Text>
+      <Animated.View style={[styles.navButton, animatedStyle]}>
+        <Text style={[styles.navButtonText, { color: colors.textSecondary }]}>
+          {label}
+        </Text>
       </Animated.View>
     </Pressable>
   )
@@ -72,6 +154,7 @@ function BigButton({
 
 export default function HomeScreen() {
   const router = useRouter()
+  const { colors, mode, toggleMode } = useThemeStore()
   const { isPaired } = usePairingStore()
   const { setRole } = useConnectionStore()
   const { t, loadLanguage } = useLanguageStore()
@@ -80,26 +163,37 @@ export default function HomeScreen() {
   
   const taglines = t.home.taglines
   const [taglineIndex, setTaglineIndex] = useState(0)
+  const taglineOpacity = useSharedValue(1)
 
   useEffect(() => {
     loadLanguage()
     loadStats()
   }, [loadLanguage, loadStats])
 
-  // Rotate taglines
+  // Smooth tagline rotation with fade
   useEffect(() => {
     const interval = setInterval(() => {
-      setTaglineIndex((i) => (i + 1) % taglines.length)
-    }, 4000)
+      taglineOpacity.value = withSequence(
+        withTiming(0, { duration: 300 }),
+        withTiming(1, { duration: 300 })
+      )
+      setTimeout(() => {
+        setTaglineIndex((i) => (i + 1) % taglines.length)
+      }, 300)
+    }, 5000)
     return () => clearInterval(interval)
-  }, [taglines.length])
+  }, [taglines.length, taglineOpacity])
 
-  const handleRefresh = async () => {
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: taglineOpacity.value,
+  }))
+
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 500))
+    await new Promise(r => setTimeout(r, 600))
     setRefreshing(false)
-  }
+  }, [])
 
   const handleCamera = () => {
     setRole('camera')
@@ -115,7 +209,7 @@ export default function HomeScreen() {
   const rankText = t.profile.ranks[rank as keyof typeof t.profile.ranks]
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -123,89 +217,149 @@ export default function HomeScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#1a1a1a"
+            tintColor={colors.textMuted}
           />
         }
       >
         {/* Header */}
-        <Animated.View entering={FadeIn.duration(400)} style={styles.header}>
+        <Animated.View entering={FadeIn.duration(600)} style={styles.header}>
+          {/* Theme toggle */}
+          <Pressable 
+            style={styles.themeToggle}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              toggleMode()
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.themeIcon, { color: colors.textMuted }]}>
+              {mode === 'dark' ? '◐' : '◑'}
+            </Text>
+          </Pressable>
+
           <View style={styles.brand}>
-            <Text style={styles.brandLight}>Help Her</Text>
-            <Text style={styles.brandBold}>Take Photo</Text>
+            <Text style={[styles.brandLight, { color: colors.textSecondary }]}>
+              Help Her
+            </Text>
+            <Text style={[styles.brandBold, { color: colors.text }]}>
+              Take Photo
+            </Text>
           </View>
           
-          <Text style={styles.tagline}>{taglines[taglineIndex]}</Text>
+          <Animated.Text style={[styles.tagline, { color: colors.textMuted }, taglineStyle]}>
+            {taglines[taglineIndex]}
+          </Animated.Text>
           
-          {/* Status */}
-          <View style={styles.statusRow}>
-            {isPaired && (
-              <View style={styles.statusBadge}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>{t.home.paired}</Text>
-              </View>
-            )}
-            
-            {stats.scoldingsSaved > 0 && (
-              <View style={styles.rankBadge}>
-                <Text style={styles.rankText}>{rankText}</Text>
-              </View>
-            )}
-          </View>
+          {/* Status pills */}
+          {(isPaired || stats.scoldingsSaved > 0) && (
+            <Animated.View 
+              entering={FadeInDown.delay(200).duration(400)}
+              style={styles.statusRow}
+            >
+              {isPaired && (
+                <View style={[styles.statusPill, { backgroundColor: `${colors.success}15` }]}>
+                  <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
+                  <Text style={[styles.statusText, { color: colors.success }]}>
+                    {t.home.paired}
+                  </Text>
+                </View>
+              )}
+              
+              {stats.scoldingsSaved > 0 && (
+                <View style={[styles.rankPill, { backgroundColor: colors.surfaceAlt }]}>
+                  <Text style={[styles.rankText, { color: colors.accent }]}>
+                    {rankText}
+                  </Text>
+                </View>
+              )}
+            </Animated.View>
+          )}
         </Animated.View>
 
-        {/* Stats card */}
+        {/* Stats mini card */}
         {stats.scoldingsSaved > 0 && (
-          <View style={styles.statsCard}>
+          <Animated.View 
+            entering={FadeInUp.delay(300).duration(500)}
+            style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.scoldingsSaved}</Text>
-              <Text style={styles.statLabel}>{t.profile.scoldingsSaved}</Text>
+              <Text style={[styles.statValue, { color: colors.text }]}>
+                {stats.scoldingsSaved}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                {t.profile.scoldingsSaved}
+              </Text>
             </View>
-            <View style={styles.statDivider} />
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{stats.photosTaken}</Text>
-              <Text style={styles.statLabel}>{t.profile.photosTaken}</Text>
+              <Text style={[styles.statValue, { color: colors.text }]}>
+                {stats.photosTaken}
+              </Text>
+              <Text style={[styles.statLabel, { color: colors.textMuted }]}>
+                {t.profile.photosTaken}
+              </Text>
             </View>
-          </View>
+          </Animated.View>
         )}
 
-        {/* Main Actions */}
+        {/* Action cards */}
         <View style={styles.actions}>
-          <Text style={styles.sectionLabel}>{t.home.selectRole}</Text>
+          <Animated.Text 
+            entering={FadeIn.delay(50).duration(400)}
+            style={[styles.sectionLabel, { color: colors.textMuted }]}
+          >
+            {t.home.selectRole}
+          </Animated.Text>
           
-          <BigButton
+          <ActionCard
             label={t.home.photographer}
             subtitle={t.home.photographerDesc}
             onPress={handleCamera}
             highlight
+            index={0}
           />
           
-          <BigButton
+          <ActionCard
             label={t.home.director}
             subtitle={t.home.directorDesc}
             onPress={handleViewer}
+            index={1}
           />
           
           <View style={styles.spacer} />
           
-          <BigButton
+          <ActionCard
             label={t.home.gallery}
             subtitle={t.home.galleryDesc}
             onPress={() => router.push('/gallery')}
+            index={2}
           />
         </View>
 
         {/* Footer nav */}
-        <View style={styles.footer}>
-          <Pressable style={styles.footerButton} onPress={() => router.push('/profile')}>
-            <Text style={styles.footerButtonText}>{t.profile.title}</Text>
+        <Animated.View 
+          entering={FadeIn.delay(400).duration(500)}
+          style={styles.footer}
+        >
+          <NavButton label={t.profile.title} onPress={() => router.push('/profile')} />
+          <View style={[styles.footerDot, { backgroundColor: colors.border }]} />
+          <NavButton label={t.settings.title} onPress={() => router.push('/settings')} />
+        </Animated.View>
+
+        {/* Credit */}
+        <Animated.View 
+          entering={FadeIn.delay(600).duration(500)}
+          style={styles.credit}
+        >
+          <Pressable 
+            onPress={() => Linking.openURL('https://kensaur.us')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.creditText, { color: colors.textMuted }]}>
+              © 2025 kensaur.us
+            </Text>
           </Pressable>
-          
-          <View style={styles.footerDivider} />
-          
-          <Pressable style={styles.footerButton} onPress={() => router.push('/settings')}>
-            <Text style={styles.footerButtonText}>{t.settings.title}</Text>
-          </Pressable>
-        </View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   )
@@ -214,176 +368,173 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
   },
   header: {
-    paddingTop: 32,
-    paddingBottom: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
+  },
+  themeToggle: {
+    position: 'absolute',
+    top: 16,
+    right: 0,
+    padding: 8,
+    zIndex: 1,
+  },
+  themeIcon: {
+    fontSize: 22,
   },
   brand: {
-    marginBottom: 12,
+    marginBottom: 16,
   },
   brandLight: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '300',
-    color: '#1a1a1a',
-    letterSpacing: -0.5,
+    letterSpacing: -1,
   },
   brandBold: {
-    fontSize: 34,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    letterSpacing: -0.5,
-    marginTop: -8,
+    fontSize: 38,
+    fontWeight: '800',
+    letterSpacing: -1.5,
+    marginTop: -4,
   },
   tagline: {
-    fontSize: 15,
-    color: '#666',
-    lineHeight: 22,
-    minHeight: 44,
+    fontSize: 16,
+    lineHeight: 24,
+    minHeight: 48,
+    fontWeight: '400',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    gap: 12,
+    marginTop: 20,
+    gap: 10,
     flexWrap: 'wrap',
   },
-  statusBadge: {
+  statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#22C55E',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#22C55E',
   },
-  rankBadge: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 4,
+  rankPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
   },
   rankText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#92400E',
+    fontWeight: '700',
   },
   statsCard: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
-    padding: 16,
-    marginBottom: 24,
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 32,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -1,
   },
   statLabel: {
     fontSize: 12,
-    color: '#888',
     marginTop: 4,
-    textAlign: 'center',
+    fontWeight: '500',
   },
   statDivider: {
     width: 1,
-    backgroundColor: '#E5E5E5',
-    marginHorizontal: 16,
+    marginHorizontal: 20,
   },
   actions: {
     flex: 1,
   },
   sectionLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#999',
-    letterSpacing: 1,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginBottom: 16,
+  },
+  cardPressable: {
     marginBottom: 12,
   },
-  bigButtonPressable: {
-    marginBottom: 8,
-  },
-  bigButton: {
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingVertical: 24,
+    paddingVertical: 22,
     paddingHorizontal: 20,
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
+    borderRadius: 12,
   },
-  bigButtonHighlight: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#1a1a1a',
-  },
-  bigButtonContent: {
+  cardContent: {
     flex: 1,
   },
-  bigButtonLabel: {
+  cardLabel: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1a1a1a',
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
-  bigButtonLabelHighlight: {
-    color: '#fff',
-  },
-  bigButtonSubtitle: {
-    fontSize: 13,
-    color: '#888',
+  cardSubtitle: {
+    fontSize: 14,
     marginTop: 4,
+    fontWeight: '400',
   },
-  bigButtonSubtitleHighlight: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  bigButtonArrow: {
-    fontSize: 28,
-    color: '#CCC',
+  cardArrow: {
+    fontSize: 20,
     fontWeight: '300',
-  },
-  bigButtonArrowHighlight: {
-    color: 'rgba(255,255,255,0.5)',
+    marginLeft: 12,
   },
   spacer: {
-    height: 16,
+    height: 20,
   },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 24,
+    gap: 24,
   },
-  footerButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+  navButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
-  footerButtonText: {
-    fontSize: 15,
-    color: '#666',
+  navButtonText: {
+    fontSize: 16,
     fontWeight: '500',
   },
-  footerDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: '#DDD',
+  footerDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  credit: {
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  creditText: {
+    fontSize: 12,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 })

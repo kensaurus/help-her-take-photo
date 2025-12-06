@@ -1,8 +1,9 @@
 /**
  * Profile - With stats, ranking, and SSO options
+ * Enhanced with theme support and micro-interactions
  */
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { 
   View, 
   Text, 
@@ -12,11 +13,14 @@ import {
   ScrollView,
   Alert,
   RefreshControl,
+  Linking,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
   FadeIn,
+  FadeInUp,
+  FadeInDown,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring 
@@ -25,26 +29,20 @@ import * as Haptics from 'expo-haptics'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
+import { useThemeStore } from '../src/stores/themeStore'
 
-function StatCard({ value, label, emoji }: { value: number; label: string; emoji: string }) {
-  return (
-    <View style={styles.statCard}>
-      <Text style={styles.statEmoji}>{emoji}</Text>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  )
-}
-
-function SSOButton({ 
-  provider, 
-  icon, 
-  onPress 
+function StatCard({ 
+  value, 
+  label, 
+  emoji,
+  index = 0,
 }: { 
-  provider: string
-  icon: string
-  onPress: () => void 
+  value: number
+  label: string
+  emoji: string
+  index?: number
 }) {
+  const { colors } = useThemeStore()
   const scale = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
@@ -52,16 +50,68 @@ function SSOButton({
   }))
 
   return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => { scale.value = withSpring(0.97) }}
-      onPressOut={() => { scale.value = withSpring(1) }}
+    <Animated.View 
+      entering={FadeInUp.delay(index * 80).duration(400).springify()}
+      style={animatedStyle}
     >
-      <Animated.View style={[styles.ssoButton, animatedStyle]}>
-        <Text style={styles.ssoIcon}>{icon}</Text>
-        <Text style={styles.ssoText}>Continue with {provider}</Text>
-      </Animated.View>
-    </Pressable>
+      <Pressable 
+        style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        onPressIn={() => {
+          scale.value = withSpring(0.95, { damping: 15 })
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        }}
+        onPressOut={() => {
+          scale.value = withSpring(1, { damping: 15 })
+        }}
+      >
+        <Text style={styles.statEmoji}>{emoji}</Text>
+        <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
+        <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
+      </Pressable>
+    </Animated.View>
+  )
+}
+
+function SSOButton({ 
+  provider, 
+  icon, 
+  onPress,
+  index = 0,
+}: { 
+  provider: string
+  icon: string
+  onPress: () => void
+  index?: number
+}) {
+  const { colors } = useThemeStore()
+  const scale = useSharedValue(1)
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
+
+  return (
+    <Animated.View entering={FadeInUp.delay(100 + index * 60).duration(300)}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => { 
+          scale.value = withSpring(0.97, { damping: 15 })
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        }}
+        onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
+      >
+        <Animated.View style={[
+          styles.ssoButton, 
+          { backgroundColor: colors.surface, borderColor: colors.border },
+          animatedStyle
+        ]}>
+          <Text style={styles.ssoIcon}>{icon}</Text>
+          <Text style={[styles.ssoText, { color: colors.text }]}>
+            Continue with {provider}
+          </Text>
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
   )
 }
 
@@ -101,6 +151,7 @@ const rankMessages = {
 
 export default function ProfileScreen() {
   const router = useRouter()
+  const { colors } = useThemeStore()
   const { myDeviceId, isPaired, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats, getRank } = useStatsStore()
@@ -110,14 +161,17 @@ export default function ProfileScreen() {
 
   const rank = getRank()
   const rankText = t.profile.ranks[rank as keyof typeof t.profile.ranks]
-  const rankMessage = rankMessages[rank as keyof typeof rankMessages][
-    Math.floor(Math.random() * 3)
-  ]
+  
+  // Memoize to prevent re-random on every render
+  const rankMessage = useMemo(() => {
+    const messages = rankMessages[rank as keyof typeof rankMessages]
+    return messages[Math.floor(Math.random() * messages.length)]
+  }, [rank])
 
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 500))
+    await new Promise(r => setTimeout(r, 600))
     setRefreshing(false)
   }
 
@@ -156,11 +210,11 @@ export default function ProfileScreen() {
   const nextThreshold = nextRank ? rankThresholds[nextRank as keyof typeof rankThresholds] : null
   const currentThreshold = rankThresholds[rank as keyof typeof rankThresholds]
   const progress = nextThreshold 
-    ? (stats.scoldingsSaved - currentThreshold) / (nextThreshold - currentThreshold)
+    ? Math.min((stats.scoldingsSaved - currentThreshold) / (nextThreshold - currentThreshold), 1)
     : 1
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -168,22 +222,35 @@ export default function ProfileScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            tintColor="#1a1a1a"
+            tintColor={colors.textMuted}
           />
         }
       >
         {/* Rank Banner */}
-        <Animated.View entering={FadeIn} style={styles.rankBanner}>
+        <Animated.View 
+          entering={FadeIn.duration(500)} 
+          style={[styles.rankBanner, { backgroundColor: colors.primary }]}
+        >
           <Text style={styles.rankEmoji}>{rankText.split(' ')[0]}</Text>
-          <Text style={styles.rankTitle}>{rankText.slice(2)}</Text>
-          <Text style={styles.rankMessage}>{rankMessage}</Text>
+          <Text style={[styles.rankTitle, { color: colors.primaryText }]}>
+            {rankText.slice(2)}
+          </Text>
+          <Text style={[styles.rankMessage, { color: `${colors.primaryText}99` }]}>
+            {rankMessage}
+          </Text>
           
           {nextRank && (
             <View style={styles.progressContainer}>
-              <View style={styles.progressBar}>
-                <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+              <View style={[styles.progressBar, { backgroundColor: `${colors.primaryText}30` }]}>
+                <Animated.View 
+                  entering={FadeIn.delay(300).duration(800)}
+                  style={[
+                    styles.progressFill, 
+                    { width: `${progress * 100}%`, backgroundColor: colors.accent }
+                  ]} 
+                />
               </View>
-              <Text style={styles.progressText}>
+              <Text style={[styles.progressText, { color: `${colors.primaryText}66` }]}>
                 {stats.scoldingsSaved}/{nextThreshold} to {t.profile.ranks[nextRank as keyof typeof t.profile.ranks]}
               </Text>
             </View>
@@ -195,99 +262,148 @@ export default function ProfileScreen() {
           <StatCard 
             value={stats.scoldingsSaved} 
             label={t.profile.scoldingsSaved} 
-            emoji="🛡️" 
+            emoji="🛡️"
+            index={0}
           />
           <StatCard 
             value={stats.photosTaken} 
             label={t.profile.photosTaken} 
-            emoji="📸" 
+            emoji="📸"
+            index={1}
           />
           <StatCard 
             value={stats.sessionsCompleted} 
             label={t.profile.sessions} 
-            emoji="✨" 
+            emoji="✨"
+            index={2}
           />
         </View>
 
         {/* Profile Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>PROFILE</Text>
-          <View style={styles.card}>
+        <Animated.View 
+          entering={FadeInUp.delay(200).duration(400)} 
+          style={styles.section}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PROFILE</Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.inputRow}>
-              <Text style={styles.inputLabel}>{t.profile.displayName}</Text>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                {t.profile.displayName}
+              </Text>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput, { color: colors.text }]}
                 value={displayName}
                 onChangeText={setDisplayName}
                 placeholder="Your name"
-                placeholderTextColor="#999"
+                placeholderTextColor={colors.textMuted}
               />
             </View>
             
-            <View style={styles.divider} />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
             
             <View style={styles.infoRow}>
-              <Text style={styles.inputLabel}>{t.profile.deviceId}</Text>
-              <Text style={styles.infoValue}>{myDeviceId?.slice(0, 8) || '...'}</Text>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>
+                {t.profile.deviceId}
+              </Text>
+              <Text style={[styles.infoValue, { color: colors.text }]}>
+                {myDeviceId?.slice(0, 8) || '...'}
+              </Text>
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* Connection Status */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>CONNECTION</Text>
-          <View style={styles.card}>
+        <Animated.View 
+          entering={FadeInUp.delay(250).duration(400)} 
+          style={styles.section}
+        >
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CONNECTION</Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.connectionRow}>
               <View>
-                <Text style={styles.connectionLabel}>{t.profile.status}</Text>
+                <Text style={[styles.connectionLabel, { color: colors.textMuted }]}>
+                  {t.profile.status}
+                </Text>
                 <View style={styles.statusRow}>
                   <View style={[
                     styles.statusDot,
-                    isPaired ? styles.statusDotOn : styles.statusDotOff
+                    { backgroundColor: isPaired ? colors.success : colors.error }
                   ]} />
-                  <Text style={styles.statusText}>
+                  <Text style={[styles.statusText, { color: colors.text }]}>
                     {isPaired ? t.profile.connected : t.profile.notConnected}
                   </Text>
                 </View>
               </View>
               
               {isPaired ? (
-                <Pressable style={styles.disconnectButton} onPress={handleDisconnect}>
-                  <Text style={styles.disconnectText}>{t.profile.disconnect}</Text>
+                <Pressable 
+                  style={[styles.disconnectButton, { borderColor: colors.error }]} 
+                  onPress={handleDisconnect}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={[styles.disconnectText, { color: colors.error }]}>
+                    {t.profile.disconnect}
+                  </Text>
                 </Pressable>
               ) : (
-                <Pressable style={styles.connectButton} onPress={() => router.push('/pairing')}>
-                  <Text style={styles.connectText}>{t.profile.connect}</Text>
+                <Pressable 
+                  style={[styles.connectButton, { backgroundColor: colors.primary }]} 
+                  onPress={() => router.push('/pairing')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={[styles.connectText, { color: colors.primaryText }]}>
+                    {t.profile.connect}
+                  </Text>
                 </Pressable>
               )}
             </View>
           </View>
-        </View>
+        </Animated.View>
 
         {/* SSO Login */}
         {!isLoggedIn && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>SYNC YOUR PROGRESS</Text>
-            <Text style={styles.sectionDesc}>
+          <Animated.View 
+            entering={FadeInUp.delay(300).duration(400)} 
+            style={styles.section}
+          >
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+              SYNC YOUR PROGRESS
+            </Text>
+            <Text style={[styles.sectionDesc, { color: colors.textSecondary }]}>
               Login to backup your stats and compete on the global leaderboard!
             </Text>
             
             <View style={styles.ssoContainer}>
-              <SSOButton provider="Google" icon="🔵" onPress={() => handleSSO('Google')} />
-              <SSOButton provider="Apple" icon="🍎" onPress={() => handleSSO('Apple')} />
-              <SSOButton provider="LINE" icon="💚" onPress={() => handleSSO('LINE')} />
+              <SSOButton provider="Google" icon="🔵" onPress={() => handleSSO('Google')} index={0} />
+              <SSOButton provider="Apple" icon="🍎" onPress={() => handleSSO('Apple')} index={1} />
+              <SSOButton provider="LINE" icon="💚" onPress={() => handleSSO('LINE')} index={2} />
             </View>
-          </View>
+          </Animated.View>
         )}
 
         {/* Fun facts */}
-        <View style={styles.funFacts}>
-          <Text style={styles.funFactTitle}>💡 Did you know?</Text>
-          <Text style={styles.funFactText}>
+        <Animated.View 
+          entering={FadeInUp.delay(350).duration(400)} 
+          style={[styles.funFacts, { backgroundColor: colors.surfaceAlt }]}
+        >
+          <Text style={[styles.funFactTitle, { color: colors.accent }]}>💡 Did you know?</Text>
+          <Text style={[styles.funFactText, { color: colors.textSecondary }]}>
             The average boyfriend takes 23 photos before one is "acceptable". 
             You're now at {stats.photosTaken} lifetime shots. 
             {stats.photosTaken > 23 ? " You're above average! 🎉" : " Keep practicing!"}
           </Text>
+        </Animated.View>
+
+        {/* Credit */}
+        <View style={styles.credit}>
+          <Pressable 
+            onPress={() => Linking.openURL('https://kensaur.us')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.creditText, { color: colors.textMuted }]}>
+              © 2025 kensaur.us
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -297,231 +413,210 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
   },
   scrollContent: {
     paddingBottom: 40,
   },
   rankBanner: {
-    backgroundColor: '#1a1a1a',
-    margin: 20,
-    marginBottom: 16,
-    padding: 24,
-    borderRadius: 8,
+    margin: 24,
+    marginBottom: 20,
+    padding: 28,
+    borderRadius: 20,
     alignItems: 'center',
   },
   rankEmoji: {
-    fontSize: 48,
-    marginBottom: 8,
+    fontSize: 56,
+    marginBottom: 12,
   },
   rankTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginBottom: 10,
   },
   rankMessage: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.7)',
+    fontSize: 15,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   progressContainer: {
     width: '100%',
-    marginTop: 16,
+    marginTop: 20,
   },
   progressBar: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 3,
+    height: 8,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#FCD34D',
-    borderRadius: 3,
+    borderRadius: 4,
   },
   progressText: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 8,
+    fontSize: 13,
+    marginTop: 10,
     textAlign: 'center',
   },
   statsRow: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    gap: 8,
-    marginBottom: 24,
+    paddingHorizontal: 24,
+    gap: 12,
+    marginBottom: 28,
   },
   statCard: {
     flex: 1,
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
+    borderRadius: 16,
     padding: 16,
     alignItems: 'center',
   },
   statEmoji: {
-    fontSize: 24,
-    marginBottom: 4,
+    fontSize: 28,
+    marginBottom: 8,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1a1a1a',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -1,
   },
   statLabel: {
     fontSize: 11,
-    color: '#888',
     marginTop: 4,
     textAlign: 'center',
+    fontWeight: '500',
   },
   section: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+    paddingHorizontal: 24,
+    marginBottom: 28,
   },
   sectionTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#999',
-    letterSpacing: 1,
-    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginBottom: 12,
   },
   sectionDesc: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-    lineHeight: 20,
+    fontSize: 15,
+    marginBottom: 16,
+    lineHeight: 22,
   },
   card: {
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
   },
   inputRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
   inputLabel: {
     fontSize: 12,
-    color: '#888',
-    marginBottom: 6,
+    fontWeight: '600',
+    marginBottom: 8,
   },
   textInput: {
-    fontSize: 16,
-    color: '#1a1a1a',
+    fontSize: 17,
     fontWeight: '500',
     paddingVertical: 4,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
-    marginHorizontal: 16,
+    marginHorizontal: 20,
   },
   infoRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
   infoValue: {
-    fontSize: 16,
-    color: '#1a1a1a',
-    fontWeight: '500',
+    fontSize: 17,
+    fontWeight: '600',
     fontFamily: 'monospace',
   },
   connectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 20,
   },
   connectionLabel: {
     fontSize: 12,
-    color: '#888',
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 6,
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-  statusDotOn: {
-    backgroundColor: '#22C55E',
-  },
-  statusDotOff: {
-    backgroundColor: '#DC2626',
-  },
   statusText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    fontSize: 16,
+    fontWeight: '600',
   },
   disconnectButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#DC2626',
-    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderWidth: 1.5,
+    borderRadius: 10,
   },
   disconnectText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#DC2626',
+    fontSize: 15,
+    fontWeight: '700',
   },
   connectButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 10,
   },
   connectText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   ssoContainer: {
-    gap: 8,
+    gap: 12,
   },
   ssoButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    gap: 12,
+    borderRadius: 12,
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    gap: 14,
   },
   ssoIcon: {
-    fontSize: 20,
+    fontSize: 22,
   },
   ssoText: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1a1a1a',
+    fontSize: 17,
+    fontWeight: '600',
   },
   funFacts: {
-    margin: 20,
-    padding: 16,
-    backgroundColor: '#FEF3C7',
-    borderRadius: 4,
+    marginHorizontal: 24,
+    marginBottom: 24,
+    padding: 20,
+    borderRadius: 16,
   },
   funFactTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#92400E',
-    marginBottom: 8,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 10,
   },
   funFactText: {
-    fontSize: 14,
-    color: '#78350F',
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  credit: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  creditText: {
+    fontSize: 13,
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 })

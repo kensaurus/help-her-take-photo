@@ -94,3 +94,39 @@ class ApiService {
 
 export const api = new ApiService(API_BASE_URL)
 
+/**
+ * Pairing API wrapper with better error handling
+ */
+export const pairingApi = {
+  async createPairing(deviceId: string): Promise<{ code?: string; error?: string }> {
+    try {
+      const result = await api.createPairingCode(deviceId)
+      return { code: result.code }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to create code' }
+    }
+  },
+
+  async joinPairing(deviceId: string, code: string): Promise<{ partnerId?: string; error?: string }> {
+    try {
+      const result = await api.joinWithCode(deviceId, code)
+      return { partnerId: result.paired ? result.partnerId : undefined }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Invalid code' }
+    }
+  },
+
+  async getPartner(deviceId: string, code: string): Promise<{ partnerId?: string; error?: string }> {
+    try {
+      const result = await api.checkPairingStatus(code)
+      if (result.paired) {
+        const partner = await api.getPartner(deviceId)
+        return { partnerId: partner.partnerId }
+      }
+      return {}
+    } catch {
+      return {}
+    }
+  },
+}
+

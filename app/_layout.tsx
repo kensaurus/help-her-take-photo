@@ -1,5 +1,5 @@
 /**
- * Root Layout - App navigation structure
+ * Root Layout - App navigation with theme support
  */
 
 import { useEffect } from 'react'
@@ -9,36 +9,40 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import * as SplashScreen from 'expo-splash-screen'
 import { useLanguageStore } from '../src/stores/languageStore'
+import { useThemeStore } from '../src/stores/themeStore'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
 
 export default function RootLayout() {
   const { t, loadLanguage } = useLanguageStore()
+  const { colors, mode, loadTheme } = useThemeStore()
 
   useEffect(() => {
-    loadLanguage()
-    // Hide splash screen after a brief delay
-    const timer = setTimeout(() => {
-      SplashScreen.hideAsync()
-    }, 500)
-    return () => clearTimeout(timer)
-  }, [loadLanguage])
+    const init = async () => {
+      await Promise.all([loadLanguage(), loadTheme()])
+      // Hide splash screen after a brief delay for smooth transition
+      setTimeout(() => {
+        SplashScreen.hideAsync()
+      }, 400)
+    }
+    init()
+  }, [loadLanguage, loadTheme])
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
+        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <Stack
           screenOptions={{
             headerShown: true,
             headerStyle: {
-              backgroundColor: '#FAFAFA',
+              backgroundColor: colors.background,
             },
-            headerTintColor: '#1a1a1a',
+            headerTintColor: colors.text,
             headerTitleStyle: {
               fontWeight: '600',
-              fontSize: 17,
+              fontSize: 18,
             },
             headerShadowVisible: false,
             headerBackTitleVisible: false,
@@ -46,7 +50,7 @@ export default function RootLayout() {
             gestureEnabled: true,
             gestureDirection: 'horizontal',
             contentStyle: {
-              backgroundColor: '#FAFAFA',
+              backgroundColor: colors.background,
             },
           }}
         >
@@ -76,7 +80,7 @@ export default function RootLayout() {
             options={{ 
               title: t.viewer.title,
               headerStyle: {
-                backgroundColor: '#FAFAFA',
+                backgroundColor: colors.background,
               },
             }} 
           />
