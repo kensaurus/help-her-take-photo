@@ -11,8 +11,10 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "apk"
-      }
+        "buildType": "apk",
+        "credentialsSource": "local"
+      },
+      "prebuildCommand": "chmod +x ./scripts/setup-credentials.sh && ./scripts/setup-credentials.sh"
     },
     "production": {
       "autoIncrement": true
