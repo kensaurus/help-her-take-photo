@@ -6,7 +6,7 @@
   },
   "build": {
     "base": {
-      "node": "20.18.0",
+      "node": "20.19.4",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://help-her-take-photo-api.vercel.app/api"
       }
@@ -42,7 +42,7 @@
       "extends": "base",
       "distribution": "internal",
       "channel": "staging",
-      "autoIncrement": "version",
+      "autoIncrement": true,
       "ios": {
         "simulator": false
       },
