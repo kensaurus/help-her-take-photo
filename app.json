@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -18,14 +18,17 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.helpher.takephoto",
+      "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs camera access so you can take photos for your partner",
         "NSPhotoLibraryUsageDescription": "This app needs photo library access to save and share photos",
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save photos to your library",
         "NSLocalNetworkUsageDescription": "This app uses local network to connect with your partner's device",
         "NSBonjourServices": [
-          "_helphertakephoto._tcp",
           "_helphertakephoto._tcp"
+        ],
+        "UIBackgroundModes": [
+          "fetch"
         ]
       }
     },
@@ -35,6 +38,7 @@
         "backgroundColor": "#FAFAFA"
       },
       "package": "com.helpher.takephoto",
+      "versionCode": 1,
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
@@ -47,35 +51,7 @@
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
         "CHANGE_WIFI_MULTICAST_STATE",
-        "VIBRATE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO",
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO",
-        "READ_MEDIA_AUDIO",
-        "READ_MEDIA_VISUAL_USER_SELECTED",
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "CHANGE_WIFI_MULTICAST_STATE",
-        "VIBRATE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "VIBRATE"
       ]
     },
     "web": {
@@ -95,7 +71,15 @@
           "photosPermission": "Allow Help Her Take Photo to access your photos",
           "savePhotosPermission": "Allow Help Her Take Photo to save photos"
         }
-      ]
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your camera for taking photos",
+          "enableMicrophonePermission": false
+        }
+      ],
+      "expo-router"
     ],
     "extra": {
       "eas": {
@@ -108,7 +92,9 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/8a43c382-0044-4ea0-a4f4-7eb45d70d42c"
+      "url": "https://u.expo.dev/8a43c382-0044-4ea0-a4f4-7eb45d70d42c",
+      "fallbackToCacheTimeout": 30000,
+      "checkAutomatically": "ON_LOAD"
     }
   }
 }
