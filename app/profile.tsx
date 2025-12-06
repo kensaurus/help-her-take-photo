@@ -1,6 +1,6 @@
 /**
  * Profile - Stats, ranking, and connection management
- * Clean minimal design
+ * Clean minimal design with micro-interactions
  */
 
 import { useState } from 'react'
@@ -22,45 +22,62 @@ import Animated, {
   FadeInUp,
   useAnimatedStyle, 
   useSharedValue, 
-  withSpring 
+  withSpring,
+  withTiming,
+  withSequence,
+  withRepeat,
+  interpolate,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
+import { Icon } from '../src/components/ui/Icon'
 
 function StatCard({ 
   value, 
-  label, 
+  label,
+  icon,
   index = 0,
+  onPress,
 }: { 
   value: number
   label: string
+  icon: 'star' | 'camera' | 'link'
   index?: number
+  onPress?: () => void
 }) {
   const { colors } = useThemeStore()
   const scale = useSharedValue(1)
+  const opacity = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: opacity.value,
   }))
 
   return (
     <Animated.View 
-      entering={FadeInUp.delay(index * 60).duration(300)}
-      style={[{ flex: 1 }, animatedStyle]}
+      entering={FadeInUp.delay(100 + index * 50).duration(300).springify()}
+      style={[styles.statCardWrapper, animatedStyle]}
     >
       <Pressable 
         style={[styles.statCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        onPress={onPress}
         onPressIn={() => {
-          scale.value = withSpring(0.97, { damping: 15 })
+          scale.value = withSpring(0.96, { damping: 15, stiffness: 400 })
+          opacity.value = withTiming(0.9, { duration: 50 })
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
         }}
         onPressOut={() => {
-          scale.value = withSpring(1, { damping: 15 })
+          scale.value = withSpring(1, { damping: 15, stiffness: 300 })
+          opacity.value = withTiming(1, { duration: 100 })
         }}
       >
+        <View style={[styles.statIconContainer, { backgroundColor: colors.surfaceAlt }]}>
+          <Icon name={icon} size={14} color={colors.textSecondary} />
+        </View>
         <Text style={[styles.statValue, { color: colors.text }]}>{value}</Text>
         <Text style={[styles.statLabel, { color: colors.textMuted }]}>{label}</Text>
       </Pressable>
@@ -142,28 +159,31 @@ export default function ProfileScreen() {
       >
         {/* Rank Banner */}
         <Animated.View 
-          entering={FadeIn.duration(400)} 
+          entering={FadeIn.duration(350)} 
           style={[styles.rankBanner, { backgroundColor: colors.primary }]}
         >
-          <Text style={[styles.rankTitle, { color: colors.primaryText }]}>
-            {rankText}
-          </Text>
-          <Text style={[styles.rankDesc, { color: `${colors.primaryText}99` }]}>
+          <View style={styles.rankHeader}>
+            <Icon name="star" size={20} color={colors.primaryText} />
+            <Text style={[styles.rankTitle, { color: colors.primaryText }]}>
+              {rankText}
+            </Text>
+          </View>
+          <Text style={[styles.rankDesc, { color: `${colors.primaryText}90` }]}>
             {rankDescription}
           </Text>
           
           {nextRank && (
             <View style={styles.progressContainer}>
-              <View style={[styles.progressBar, { backgroundColor: `${colors.primaryText}30` }]}>
-                <View 
+              <View style={[styles.progressBar, { backgroundColor: `${colors.primaryText}25` }]}>
+                <Animated.View 
                   style={[
                     styles.progressFill, 
                     { width: `${progress * 100}%`, backgroundColor: colors.accent }
                   ]} 
                 />
               </View>
-              <Text style={[styles.progressText, { color: `${colors.primaryText}80` }]}>
-                {stats.scoldingsSaved}/{nextThreshold} to next rank
+              <Text style={[styles.progressText, { color: `${colors.primaryText}70` }]}>
+                {stats.scoldingsSaved} / {nextThreshold}
               </Text>
             </View>
           )}
@@ -174,23 +194,27 @@ export default function ProfileScreen() {
           <StatCard 
             value={stats.scoldingsSaved} 
             label={t.profile.scoldingsSaved}
+            icon="star"
             index={0}
           />
           <StatCard 
             value={stats.photosTaken} 
             label={t.profile.photosTaken}
+            icon="camera"
             index={1}
+            onPress={() => router.push('/gallery')}
           />
           <StatCard 
             value={stats.sessionsCompleted} 
             label={t.profile.sessions}
+            icon="link"
             index={2}
           />
         </View>
 
         {/* Profile Info */}
         <Animated.View 
-          entering={FadeInUp.delay(150).duration(300)} 
+          entering={FadeInUp.delay(200).duration(300)} 
           style={styles.section}
         >
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PROFILE</Text>
@@ -200,7 +224,7 @@ export default function ProfileScreen() {
                 {t.profile.displayName}
               </Text>
               <TextInput
-                style={[styles.textInput, { color: colors.text, backgroundColor: colors.surfaceAlt }]}
+                style={[styles.textInput, { color: colors.text, backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
                 value={displayName}
                 onChangeText={setDisplayName}
                 placeholder="Your name"
@@ -208,14 +232,14 @@ export default function ProfileScreen() {
               />
             </View>
             
-            <View style={[styles.divider, { backgroundColor: colors.border }]} />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
             
             <View style={styles.cardRow}>
               <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
                 {t.profile.deviceId}
               </Text>
               <Text style={[styles.cardValue, { color: colors.text }]}>
-                {myDeviceId?.slice(0, 8) || '...'}
+                {myDeviceId?.slice(0, 8) || '—'}
               </Text>
             </View>
           </View>
@@ -223,7 +247,7 @@ export default function ProfileScreen() {
 
         {/* Connection Status */}
         <Animated.View 
-          entering={FadeInUp.delay(200).duration(300)} 
+          entering={FadeInUp.delay(250).duration(300)} 
           style={styles.section}
         >
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CONNECTION</Text>
@@ -236,7 +260,7 @@ export default function ProfileScreen() {
                 <View style={styles.statusRow}>
                   <View style={[
                     styles.statusDot,
-                    { backgroundColor: isPaired ? colors.success : colors.error }
+                    { backgroundColor: isPaired ? colors.success : colors.textMuted }
                   ]} />
                   <Text style={[styles.statusText, { color: colors.text }]}>
                     {isPaired ? t.profile.connected : t.profile.notConnected}
@@ -246,13 +270,7 @@ export default function ProfileScreen() {
               
               {isPaired ? (
                 <Pressable 
-                  style={[
-                    styles.actionButton, 
-                    { 
-                      backgroundColor: mode === 'dark' ? colors.surfaceAlt : 'transparent',
-                      borderColor: colors.error,
-                    }
-                  ]} 
+                  style={[styles.actionButton, styles.actionButtonDanger, { borderColor: colors.error }]} 
                   onPress={handleDisconnect}
                 >
                   <Text style={[styles.actionButtonText, { color: colors.error }]}>
@@ -274,13 +292,16 @@ export default function ProfileScreen() {
         </Animated.View>
 
         {/* Credit */}
-        <View style={styles.credit}>
+        <Animated.View 
+          entering={FadeIn.delay(400).duration(300)}
+          style={styles.credit}
+        >
           <Pressable onPress={() => Linking.openURL('https://kensaur.us')}>
             <Text style={[styles.creditText, { color: colors.textMuted }]}>
-              © 2025 kensaur.us
+              kensaur.us / 2025
             </Text>
           </Pressable>
-        </View>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   )
@@ -298,54 +319,71 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 20,
     borderRadius: 8,
+  },
+  rankHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
+    marginBottom: 4,
   },
   rankTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
-    marginBottom: 4,
+    letterSpacing: -0.3,
   },
   rankDesc: {
     fontSize: 14,
+    marginLeft: 30,
   },
   progressContainer: {
-    width: '100%',
     marginTop: 16,
   },
   progressBar: {
-    height: 6,
-    borderRadius: 3,
+    height: 4,
+    borderRadius: 2,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    borderRadius: 3,
+    borderRadius: 2,
   },
   progressText: {
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 8,
-    textAlign: 'center',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   statsRow: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    gap: 10,
+    gap: 8,
     marginBottom: 24,
+  },
+  statCardWrapper: {
+    flex: 1,
   },
   statCard: {
     borderWidth: 1,
     borderRadius: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    minHeight: 80,
+  },
+  statIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: 9,
     marginTop: 4,
     textAlign: 'center',
     fontWeight: '600',
@@ -354,7 +392,7 @@ const styles = StyleSheet.create({
   },
   section: {
     paddingHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 11,
@@ -389,6 +427,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 6,
+    borderWidth: 1,
   },
   divider: {
     height: 1,
@@ -398,8 +437,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 16,
+    gap: 12,
   },
   connectionInfo: {
     flex: 1,
@@ -419,24 +459,27 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   actionButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderWidth: 1.5,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 6,
-    borderColor: 'transparent',
-    minWidth: 100,
     alignItems: 'center',
   },
+  actionButtonDanger: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
   actionButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
   credit: {
     alignItems: 'center',
     paddingVertical: 16,
   },
   creditText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
 })

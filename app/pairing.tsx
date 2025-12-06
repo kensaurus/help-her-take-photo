@@ -36,6 +36,7 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi } from '../src/services/api'
+import { Icon } from '../src/components/ui/Icon'
 
 const CODE_LENGTH = 4
 

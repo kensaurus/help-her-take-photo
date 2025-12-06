@@ -79,7 +79,8 @@
           "enableMicrophonePermission": false
         }
       ],
-      "expo-router"
+      "expo-router",
+      "expo-audio"
     ],
     "extra": {
       "eas": {

@@ -1,5 +1,5 @@
 /**
- * Settings - Clean, minimal design
+ * Settings - Clean, minimal design with icons
  */
 
 import { useState } from 'react'
@@ -21,7 +21,8 @@ import Animated, {
   FadeInUp,
   useAnimatedStyle, 
   useSharedValue, 
-  withSpring 
+  withSpring,
+  withTiming, 
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { useSettingsStore } from '../src/stores/settingsStore'
@@ -30,6 +31,7 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
 import { getBuildInfo } from '../src/config/build'
+import { Icon } from '../src/components/ui/Icon'
 
 function SettingRow({ 
   label, 
@@ -44,23 +46,27 @@ function SettingRow({
   onToggle: () => void
   index?: number
 }) {
-  const { colors } = useThemeStore()
+  const { colors, mode } = useThemeStore()
   const scale = useSharedValue(1)
+  const opacity = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: opacity.value,
   }))
 
   return (
-    <Animated.View entering={FadeInUp.delay(index * 40).duration(250)}>
+    <Animated.View entering={FadeInUp.delay(index * 30).duration(200)}>
       <Pressable 
         style={styles.settingRow} 
         onPress={onToggle}
         onPressIn={() => {
-          scale.value = withSpring(0.99, { damping: 15 })
+          scale.value = withSpring(0.99, { damping: 15, stiffness: 400 })
+          opacity.value = withTiming(0.8, { duration: 50 })
         }}
         onPressOut={() => {
           scale.value = withSpring(1, { damping: 15 })
+          opacity.value = withTiming(1, { duration: 100 })
         }}
       >
         <Animated.View style={[styles.settingRowInner, animatedStyle]}>
@@ -75,9 +81,12 @@ function SettingRow({
           <Switch
             value={value}
             onValueChange={onToggle}
-            trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-            thumbColor={colors.switchThumb}
-            ios_backgroundColor={colors.switchTrackOff}
+            trackColor={{ 
+              false: mode === 'dark' ? '#4A4A4A' : '#D1D5DB', 
+              true: colors.success 
+            }}
+            thumbColor={value ? '#FFFFFF' : (mode === 'dark' ? '#9CA3AF' : '#FFFFFF')}
+            ios_backgroundColor={mode === 'dark' ? '#4A4A4A' : '#D1D5DB'}
           />
         </Animated.View>
       </Pressable>
@@ -127,7 +136,7 @@ function LanguageOption({
           {name}
         </Text>
         {selected && (
-          <Text style={[styles.checkmark, { color: colors.primaryText }]}>✓</Text>
+          <Icon name="check" size={16} color={colors.primaryText} />
         )}
       </Animated.View>
     </Pressable>
@@ -172,18 +181,29 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         {/* Appearance */}
-        <Animated.View entering={FadeIn.delay(50).duration(250)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(50).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             APPEARANCE
           </Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.settingRow}>
+            <Pressable 
+              style={styles.settingRow}
+              onPress={() => {
+                toggleMode()
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              }}
+            >
               <View style={styles.settingRowInner}>
-                <View style={styles.settingInfo}>
-                  <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
-                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
-                    {mode === 'dark' ? 'On' : 'Off'}
-                  </Text>
+                <View style={styles.settingRowLeft}>
+                  <View style={[styles.iconContainer, { backgroundColor: colors.surfaceAlt }]}>
+                    <Icon name={mode === 'dark' ? 'moon' : 'sun'} size={16} color={colors.text} />
+                  </View>
+                  <View style={styles.settingInfo}>
+                    <Text style={[styles.settingLabel, { color: colors.text }]}>Dark Mode</Text>
+                    <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                      {mode === 'dark' ? 'On' : 'Off'}
+                    </Text>
+                  </View>
                 </View>
                 <Switch
                   value={mode === 'dark'}
@@ -191,17 +211,20 @@ export default function SettingsScreen() {
                     toggleMode()
                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
                   }}
-                  trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-                  thumbColor={colors.switchThumb}
-                  ios_backgroundColor={colors.switchTrackOff}
+                  trackColor={{ 
+                    false: mode === 'dark' ? '#4A4A4A' : '#D1D5DB', 
+                    true: colors.success 
+                  }}
+                  thumbColor={mode === 'dark' ? '#FFFFFF' : (mode === 'dark' ? '#9CA3AF' : '#FFFFFF')}
+                  ios_backgroundColor={mode === 'dark' ? '#4A4A4A' : '#D1D5DB'}
                 />
               </View>
-            </View>
+            </Pressable>
           </View>
         </Animated.View>
 
         {/* Camera Settings */}
-        <Animated.View entering={FadeIn.delay(80).duration(250)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(80).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.camera.toUpperCase()}
           </Text>
@@ -239,15 +262,15 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Language */}
-        <Animated.View entering={FadeIn.delay(110).duration(250)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(110).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.language.toUpperCase()}
           </Text>
           <Pressable 
-            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+            style={[styles.card, styles.linkCard, { backgroundColor: colors.surface, borderColor: colors.border }]} 
             onPress={() => setShowLanguageModal(true)}
           >
-            <View style={styles.languageRow}>
+            <View style={styles.linkCardContent}>
               <Text style={[styles.settingLabel, { color: colors.text }]}>
                 {t.settings.selectLanguage}
               </Text>
@@ -255,14 +278,14 @@ export default function SettingsScreen() {
                 <Text style={[styles.languageValueText, { color: colors.textSecondary }]}>
                   {languageNames[language]}
                 </Text>
-                <Text style={[styles.chevron, { color: colors.textMuted }]}>→</Text>
+                <Icon name="chevron-right" size={14} color={colors.textMuted} />
               </View>
             </View>
           </Pressable>
         </Animated.View>
 
         {/* Connection */}
-        <Animated.View entering={FadeIn.delay(140).duration(250)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(140).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.connection.toUpperCase()}
           </Text>
@@ -307,25 +330,30 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Feedback */}
-        <Animated.View entering={FadeIn.delay(170).duration(250)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(170).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             FEEDBACK
           </Text>
           <Pressable 
-            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]} 
+            style={[styles.card, styles.linkCard, { backgroundColor: colors.surface, borderColor: colors.border }]} 
             onPress={() => router.push('/feedback')}
           >
-            <View style={styles.languageRow}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>
-                Send Feedback
-              </Text>
-              <Text style={[styles.chevron, { color: colors.textMuted }]}>→</Text>
+            <View style={styles.linkCardContent}>
+              <View style={styles.linkCardLeft}>
+                <View style={[styles.iconContainer, { backgroundColor: colors.surfaceAlt }]}>
+                  <Icon name="send" size={14} color={colors.text} />
+                </View>
+                <Text style={[styles.settingLabel, { color: colors.text }]}>
+                  Send Feedback
+                </Text>
+              </View>
+              <Icon name="chevron-right" size={14} color={colors.textMuted} />
             </View>
           </Pressable>
         </Animated.View>
 
         {/* About */}
-        <Animated.View entering={FadeIn.delay(200).duration(250)} style={styles.footer}>
+        <Animated.View entering={FadeIn.delay(200).duration(200)} style={styles.footer}>
           <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
           <Pressable onPress={() => router.push('/changelog')}>
             <Text style={[styles.version, { color: colors.accent }]}>
@@ -341,7 +369,7 @@ export default function SettingsScreen() {
             onPress={() => Linking.openURL('https://kensaur.us')}
           >
             <Text style={[styles.creditText, { color: colors.textMuted }]}>
-              © 2025 kensaur.us
+              kensaur.us / 2025
             </Text>
           </Pressable>
         </Animated.View>
@@ -410,6 +438,20 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
   },
+  linkCard: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  linkCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  linkCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   settingRow: {
     minHeight: 56,
   },
@@ -419,6 +461,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 16,
+  },
+  settingRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  iconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   settingInfo: {
     flex: 1,
@@ -436,14 +491,6 @@ const styles = StyleSheet.create({
     height: 1,
     marginHorizontal: 16,
   },
-  languageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    minHeight: 56,
-  },
   languageValue: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -451,9 +498,6 @@ const styles = StyleSheet.create({
   },
   languageValueText: {
     fontSize: 15,
-  },
-  chevron: {
-    fontSize: 16,
   },
   infoRow: {
     flexDirection: 'row',
@@ -518,8 +562,9 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   creditText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
   // Modal styles
   modalContainer: {
@@ -561,9 +606,5 @@ const styles = StyleSheet.create({
   languageText: {
     fontSize: 16,
     fontWeight: '500',
-  },
-  checkmark: {
-    fontSize: 16,
-    fontWeight: '600',
   },
 })

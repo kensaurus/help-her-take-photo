@@ -1,5 +1,6 @@
 /**
  * Gallery - Enhanced with share, zoom, and theme support
+ * Minimal icons, no emojis
  */
 
 import { useState, useCallback } from 'react'
@@ -23,6 +24,7 @@ import Animated, {
   useAnimatedStyle, 
   useSharedValue, 
   withSpring,
+  withTiming,
   runOnJS,
 } from 'react-native-reanimated'
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -31,13 +33,13 @@ import * as MediaLibrary from 'expo-media-library'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
+import { Icon } from '../src/components/ui/Icon'
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const COLUMN_COUNT = 3
 const GAP = 3
 const PHOTO_SIZE = (SCREEN_WIDTH - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
 
-// Mock photos for demo
 interface Photo {
   id: string
   uri: string
@@ -46,34 +48,47 @@ interface Photo {
 }
 
 function ActionButton({ 
-  label, 
+  label,
+  icon, 
   onPress, 
   danger = false 
 }: { 
   label: string
+  icon: 'share' | 'image' | 'trash'
   onPress: () => void
   danger?: boolean
 }) {
   const scale = useSharedValue(1)
+  const opacity = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: opacity.value,
   }))
 
   return (
     <Pressable
       onPress={onPress}
       onPressIn={() => { 
-        scale.value = withSpring(0.95, { damping: 15 })
+        scale.value = withSpring(0.94, { damping: 15, stiffness: 400 })
+        opacity.value = withTiming(0.8, { duration: 50 })
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       }}
-      onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
+      onPressOut={() => { 
+        scale.value = withSpring(1, { damping: 15 }) 
+        opacity.value = withTiming(1, { duration: 100 })
+      }}
     >
       <Animated.View style={[
         styles.actionButton, 
         danger && styles.actionButtonDanger, 
         animatedStyle
       ]}>
+        <Icon 
+          name={icon} 
+          size={18} 
+          color={danger ? '#FCA5A5' : '#FFFFFF'} 
+        />
         <Text style={[styles.actionButtonText, danger && styles.actionButtonTextDanger]}>
           {label}
         </Text>
@@ -163,7 +178,7 @@ function PhotoViewer({
             onPress={onClose}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
           >
-            <Text style={styles.closeButtonText}>✕</Text>
+            <Icon name="close" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
 
@@ -179,13 +194,13 @@ function PhotoViewer({
 
         <View style={styles.viewerFooter}>
           <Text style={styles.photoInfo}>
-            {photo.byMe ? t.gallery.byYou : t.gallery.byPartner} • {photo.timestamp.toLocaleDateString()}
+            {photo.byMe ? t.gallery.byYou : t.gallery.byPartner} · {photo.timestamp.toLocaleDateString()}
           </Text>
           
           <View style={styles.viewerActions}>
-            <ActionButton label={t.gallery.share} onPress={onShare} />
-            <ActionButton label={t.gallery.download} onPress={onDownload} />
-            <ActionButton label={t.gallery.delete} onPress={onDelete} danger />
+            <ActionButton label={t.gallery.share} icon="share" onPress={onShare} />
+            <ActionButton label={t.gallery.download} icon="image" onPress={onDownload} />
+            <ActionButton label={t.gallery.delete} icon="trash" onPress={onDelete} danger />
           </View>
         </View>
       </GestureHandlerRootView>
@@ -204,20 +219,24 @@ function FilterTab({
 }) {
   const { colors } = useThemeStore()
   const scale = useSharedValue(1)
+  const opacity = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: opacity.value,
   }))
 
   return (
     <Pressable
       onPress={onPress}
       onPressIn={() => {
-        scale.value = withSpring(0.95, { damping: 15 })
+        scale.value = withSpring(0.96, { damping: 15, stiffness: 400 })
+        opacity.value = withTiming(0.8, { duration: 50 })
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       }}
       onPressOut={() => {
         scale.value = withSpring(1, { damping: 15 })
+        opacity.value = withTiming(1, { duration: 100 })
       }}
     >
       <Animated.View style={[
@@ -244,10 +263,7 @@ export default function GalleryScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [filter, setFilter] = useState<'all' | 'byMe' | 'byPartner'>('all')
 
-  // Demo photos (would come from real storage)
-  const [photos, setPhotos] = useState<Photo[]>([
-    // Add demo photos here when real photos are captured
-  ])
+  const [photos, setPhotos] = useState<Photo[]>([])
 
   const filteredPhotos = photos.filter(p => {
     if (filter === 'all') return true
@@ -258,7 +274,7 @@ export default function GalleryScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 800))
+    await new Promise(r => setTimeout(r, 600))
     setRefreshing(false)
   }
 
@@ -310,7 +326,7 @@ export default function GalleryScreen() {
   }
 
   const renderPhoto = useCallback(({ item, index }: { item: Photo; index: number }) => (
-    <Animated.View entering={FadeInUp.delay(index * 30).duration(300)}>
+    <Animated.View entering={FadeInUp.delay(index * 25).duration(250)}>
       <Pressable 
         style={[styles.photoItem, { backgroundColor: colors.surfaceAlt }]} 
         onPress={() => {
@@ -320,13 +336,13 @@ export default function GalleryScreen() {
       >
         <Image source={{ uri: item.uri }} style={styles.thumbnail} />
         {!item.byMe && (
-          <View style={styles.partnerBadge}>
-            <Text style={styles.partnerBadgeText}>👸</Text>
+          <View style={[styles.partnerBadge, { backgroundColor: colors.primary }]}>
+            <Icon name="user" size={10} color={colors.primaryText} />
           </View>
         )}
       </Pressable>
     </Animated.View>
-  ), [colors.surfaceAlt])
+  ), [colors])
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
@@ -352,19 +368,33 @@ export default function GalleryScreen() {
       {/* Stats banner */}
       {stats.photosTaken > 0 && (
         <Animated.View 
-          entering={FadeIn.duration(400)} 
+          entering={FadeIn.duration(350)} 
           style={[styles.statsBanner, { backgroundColor: colors.surfaceAlt }]}
         >
-          <Text style={[styles.statsText, { color: colors.accent }]}>
-            📸 {stats.photosTaken} {t.gallery.photos} • 🛡️ {stats.scoldingsSaved} {t.profile.scoldingsSaved}
-          </Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Icon name="camera" size={14} color={colors.accent} />
+              <Text style={[styles.statsText, { color: colors.accent }]}>
+                {stats.photosTaken} {t.gallery.photos}
+              </Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Icon name="star" size={14} color={colors.accent} />
+              <Text style={[styles.statsText, { color: colors.accent }]}>
+                {stats.scoldingsSaved} saved
+              </Text>
+            </View>
+          </View>
         </Animated.View>
       )}
 
       {filteredPhotos.length === 0 ? (
         <View style={styles.emptyState}>
-          <Animated.View entering={FadeIn.duration(500)}>
-            <Text style={styles.emptyIcon}>📷</Text>
+          <Animated.View entering={FadeIn.duration(400)} style={styles.emptyContent}>
+            <View style={[styles.emptyIconContainer, { backgroundColor: colors.surfaceAlt }]}>
+              <Icon name="image" size={40} color={colors.textMuted} />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>
               {t.gallery.noPhotos}
             </Text>
@@ -375,8 +405,8 @@ export default function GalleryScreen() {
               {filter === 'all' 
                 ? "Start a session and the magic happens"
                 : filter === 'byMe'
-                ? "You haven't taken any yet (typical 😏)"
-                : "She's waiting for you to get it right"}
+                ? "You haven't taken any yet"
+                : "Waiting for partner's photos"}
             </Text>
           </Animated.View>
         </View>
@@ -419,29 +449,44 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 10,
+    paddingVertical: 14,
+    gap: 8,
     borderBottomWidth: 1,
   },
   filterTab: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 6,
     alignItems: 'center',
   },
   filterText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   statsBanner: {
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 20,
   },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: 'rgba(128,128,128,0.3)',
+  },
   statsText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    textAlign: 'center',
   },
   grid: {
     padding: GAP,
@@ -450,7 +495,7 @@ const styles = StyleSheet.create({
     width: PHOTO_SIZE,
     height: PHOTO_SIZE,
     margin: GAP / 2,
-    borderRadius: 8,
+    borderRadius: 6,
     overflow: 'hidden',
   },
   thumbnail: {
@@ -461,15 +506,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     right: 6,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
+    borderRadius: 4,
+    width: 20,
+    height: 20,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  partnerBadgeText: {
-    fontSize: 12,
   },
   emptyState: {
     flex: 1,
@@ -477,28 +518,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 48,
   },
-  emptyIcon: {
-    fontSize: 64,
+  emptyContent: {
+    alignItems: 'center',
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 20,
-    textAlign: 'center',
   },
   emptyTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: 'center',
   },
   emptyDesc: {
-    fontSize: 16,
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
+    marginBottom: 16,
+    lineHeight: 22,
   },
   emptyHint: {
-    fontSize: 14,
-    fontStyle: 'italic',
+    fontSize: 13,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 19,
   },
   // Viewer styles
   viewerContainer: {
@@ -511,21 +557,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    paddingTop: 60,
-    paddingHorizontal: 24,
+    paddingTop: 56,
+    paddingHorizontal: 20,
   },
   closeButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 20,
-    color: '#fff',
-    fontWeight: '600',
   },
   imageContainer: {
     flex: 1,
@@ -541,36 +582,37 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingBottom: 48,
-    paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingBottom: 44,
+    paddingHorizontal: 20,
+    paddingTop: 20,
     backgroundColor: 'rgba(0,0,0,0.85)',
   },
   photoInfo: {
-    fontSize: 15,
-    color: 'rgba(255,255,255,0.7)',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   viewerActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 14,
+    gap: 10,
   },
   actionButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 16,
-    paddingHorizontal: 28,
-    borderRadius: 12,
-    minWidth: 100,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   actionButtonDanger: {
-    backgroundColor: 'rgba(239,68,68,0.3)',
+    backgroundColor: 'rgba(239,68,68,0.25)',
   },
   actionButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#fff',
   },
   actionButtonTextDanger: {
