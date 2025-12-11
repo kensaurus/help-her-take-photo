@@ -17,6 +17,7 @@ A mobile app that helps couples take better photos by allowing one person to rem
 - 🌙 **Dark Mode** - Easy on the eyes
 - 🎮 **Gamification** - Track your "scoldings saved"
 - 📝 **Feedback** - Submit suggestions directly from the app
+- 🎯 **Onboarding** - First-time user experience with 4-slide walkthrough
 
 ## 🚀 Quick Start
 
@@ -46,7 +47,7 @@ npx expo start
 1. **Expo Go** (quickest): Scan QR code with Expo Go app
 2. **Android Emulator**: Press `a` in terminal
 3. **iOS Simulator** (macOS only): Press `i` in terminal
-4. **Development Build**: `npx expo run:android` or `npx expo run:ios`
+4. **Development Build**: See [Development Builds](#-development-builds) below
 
 ## 🏗 Tech Stack
 
@@ -57,27 +58,53 @@ npx expo start
 | State | Zustand |
 | Animations | Reanimated 4 |
 | Camera | expo-camera, vision-camera |
-| Storage | AsyncStorage |
+| Storage | AsyncStorage, expo-secure-store |
+| Lists | @shopify/flash-list |
+| Images | expo-image |
+| Haptics | expo-haptics |
 | Backend | Fastify + Prisma + Supabase |
 
 ## 📁 Project Structure
 
 ```
-├── app/                 # Expo Router screens
-│   ├── _layout.tsx     # Root navigation
-│   ├── index.tsx       # Home screen
-│   ├── pairing.tsx     # Device pairing
-│   ├── camera.tsx      # Camera view
-│   ├── viewer.tsx      # Remote viewer
-│   └── ...
+├── app/                    # Expo Router screens
+│   ├── _layout.tsx        # Root navigation & store initialization
+│   ├── index.tsx          # Home screen (role selection)
+│   ├── onboarding.tsx     # First-time user flow
+│   ├── pairing.tsx        # Device pairing (4-digit code)
+│   ├── camera.tsx         # Camera view (photographer)
+│   ├── viewer.tsx         # Remote viewer (director)
+│   ├── gallery.tsx        # Photo gallery with FlashList
+│   ├── profile.tsx        # User stats & achievements
+│   ├── settings.tsx       # App settings
+│   ├── feedback.tsx       # Submit feedback
+│   └── changelog.tsx      # Version history
 ├── src/
-│   ├── components/     # Reusable UI components
-│   ├── stores/         # Zustand state stores
-│   ├── services/       # API client
-│   ├── i18n/          # Translations
-│   └── config/        # Build info
-├── assets/            # Images, icons
-└── scripts/           # Build scripts
+│   ├── components/        # Reusable UI components
+│   │   ├── ui/           # Base UI (Icon, Skeleton, PressableScale)
+│   │   └── *.tsx         # Feature components
+│   ├── stores/           # Zustand state stores
+│   │   ├── connectionStore.ts  # WebSocket connection state
+│   │   ├── pairingStore.ts     # Device pairing state
+│   │   ├── languageStore.ts    # i18n translations
+│   │   ├── themeStore.ts       # Dark/Light mode
+│   │   ├── statsStore.ts       # User statistics
+│   │   ├── settingsStore.ts    # App preferences
+│   │   └── onboardingStore.ts  # First-run state
+│   ├── services/         # Business logic
+│   │   ├── api.ts        # REST API client
+│   │   ├── streaming.ts  # WebSocket streaming
+│   │   ├── p2p.ts        # Peer-to-peer connection
+│   │   ├── notifications.ts  # Push notifications
+│   │   ├── security.ts   # Secure storage & biometrics
+│   │   ├── logging.ts    # Console logging
+│   │   └── sound.ts      # Audio feedback
+│   ├── hooks/            # Custom React hooks
+│   ├── i18n/             # Translations (EN, TH, ZH, JA)
+│   ├── types/            # TypeScript definitions
+│   └── config/           # Build configuration
+├── assets/               # Images, icons, sounds
+└── scripts/              # Build & utility scripts
 ```
 
 ## 🔧 Development
@@ -93,16 +120,53 @@ npm run lint        # Run ESLint
 npm run typecheck   # TypeScript check
 ```
 
+### Development Builds
+
+Development builds include native modules (camera, haptics, etc.) that Expo Go doesn't support:
+
+```bash
+# Build development client for Android
+eas build --profile development --platform android
+
+# Install on emulator
+eas build:run --profile development --platform android --latest
+
+# Start dev server for development client
+npx expo start --dev-client
+```
+
+## 🚢 Build & Deployment Pipeline
+
+### CI/CD Workflows
+
+| Workflow | Trigger | Action |
+|----------|---------|--------|
+| **EAS Build** | Push to `main` | Builds preview APK/IPA |
+| **EAS Update** | Push to `main` | OTA update to preview channel |
+| **PR Preview** | Pull Request | Creates preview deployment |
+
+### Build Profiles
+
+| Profile | Use Case | Distribution | API |
+|---------|----------|--------------|-----|
+| `development` | Local testing with dev client | Internal APK | localhost:3000 |
+| `preview` | Internal QA testing | Internal APK | Production |
+| `staging` | Pre-production validation | Internal APK | Staging |
+| `production` | App Store / Play Store | Store Bundle | Production |
+
 ### Build Commands
 
 ```bash
-# Development build (with dev client)
+# Development (with hot reload)
 eas build --profile development --platform android
 
-# Preview build (internal testing)
+# Preview (internal testing)
 eas build --profile preview --platform all
 
-# Production build (store submission)
+# Staging (pre-production)
+eas build --profile staging --platform all
+
+# Production (store submission)
 eas build --profile production --platform all
 ```
 
@@ -111,6 +175,9 @@ eas build --profile production --platform all
 ```bash
 # Push update to preview channel
 eas update --branch preview --message "Your message"
+
+# Push update to production
+eas update --branch production --message "Your message"
 ```
 
 ## 🔐 Environment Variables
@@ -121,16 +188,44 @@ Create `.env` in project root:
 EXPO_PUBLIC_API_URL=http://localhost:3000/api
 ```
 
-For production, env vars are configured in `eas.json`.
+Environment variables per profile (configured in `eas.json`):
 
-## 📱 Build Profiles
+| Profile | API URL |
+|---------|---------|
+| development | `http://localhost:3000/api` |
+| preview | `https://help-her-take-photo-api.vercel.app/api` |
+| staging | `https://help-her-take-photo-api-staging.vercel.app/api` |
+| production | `https://help-her-take-photo-api.vercel.app/api` |
 
-| Profile | Distribution | API URL |
-|---------|--------------|---------|
-| `development` | Internal | localhost:3000 |
-| `preview` | Internal | Production API |
-| `staging` | Internal | Staging API |
-| `production` | Store | Production API |
+## 📱 State Management
+
+Zustand stores are initialized in `app/_layout.tsx` after native modules are ready:
+
+| Store | Purpose |
+|-------|---------|
+| `pairingStore` | Device pairing state & code |
+| `connectionStore` | WebSocket connection & role |
+| `themeStore` | Dark/light mode preference |
+| `languageStore` | i18n translation loading |
+| `statsStore` | User statistics (photos, scoldings saved) |
+| `settingsStore` | App preferences |
+| `onboardingStore` | First-run completion flag |
+
+## 🎨 UI Components
+
+### Base Components (`src/components/ui/`)
+
+| Component | Description |
+|-----------|-------------|
+| `Icon` | Custom vector icons using View shapes |
+| `Skeleton` | Loading placeholder with shimmer |
+| `PressableScale` | Pressable with scale animation & haptics |
+| `AnimatedButton` | Button with spring animation |
+| `FadeView` | View with fade-in animation |
+
+### Icon Names
+
+Available icons: `camera`, `eye`, `image`, `user`, `settings`, `check`, `close`, `arrow-right`, `arrow-left`, `chevron-right`, `chevron-left`, `chevron-down`, `sun`, `moon`, `link`, `unlink`, `send`, `star`, `heart`, `flash`, `grid`, `share`, `trash`, `refresh`, `plus`, `minus`, `dot`, `loading`
 
 ## 🤝 Contributing
 

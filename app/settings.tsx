@@ -68,6 +68,9 @@ function SettingRow({
           scale.value = withSpring(1, { damping: 15 })
           opacity.value = withTiming(1, { duration: 100 })
         }}
+        accessibilityLabel={`${label}${description ? `. ${description}` : ''}`}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: value }}
       >
         <Animated.View style={[styles.settingRowInner, animatedStyle]}>
           <View style={styles.settingInfo}>
@@ -87,6 +90,7 @@ function SettingRow({
             }}
             thumbColor={value ? '#FFFFFF' : (mode === 'dark' ? '#9CA3AF' : '#FFFFFF')}
             ios_backgroundColor={mode === 'dark' ? '#4A4A4A' : '#D1D5DB'}
+            accessibilityLabel={label}
           />
         </Animated.View>
       </Pressable>
@@ -120,6 +124,9 @@ function LanguageOption({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       }}
       onPressOut={() => { scale.value = withSpring(1, { damping: 15 }) }}
+      accessibilityLabel={`${name}${selected ? ', selected' : ''}`}
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
     >
       <Animated.View style={[
         styles.languageOption, 
@@ -261,8 +268,32 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
-        {/* Language */}
+        {/* Accessibility */}
         <Animated.View entering={FadeIn.delay(110).duration(200)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            ACCESSIBILITY
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <SettingRow
+              label="Reduce Motion"
+              description="Minimize animations throughout the app"
+              value={settings.reduceMotion}
+              onToggle={() => toggleSetting('reduceMotion')}
+              index={0}
+            />
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            <SettingRow
+              label="Reduce Haptics"
+              description="Turn off vibration feedback"
+              value={settings.reduceHaptics}
+              onToggle={() => toggleSetting('reduceHaptics')}
+              index={1}
+            />
+          </View>
+        </Animated.View>
+
+        {/* Language */}
+        <Animated.View entering={FadeIn.delay(140).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.language.toUpperCase()}
           </Text>
@@ -285,7 +316,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Connection */}
-        <Animated.View entering={FadeIn.delay(140).duration(200)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(170).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.connection.toUpperCase()}
           </Text>
@@ -330,7 +361,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* Feedback */}
-        <Animated.View entering={FadeIn.delay(170).duration(200)} style={styles.section}>
+        <Animated.View entering={FadeIn.delay(200).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             FEEDBACK
           </Text>
@@ -353,7 +384,7 @@ export default function SettingsScreen() {
         </Animated.View>
 
         {/* About */}
-        <Animated.View entering={FadeIn.delay(200).duration(200)} style={styles.footer}>
+        <Animated.View entering={FadeIn.delay(230).duration(200)} style={styles.footer}>
           <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
           <Pressable onPress={() => router.push('/changelog')}>
             <Text style={[styles.version, { color: colors.accent }]}>

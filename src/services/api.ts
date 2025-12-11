@@ -128,6 +128,15 @@ export const pairingApi = {
       return {}
     }
   },
+
+  async unpair(deviceId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      await api.unpair(deviceId)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to unpair' }
+    }
+  },
 }
 
 /**

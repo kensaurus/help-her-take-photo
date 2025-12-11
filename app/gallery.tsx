@@ -1,9 +1,9 @@
 /**
- * Gallery - Enhanced with share, zoom, and theme support
- * Minimal icons, no emojis
+ * Gallery - Enhanced with share, zoom, skeleton loaders, and theme support
+ * Full accessibility support and responsive design
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { 
   View, 
   Text, 
@@ -14,6 +14,7 @@ import {
   Share,
   Alert,
   RefreshControl,
+  useWindowDimensions,
 } from 'react-native'
 import { FlashList } from '@shopify/flash-list'
 import { Image } from 'expo-image'
@@ -25,6 +26,9 @@ import Animated, {
   useSharedValue, 
   withSpring,
   withTiming,
+  withRepeat,
+  interpolate,
+  Easing,
   runOnJS,
 } from 'react-native-reanimated'
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler'
@@ -35,10 +39,8 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const COLUMN_COUNT = 3
 const GAP = 3
-const PHOTO_SIZE = (SCREEN_WIDTH - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
 
 interface Photo {
   id: string
@@ -47,16 +49,69 @@ interface Photo {
   timestamp: Date
 }
 
+/**
+ * Skeleton loader for photo grid items
+ */
+function PhotoSkeleton({ size }: { size: number }) {
+  const { colors, mode } = useThemeStore()
+  const shimmer = useSharedValue(0)
+
+  useEffect(() => {
+    shimmer.value = withRepeat(
+      withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+      -1,
+      false
+    )
+  }, [shimmer])
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(shimmer.value, [0, 0.5, 1], [0.3, 0.6, 0.3]),
+  }))
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: size,
+          height: size,
+          margin: GAP / 2,
+          borderRadius: 6,
+          backgroundColor: mode === 'dark' ? colors.surfaceAlt : colors.border,
+        },
+        animatedStyle,
+      ]}
+    />
+  )
+}
+
+/**
+ * Skeleton grid for loading state
+ */
+function PhotoGridSkeleton({ count = 9 }: { count?: number }) {
+  const { width } = useWindowDimensions()
+  const photoSize = (width - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
+
+  return (
+    <View style={[styles.grid, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+      {Array.from({ length: count }).map((_, index) => (
+        <PhotoSkeleton key={index} size={photoSize} />
+      ))}
+    </View>
+  )
+}
+
 function ActionButton({ 
   label,
   icon, 
   onPress, 
-  danger = false 
+  danger = false,
+  accessibilityHint,
 }: { 
   label: string
   icon: 'share' | 'image' | 'trash'
   onPress: () => void
   danger?: boolean
+  accessibilityHint?: string
 }) {
   const scale = useSharedValue(1)
   const opacity = useSharedValue(1)
@@ -78,6 +133,9 @@ function ActionButton({
         scale.value = withSpring(1, { damping: 15 }) 
         opacity.value = withTiming(1, { duration: 100 })
       }}
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      accessibilityRole="button"
     >
       <Animated.View style={[
         styles.actionButton, 
@@ -177,6 +235,8 @@ function PhotoViewer({
             style={styles.closeButton} 
             onPress={onClose}
             hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Close photo viewer"
+            accessibilityRole="button"
           >
             <Icon name="close" size={20} color="#FFFFFF" />
           </Pressable>
@@ -193,14 +253,33 @@ function PhotoViewer({
         </GestureDetector>
 
         <View style={styles.viewerFooter}>
-          <Text style={styles.photoInfo}>
+          <Text 
+            style={styles.photoInfo}
+            accessibilityLabel={`Photo taken ${photo.byMe ? 'by you' : 'by partner'} on ${photo.timestamp.toLocaleDateString()}`}
+          >
             {photo.byMe ? t.gallery.byYou : t.gallery.byPartner} · {photo.timestamp.toLocaleDateString()}
           </Text>
           
-          <View style={styles.viewerActions}>
-            <ActionButton label={t.gallery.share} icon="share" onPress={onShare} />
-            <ActionButton label={t.gallery.download} icon="image" onPress={onDownload} />
-            <ActionButton label={t.gallery.delete} icon="trash" onPress={onDelete} danger />
+          <View style={styles.viewerActions} accessibilityRole="toolbar">
+            <ActionButton 
+              label={t.gallery.share} 
+              icon="share" 
+              onPress={onShare}
+              accessibilityHint="Share this photo with others"
+            />
+            <ActionButton 
+              label={t.gallery.download} 
+              icon="image" 
+              onPress={onDownload}
+              accessibilityHint="Save this photo to your device gallery"
+            />
+            <ActionButton 
+              label={t.gallery.delete} 
+              icon="trash" 
+              onPress={onDelete} 
+              danger
+              accessibilityHint="Delete this photo permanently"
+            />
           </View>
         </View>
       </GestureHandlerRootView>
@@ -238,6 +317,9 @@ function FilterTab({
         scale.value = withSpring(1, { damping: 15 })
         opacity.value = withTiming(1, { duration: 100 })
       }}
+      accessibilityLabel={`Filter: ${label}`}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
     >
       <Animated.View style={[
         styles.filterTab, 
@@ -259,11 +341,24 @@ export default function GalleryScreen() {
   const { colors } = useThemeStore()
   const { t } = useLanguageStore()
   const { stats } = useStatsStore()
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'byMe' | 'byPartner'>('all')
 
   const [photos, setPhotos] = useState<Photo[]>([])
+  
+  // Calculate responsive photo size
+  const photoSize = (screenWidth - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
+
+  // Simulate initial load
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false)
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [])
 
   const filteredPhotos = photos.filter(p => {
     if (filter === 'all') return true
@@ -328,21 +423,41 @@ export default function GalleryScreen() {
   const renderPhoto = useCallback(({ item, index }: { item: Photo; index: number }) => (
     <Animated.View entering={FadeInUp.delay(index * 25).duration(250)}>
       <Pressable 
-        style={[styles.photoItem, { backgroundColor: colors.surfaceAlt }]} 
+        style={[
+          styles.photoItem, 
+          { 
+            backgroundColor: colors.surfaceAlt,
+            width: photoSize,
+            height: photoSize,
+          }
+        ]} 
         onPress={() => {
           setSelectedPhoto(item)
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
         }}
+        accessibilityLabel={`Photo ${index + 1}${item.byMe ? ', taken by you' : ', taken by partner'}`}
+        accessibilityHint="Double tap to view full size"
+        accessibilityRole="image"
       >
-        <Image source={item.uri} style={styles.thumbnail} contentFit="cover" />
+        <Image 
+          source={item.uri} 
+          style={styles.thumbnail} 
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          placeholder={colors.surfaceAlt}
+          transition={200}
+        />
         {!item.byMe && (
-          <View style={[styles.partnerBadge, { backgroundColor: colors.primary }]}>
+          <View 
+            style={[styles.partnerBadge, { backgroundColor: colors.primary }]}
+            accessibilityElementsHidden
+          >
             <Icon name="user" size={10} color={colors.primaryText} />
           </View>
         )}
       </Pressable>
     </Animated.View>
-  ), [colors])
+  ), [colors, photoSize])
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
@@ -389,13 +504,21 @@ export default function GalleryScreen() {
         </Animated.View>
       )}
 
-      {filteredPhotos.length === 0 ? (
+      {isLoading ? (
+        <PhotoGridSkeleton count={12} />
+      ) : filteredPhotos.length === 0 ? (
         <View style={styles.emptyState}>
           <Animated.View entering={FadeIn.duration(400)} style={styles.emptyContent}>
-            <View style={[styles.emptyIconContainer, { backgroundColor: colors.surfaceAlt }]}>
+            <View 
+              style={[styles.emptyIconContainer, { backgroundColor: colors.surfaceAlt }]}
+              accessibilityElementsHidden
+            >
               <Icon name="image" size={40} color={colors.textMuted} />
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>
+            <Text 
+              style={[styles.emptyTitle, { color: colors.text }]}
+              accessibilityRole="header"
+            >
               {t.gallery.noPhotos}
             </Text>
             <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>
@@ -418,14 +541,17 @@ export default function GalleryScreen() {
           renderItem={renderPhoto}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
-          estimatedItemSize={PHOTO_SIZE}
+          estimatedItemSize={photoSize}
+          drawDistance={photoSize * 2}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor={colors.textMuted}
+              colors={[colors.primary]}
             />
           }
+          accessibilityLabel={`Photo gallery with ${filteredPhotos.length} photos`}
         />
       )}
 
@@ -493,8 +619,6 @@ const styles = StyleSheet.create({
     padding: GAP,
   },
   photoItem: {
-    width: PHOTO_SIZE,
-    height: PHOTO_SIZE,
     margin: GAP / 2,
     borderRadius: 6,
     overflow: 'hidden',
@@ -575,8 +699,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fullImage: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.7,
+    width: '100%',
+    height: '70%',
   },
   viewerFooter: {
     position: 'absolute',

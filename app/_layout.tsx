@@ -1,37 +1,53 @@
 /**
  * Root Layout - App navigation with theme support
- * Initializes Sentry, notifications, and other services
+ * Handles onboarding flow and initializes services
  */
 
-import { useEffect } from 'react'
-import { Stack } from 'expo-router'
+import { useEffect, useState } from 'react'
+import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import * as SplashScreen from 'expo-splash-screen'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useThemeStore } from '../src/stores/themeStore'
-import { initSentry, logger } from '../src/services/logging'
+import { useOnboardingStore } from '../src/stores/onboardingStore'
+import { useSettingsStore } from '../src/stores/settingsStore'
+import { useStatsStore } from '../src/stores/statsStore'
+import { usePairingStore } from '../src/stores/pairingStore'
+import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
 
-// Initialize Sentry (add your DSN in production)
-// initSentry('YOUR_SENTRY_DSN')
-
 export default function RootLayout() {
+  const router = useRouter()
+  const segments = useSegments()
   const { t, loadLanguage } = useLanguageStore()
   const { colors, mode, loadTheme } = useThemeStore()
+  const { hasSeenOnboarding, loadOnboardingState } = useOnboardingStore()
+  const { loadSettings } = useSettingsStore()
+  const { loadStats } = useStatsStore()
+  const { loadFromStorage: loadPairing } = usePairingStore()
+  const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
     const init = async () => {
       logger.info('App starting...')
       
-      // Load user preferences
-      await Promise.all([loadLanguage(), loadTheme()])
+      // Load all stores in parallel - these use AsyncStorage
+      // which requires native modules to be ready
+      await Promise.all([
+        loadLanguage(), 
+        loadTheme(),
+        loadOnboardingState(),
+        loadSettings(),
+        loadStats(),
+        loadPairing(),
+      ])
       
-      // Register for push notifications
+      // Register for push notifications (non-blocking)
       notificationService.registerForPushNotifications()
         .then((token) => {
           if (token) {
@@ -42,6 +58,8 @@ export default function RootLayout() {
           logger.warn('Push notification registration failed', { error })
         })
 
+      setIsReady(true)
+
       // Hide splash screen after a brief delay for smooth transition
       setTimeout(() => {
         SplashScreen.hideAsync()
@@ -49,7 +67,22 @@ export default function RootLayout() {
       }, 400)
     }
     init()
-  }, [loadLanguage, loadTheme])
+  }, [loadLanguage, loadTheme, loadOnboardingState, loadSettings, loadStats, loadPairing])
+
+  // Handle onboarding navigation
+  useEffect(() => {
+    if (!isReady) return
+
+    const inOnboarding = segments[0] === 'onboarding'
+    
+    if (!hasSeenOnboarding && !inOnboarding) {
+      // User hasn't seen onboarding, redirect them
+      router.replace('/onboarding')
+    } else if (hasSeenOnboarding && inOnboarding) {
+      // User has seen onboarding but somehow on that page, go home
+      router.replace('/')
+    }
+  }, [isReady, hasSeenOnboarding, segments, router])
 
   // Track navigation
   useEffect(() => {
@@ -81,6 +114,14 @@ export default function RootLayout() {
             },
           }}
         >
+          <Stack.Screen 
+            name="onboarding" 
+            options={{ 
+              headerShown: false,
+              animation: 'fade',
+              gestureEnabled: false,
+            }} 
+          />
           <Stack.Screen 
             name="index" 
             options={{ 

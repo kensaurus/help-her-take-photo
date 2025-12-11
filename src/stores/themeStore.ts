@@ -105,8 +105,6 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
 }))
 
-// Initialize on import
-;(async () => {
-  await useThemeStore.getState().loadTheme()
-})()
+// Note: Do NOT auto-initialize here - it must happen after native modules are ready
+// Initialize in app/_layout.tsx instead
 

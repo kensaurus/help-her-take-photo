@@ -25,9 +25,13 @@ import Animated, {
   withRepeat,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
+import { pairingApi } from '../src/services/api'
+
+const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -133,7 +137,7 @@ function SentIndicator({ message }: { message: string }) {
 
 export default function ViewerScreen() {
   const router = useRouter()
-  const { isPaired } = usePairingStore()
+  const { isPaired, myDeviceId, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats } = useStatsStore()
   
@@ -149,6 +153,27 @@ export default function ViewerScreen() {
       setTimeout(() => setIsConnected(true), 1500)
     }
   }, [isPaired])
+
+  // Quick Connect: Auto-disconnect when leaving viewer
+  useEffect(() => {
+    return () => {
+      // Cleanup function runs when component unmounts
+      (async () => {
+        try {
+          const quickConnectMode = await AsyncStorage.getItem(QUICK_CONNECT_KEY)
+          if (quickConnectMode === 'true' && myDeviceId) {
+            // Auto-disconnect for quick connect mode
+            await pairingApi.unpair(myDeviceId)
+            clearPairing()
+            await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
+            console.log('[Quick Connect] Auto-disconnected')
+          }
+        } catch (error) {
+          console.error('[Quick Connect] Error during cleanup:', error)
+        }
+      })()
+    }
+  }, [myDeviceId, clearPairing])
 
   const sendDirection = (direction: keyof typeof t.viewer.directions) => {
     setLastCommand(t.viewer.directions[direction])

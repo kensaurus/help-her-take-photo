@@ -66,17 +66,5 @@ export const usePairingStore = create<PairingState>((set, get) => ({
   },
 }))
 
-// Initialize store on import
-;(async () => {
-  await usePairingStore.getState().loadFromStorage()
-  
-  // Generate device ID if not exists
-  if (!usePairingStore.getState().myDeviceId) {
-    const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0
-      const v = c === 'x' ? r : (r & 0x3) | 0x8
-      return v.toString(16)
-    })
-    usePairingStore.getState().setMyDeviceId(uuid)
-  }
-})()
+// Note: Do NOT auto-initialize here - it must happen after native modules are ready
+// Initialize in app/_layout.tsx instead

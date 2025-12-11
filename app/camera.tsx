@@ -1,5 +1,6 @@
 /**
  * Camera - The photographer's view (with encouragement!)
+ * Full accessibility support and permission handling
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -11,12 +12,15 @@ import {
   Alert,
   Share,
   Dimensions,
+  Linking,
+  useWindowDimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
   FadeIn,
   FadeOut,
+  FadeInUp,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring,
@@ -25,12 +29,17 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import * as MediaLibrary from 'expo-media-library'
+import { Camera } from 'expo-camera'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useSettingsStore } from '../src/stores/settingsStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
+import { useThemeStore } from '../src/stores/themeStore'
+import { Icon } from '../src/components/ui/Icon'
+import { pairingApi } from '../src/services/api'
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
+const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
 // Grid overlay component
 function GridOverlay() {
@@ -86,7 +95,12 @@ function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing:
   }))
 
   return (
-    <Pressable onPress={handlePress}>
+    <Pressable 
+      onPress={handlePress}
+      accessibilityLabel="Take photo"
+      accessibilityHint="Captures a photo"
+      accessibilityRole="button"
+    >
       <Animated.View style={[styles.captureOuter, outerStyle]}>
         <Animated.View style={[
           styles.captureInner,
@@ -102,11 +116,13 @@ function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing:
 function ActionButton({ 
   label, 
   onPress, 
-  active = false 
+  active = false,
+  accessibilityHint,
 }: { 
   label: string
   onPress: () => void
   active?: boolean
+  accessibilityHint?: string
 }) {
   const scale = useSharedValue(1)
   
@@ -122,6 +138,10 @@ function ActionButton({
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
         onPress()
       }}
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
     >
       <Animated.View style={[styles.actionBtn, active && styles.actionBtnActive, animatedStyle]}>
         <Text style={[styles.actionBtnText, active && styles.actionBtnTextActive]}>{label}</Text>
@@ -130,24 +150,130 @@ function ActionButton({
   )
 }
 
+/**
+ * Permission denied view with action button
+ */
+function PermissionDenied({ 
+  onRequestPermission,
+  colors,
+}: { 
+  onRequestPermission: () => void
+  colors: any 
+}) {
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <Animated.View 
+        entering={FadeIn.duration(400)}
+        style={styles.permissionContainer}
+      >
+        <View style={[styles.permissionIcon, { backgroundColor: colors.surfaceAlt }]}>
+          <Icon name="camera" size={48} color={colors.textMuted} />
+        </View>
+        
+        <Text style={[styles.permissionTitle, { color: colors.text }]}>
+          Camera Access Required
+        </Text>
+        
+        <Text style={[styles.permissionDesc, { color: colors.textSecondary }]}>
+          We need camera access to take photos. Your photos are never uploaded without your permission.
+        </Text>
+        
+        <Pressable
+          style={[styles.permissionButton, { backgroundColor: colors.primary }]}
+          onPress={onRequestPermission}
+          accessibilityLabel="Grant camera permission"
+          accessibilityRole="button"
+        >
+          <Text style={[styles.permissionButtonText, { color: colors.primaryText }]}>
+            Enable Camera
+          </Text>
+        </Pressable>
+        
+        <Pressable
+          style={styles.settingsLink}
+          onPress={() => Linking.openSettings()}
+          accessibilityLabel="Open device settings"
+          accessibilityHint="Opens system settings to manage app permissions"
+        >
+          <Text style={[styles.settingsLinkText, { color: colors.accent }]}>
+            Open Settings
+          </Text>
+        </Pressable>
+      </Animated.View>
+    </SafeAreaView>
+  )
+}
+
 export default function CameraScreen() {
   const router = useRouter()
-  const { isPaired } = usePairingStore()
+  const { colors } = useThemeStore()
+  const { isPaired, myDeviceId, clearPairing } = usePairingStore()
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
   const { incrementPhotos, stats } = useStatsStore()
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   
   const [isSharing, setIsSharing] = useState(false)
   const [photoCount, setPhotoCount] = useState(0)
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null)
   
   const encouragements = t.camera.encouragements
 
-  // Camera permission (would be real in actual app)
+  // Request camera permission on mount
   useEffect(() => {
-    // Request camera permissions
+    (async () => {
+      const { status } = await Camera.requestCameraPermissionsAsync()
+      setHasPermission(status === 'granted')
+    })()
   }, [])
+
+  // Quick Connect: Auto-disconnect when leaving camera
+  useEffect(() => {
+    return () => {
+      // Cleanup function runs when component unmounts
+      (async () => {
+        try {
+          const quickConnectMode = await AsyncStorage.getItem(QUICK_CONNECT_KEY)
+          if (quickConnectMode === 'true' && myDeviceId) {
+            // Auto-disconnect for quick connect mode
+            await pairingApi.unpair(myDeviceId)
+            clearPairing()
+            await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
+            console.log('[Quick Connect] Auto-disconnected')
+          }
+        } catch (error) {
+          console.error('[Quick Connect] Error during cleanup:', error)
+        }
+      })()
+    }
+  }, [myDeviceId, clearPairing])
+
+  const handleRequestPermission = async () => {
+    const { status } = await Camera.requestCameraPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert(
+        'Permission Required',
+        'Please enable camera access in your device settings to use this feature.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Open Settings', onPress: () => Linking.openSettings() },
+        ]
+      )
+    }
+    setHasPermission(status === 'granted')
+  }
+
+  // Show permission denied view
+  if (hasPermission === false) {
+    return (
+      <PermissionDenied 
+        onRequestPermission={handleRequestPermission}
+        colors={colors}
+      />
+    )
+  }
 
   // Show random encouragement after taking photo
   const showRandomEncouragement = useCallback(() => {
@@ -220,11 +346,13 @@ export default function CameraScreen() {
             label={isSharing ? t.camera.stop : t.camera.share}
             onPress={toggleSharing}
             active={isSharing}
+            accessibilityHint={isSharing ? 'Stop sharing camera view' : 'Start sharing camera view with partner'}
           />
           
           <ActionButton
             label={t.camera.options}
             onPress={() => router.push('/settings')}
+            accessibilityHint="Open camera settings"
           />
         </View>
 
@@ -234,10 +362,16 @@ export default function CameraScreen() {
         </View>
 
         {/* Bottom row - quick actions */}
-        <View style={styles.bottomControls}>
+        <View style={styles.bottomControls} accessibilityRole="toolbar">
           <Pressable 
             style={styles.quickAction}
-            onPress={() => updateSettings({ showGrid: !settings.showGrid })}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              updateSettings({ showGrid: !settings.showGrid })
+            }}
+            accessibilityLabel={`Grid overlay ${settings.showGrid ? 'on' : 'off'}`}
+            accessibilityHint="Toggle camera grid overlay"
+            accessibilityRole="button"
           >
             <Text style={styles.quickActionText}>⊞</Text>
             <Text style={styles.quickActionLabel}>Grid</Text>
@@ -245,7 +379,13 @@ export default function CameraScreen() {
           
           <Pressable 
             style={styles.quickAction}
-            onPress={() => router.push('/gallery')}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              router.push('/gallery')
+            }}
+            accessibilityLabel="Gallery"
+            accessibilityHint="View your photo gallery"
+            accessibilityRole="button"
           >
             <Text style={styles.quickActionText}>◫</Text>
             <Text style={styles.quickActionLabel}>Gallery</Text>
@@ -254,6 +394,9 @@ export default function CameraScreen() {
           <Pressable 
             style={styles.quickAction}
             onPress={handleShare}
+            accessibilityLabel="Share"
+            accessibilityHint="Share your progress with friends"
+            accessibilityRole="button"
           >
             <Text style={styles.quickActionText}>↗</Text>
             <Text style={styles.quickActionLabel}>Share</Text>
@@ -264,7 +407,13 @@ export default function CameraScreen() {
         {!isPaired && (
           <Pressable 
             style={styles.connectPrompt}
-            onPress={() => router.push('/pairing')}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              router.push('/pairing')
+            }}
+            accessibilityLabel={t.camera.connectPrompt}
+            accessibilityHint="Open pairing screen to connect with your partner"
+            accessibilityRole="button"
           >
             <Text style={styles.connectPromptText}>{t.camera.connectPrompt}</Text>
           </Pressable>
@@ -278,6 +427,50 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  // Permission denied styles
+  permissionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  permissionIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  permissionTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  permissionDesc: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  permissionButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  permissionButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  settingsLink: {
+    paddingVertical: 12,
+  },
+  settingsLinkText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
   cameraPreview: {
     flex: 1,

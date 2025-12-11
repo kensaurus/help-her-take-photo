@@ -1,9 +1,10 @@
 /**
  * Pairing - Connect with your partner
  * 4-digit code for easier entry
+ * Responsive design for all screen sizes
  */
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
   View, 
   Text, 
@@ -14,6 +15,7 @@ import {
   ScrollView,
   RefreshControl,
   Keyboard,
+  useWindowDimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -37,8 +39,23 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const CODE_LENGTH = 4
+
+// Quick connect mode - auto-disconnect after session
+const QUICK_CONNECT_KEY = 'quick_connect_mode'
+
+/**
+ * Generate device ID if needed
+ */
+function generateDeviceId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 
 /**
  * Animated action button with press feedback
@@ -49,14 +66,19 @@ function ActionButton({
   onPress,
   active = false,
   index = 0,
+  loading = false,
+  accessibilityHint,
 }: { 
   label: string
   subtitle: string
   onPress: () => void
   active?: boolean
   index?: number
+  loading?: boolean
+  accessibilityHint?: string
 }) {
   const { colors } = useThemeStore()
+  const { width } = useWindowDimensions()
   const scale = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
@@ -71,6 +93,11 @@ function ActionButton({
   const handlePressOut = () => {
     scale.value = withSpring(1, { damping: 15, stiffness: 300 })
   }
+
+  // Responsive font sizes
+  const isSmallScreen = width < 360
+  const labelSize = isSmallScreen ? 15 : 17
+  const subtitleSize = isSmallScreen ? 12 : 14
   
   return (
     <Animated.View entering={FadeInUp.delay(index * 80).duration(300)}>
@@ -79,27 +106,53 @@ function ActionButton({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={styles.actionButtonPressable}
+        disabled={loading}
+        accessibilityLabel={`${label}. ${subtitle}`}
+        accessibilityHint={accessibilityHint}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: loading }}
       >
         <Animated.View style={[
           styles.actionButton, 
           { 
             backgroundColor: active ? colors.primary : colors.surface,
             borderColor: active ? colors.primary : colors.border,
+            opacity: loading ? 0.7 : 1,
           },
           animatedStyle
         ]}>
-          <Text style={[
-            styles.actionButtonLabel, 
-            { color: active ? colors.primaryText : colors.text }
-          ]}>
-            {label}
-          </Text>
-          <Text style={[
-            styles.actionButtonSubtitle, 
-            { color: active ? `${colors.primaryText}99` : colors.textMuted }
-          ]}>
-            {subtitle}
-          </Text>
+          {loading ? (
+            <ActivityIndicator size="small" color={colors.text} />
+          ) : (
+            <>
+              <Text 
+                style={[
+                  styles.actionButtonLabel, 
+                  { 
+                    color: active ? colors.primaryText : colors.text,
+                    fontSize: labelSize,
+                  }
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {label}
+              </Text>
+              <Text 
+                style={[
+                  styles.actionButtonSubtitle, 
+                  { 
+                    color: active ? `${colors.primaryText}99` : colors.textMuted,
+                    fontSize: subtitleSize,
+                  }
+                ]}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+              >
+                {subtitle}
+              </Text>
+            </>
+          )}
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -108,20 +161,43 @@ function ActionButton({
 
 /**
  * Code display with staggered animation - 4 digits
+ * Responsive sizing based on screen width
  */
 function CodeDisplay({ code }: { code: string }) {
   const { colors } = useThemeStore()
+  const { width } = useWindowDimensions()
   const displayCode = code.split('')
   
+  // Responsive sizing - use percentage of screen width
+  const maxCharWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
+  const charWidth = Math.max(48, maxCharWidth)
+  const charHeight = charWidth * 1.25
+  const fontSize = charWidth * 0.55
+  
   return (
-    <View style={styles.codeDisplay}>
+    <View style={[styles.codeDisplay, { gap: Math.min(12, (width - 80 - charWidth * CODE_LENGTH) / (CODE_LENGTH - 1)) }]}>
       {displayCode.map((char, i) => (
         <Animated.View 
           key={i} 
           entering={FadeInUp.delay(i * 60).duration(300).springify()} 
-          style={[styles.codeChar, { backgroundColor: colors.primary }]}
+          style={[
+            styles.codeChar, 
+            { 
+              backgroundColor: colors.primary,
+              width: charWidth,
+              height: charHeight,
+            }
+          ]}
         >
-          <Text style={[styles.codeCharText, { color: colors.primaryText }]}>
+          <Text 
+            style={[
+              styles.codeCharText, 
+              { 
+                color: colors.primaryText,
+                fontSize,
+              }
+            ]}
+          >
             {char}
           </Text>
         </Animated.View>
@@ -132,6 +208,7 @@ function CodeDisplay({ code }: { code: string }) {
 
 /**
  * Code input with cursor effect - 4 digits
+ * Responsive sizing based on screen width
  */
 function CodeInput({ 
   value, 
@@ -143,9 +220,16 @@ function CodeInput({
   onSubmit: () => void
 }) {
   const { colors } = useThemeStore()
+  const { width } = useWindowDimensions()
   const inputRef = useRef<TextInput>(null)
   const chars = value.padEnd(CODE_LENGTH, ' ').split('')
   const cursorOpacity = useSharedValue(1)
+
+  // Responsive sizing
+  const maxCharWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
+  const charWidth = Math.max(48, maxCharWidth)
+  const charHeight = charWidth * 1.25
+  const fontSize = charWidth * 0.55
 
   useEffect(() => {
     cursorOpacity.value = withRepeat(
@@ -165,8 +249,13 @@ function CodeInput({
     <Pressable 
       style={styles.codeInputContainer} 
       onPress={() => inputRef.current?.focus()}
+      accessibilityLabel={`Enter ${CODE_LENGTH}-digit pairing code. ${value.length} of ${CODE_LENGTH} digits entered`}
+      accessibilityHint="Tap to enter pairing code"
     >
-      <View style={styles.codeDisplay}>
+      <View 
+        style={[styles.codeDisplay, { gap: Math.min(12, (width - 80 - charWidth * CODE_LENGTH) / (CODE_LENGTH - 1)) }]}
+        accessibilityElementsHidden
+      >
         {chars.map((char, i) => (
           <Animated.View 
             key={i}
@@ -176,18 +265,31 @@ function CodeInput({
               { 
                 backgroundColor: colors.surface,
                 borderColor: i < value.length ? colors.primary : colors.border,
+                width: charWidth,
+                height: charHeight,
               },
               i < value.length && { backgroundColor: colors.surfaceAlt },
             ]}
           >
-            <Text style={[styles.codeInputCharText, { color: colors.text }]}>
+            <Text 
+              style={[
+                styles.codeInputCharText, 
+                { 
+                  color: colors.text,
+                  fontSize,
+                }
+              ]}
+            >
               {char.trim() || ''}
             </Text>
             {i === value.length && (
               <Animated.View 
                 style={[
                   styles.cursor, 
-                  { backgroundColor: colors.primary },
+                  { 
+                    backgroundColor: colors.primary,
+                    width: charWidth * 0.4,
+                  },
                   cursorStyle
                 ]} 
               />
@@ -211,6 +313,7 @@ function CodeInput({
         maxLength={CODE_LENGTH}
         keyboardType="number-pad"
         autoFocus
+        accessibilityLabel="Pairing code input"
       />
     </Pressable>
   )
@@ -231,7 +334,11 @@ function SubmitButton({
   disabled: boolean
 }) {
   const { colors } = useThemeStore()
+  const { width } = useWindowDimensions()
   const scale = useSharedValue(1)
+  
+  const isSmallScreen = width < 360
+  const buttonWidth = Math.min(200, width - 80)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -244,6 +351,7 @@ function SubmitButton({
         { 
           backgroundColor: disabled ? colors.textMuted : colors.primary,
           opacity: disabled ? 0.5 : 1,
+          minWidth: buttonWidth,
         },
       ]}
       onPress={onPress}
@@ -257,12 +365,24 @@ function SubmitButton({
         scale.value = withSpring(1, { damping: 15 })
       }}
       disabled={loading || disabled}
+      accessibilityLabel={label}
+      accessibilityHint="Connect with your partner"
+      accessibilityRole="button"
+      accessibilityState={{ disabled: loading || disabled }}
     >
       <Animated.View style={animatedStyle}>
         {loading ? (
           <ActivityIndicator size="small" color={colors.primaryText} />
         ) : (
-          <Text style={[styles.submitButtonText, { color: colors.primaryText }]}>
+          <Text 
+            style={[
+              styles.submitButtonText, 
+              { 
+                color: colors.primaryText,
+                fontSize: isSmallScreen ? 14 : 16,
+              }
+            ]}
+          >
             {label}
           </Text>
         )}
@@ -274,8 +394,10 @@ function SubmitButton({
 export default function PairingScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
+  const { width } = useWindowDimensions()
   const { 
     myDeviceId, 
+    setMyDeviceId,
     setPairedDeviceId, 
     setRole: setPairingRole 
   } = usePairingStore()
@@ -290,6 +412,25 @@ export default function PairingScreen() {
   const [error, setError] = useState('')
   const [expiresIn, setExpiresIn] = useState(300)
   const [refreshing, setRefreshing] = useState(false)
+  const [deviceReady, setDeviceReady] = useState(false)
+  const [quickConnect, setQuickConnect] = useState(false)
+
+  // Responsive sizing
+  const isSmallScreen = width < 360
+  const padding = isSmallScreen ? 16 : 20
+  const titleSize = isSmallScreen ? 24 : 28
+
+  // Ensure device ID exists
+  useEffect(() => {
+    const initDeviceId = async () => {
+      if (!myDeviceId) {
+        const newId = generateDeviceId()
+        await setMyDeviceId(newId)
+      }
+      setDeviceReady(true)
+    }
+    initDeviceId()
+  }, [myDeviceId, setMyDeviceId])
 
   // Pulse animation for waiting state
   const pulse = useSharedValue(1)
@@ -310,12 +451,26 @@ export default function PairingScreen() {
     transform: [{ scale: pulse.value }],
   }))
 
+  // Get current device ID (either stored or newly generated)
+  const getDeviceId = useCallback(async (): Promise<string> => {
+    if (myDeviceId) return myDeviceId
+    const newId = generateDeviceId()
+    await setMyDeviceId(newId)
+    return newId
+  }, [myDeviceId, setMyDeviceId])
+
   // Generate pairing code
   const generateCode = async () => {
+    const deviceId = await getDeviceId()
+    
     setLoading(true)
     setError('')
+    
     try {
-      const result = await pairingApi.createPairing(myDeviceId!)
+      console.log('Creating pairing code with deviceId:', deviceId)
+      const result = await pairingApi.createPairing(deviceId)
+      console.log('Pairing result:', result)
+      
       if (result.code) {
         setCode(result.code)
         setMode('showCode')
@@ -325,7 +480,8 @@ export default function PairingScreen() {
         setError(result.error || 'Failed to generate code')
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
-    } catch {
+    } catch (err) {
+      console.error('Pairing error:', err)
       setError('Server unavailable. Please try again.')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     }
@@ -340,15 +496,23 @@ export default function PairingScreen() {
       return
     }
     
+    const deviceId = await getDeviceId()
+    
     setLoading(true)
     setError('')
     Keyboard.dismiss()
     
     try {
-      const result = await pairingApi.joinPairing(myDeviceId!, inputCode)
+      console.log('Joining with code:', inputCode, 'deviceId:', deviceId)
+      const result = await pairingApi.joinPairing(deviceId, inputCode)
+      console.log('Join result:', result)
+      
       if (result.partnerId) {
-        setPairedDeviceId(result.partnerId)
-        setPairingRole(role || 'camera')
+        // Save quick connect mode for auto-disconnect
+        await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
+        // Await state persistence before navigation to prevent race condition
+        await setPairedDeviceId(result.partnerId)
+        await setPairingRole(role || 'camera')
         incrementSessions()
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
         router.replace(role === 'viewer' ? '/viewer' : '/camera')
@@ -356,7 +520,8 @@ export default function PairingScreen() {
         setError(result.error || 'Invalid or expired code')
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
-    } catch {
+    } catch (err) {
+      console.error('Join error:', err)
       setError('Server unavailable. Check your connection.')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     }
@@ -365,15 +530,18 @@ export default function PairingScreen() {
 
   // Check for partner joining
   useEffect(() => {
-    if (mode !== 'showCode' || !code) return
+    if (mode !== 'showCode' || !code || !myDeviceId) return
     
     const interval = setInterval(async () => {
       try {
-        const result = await pairingApi.getPartner(myDeviceId!, code)
+        const result = await pairingApi.getPartner(myDeviceId, code)
         if (result.partnerId) {
           clearInterval(interval)
-          setPairedDeviceId(result.partnerId)
-          setPairingRole(role || 'camera')
+          // Save quick connect mode for auto-disconnect
+          await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
+          // Await state persistence before navigation to prevent race condition
+          await setPairedDeviceId(result.partnerId)
+          await setPairingRole(role || 'camera')
           incrementSessions()
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
           router.replace(role === 'viewer' ? '/viewer' : '/camera')
@@ -382,7 +550,7 @@ export default function PairingScreen() {
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [mode, code, myDeviceId, role, setPairedDeviceId, setPairingRole, incrementSessions, router])
+  }, [mode, code, myDeviceId, role, setPairedDeviceId, setPairingRole, incrementSessions, router, quickConnect])
 
   // Countdown
   useEffect(() => {
@@ -440,10 +608,21 @@ export default function PairingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
 
+  // Show loading while device ID initializes
+  if (!deviceReady) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+        <View style={styles.loadingCenter}>
+          <ActivityIndicator size="large" color={colors.text} />
+        </View>
+      </SafeAreaView>
+    )
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: padding }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -456,10 +635,17 @@ export default function PairingScreen() {
       >
         {/* Header */}
         <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>
+          <Text 
+            style={[styles.title, { color: colors.text, fontSize: titleSize }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
             {t.pairing.title}
           </Text>
-          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+          <Text 
+            style={[styles.subtitle, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 15 }]}
+            numberOfLines={2}
+          >
             {role === 'viewer' 
               ? "Connect to guide the photographer"
               : "Connect to get real-time guidance"}
@@ -468,16 +654,67 @@ export default function PairingScreen() {
 
         {mode === 'select' && (
           <View style={styles.modeSelect}>
+            {/* Quick Connect Toggle */}
+            <Animated.View 
+              entering={FadeInUp.duration(300)}
+              style={[styles.quickConnectCard, { 
+                backgroundColor: quickConnect ? `${colors.primary}15` : colors.surface,
+                borderColor: quickConnect ? colors.primary : colors.border,
+              }]}
+            >
+              <Pressable
+                style={styles.quickConnectPressable}
+                onPress={() => {
+                  setQuickConnect(!quickConnect)
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                }}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: quickConnect }}
+                accessibilityLabel="Quick Connect mode"
+                accessibilityHint="When enabled, connection will automatically end when you exit the camera or viewer"
+              >
+                <View style={styles.quickConnectContent}>
+                  <View style={[styles.quickConnectIcon, { backgroundColor: quickConnect ? colors.primary : colors.surfaceAlt }]}>
+                    <Icon name="flash" size={18} color={quickConnect ? colors.primaryText : colors.textMuted} />
+                  </View>
+                  <View style={styles.quickConnectText}>
+                    <Text style={[styles.quickConnectTitle, { color: colors.text }]}>
+                      Quick Connect
+                    </Text>
+                    <Text style={[styles.quickConnectDesc, { color: colors.textMuted }]}>
+                      {quickConnect ? "Auto-disconnect after session" : "One-time use for helping a friend"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[
+                  styles.quickConnectToggle,
+                  { backgroundColor: quickConnect ? colors.primary : colors.surfaceAlt }
+                ]}>
+                  <Animated.View 
+                    style={[
+                      styles.quickConnectToggleKnob,
+                      { 
+                        backgroundColor: colors.background,
+                        transform: [{ translateX: quickConnect ? 18 : 0 }],
+                      }
+                    ]}
+                  />
+                </View>
+              </Pressable>
+            </Animated.View>
+            
             <ActionButton
               label={t.pairing.showCode}
-              subtitle="Generate a code for your partner"
+              subtitle={quickConnect ? "One-time code for quick session" : "Generate a code for your partner"}
               onPress={generateCode}
               index={0}
+              loading={loading}
+              accessibilityHint="Creates a code that your partner can enter on their device"
             />
             
-            <View style={styles.orDivider}>
+            <View style={styles.orDivider} accessibilityElementsHidden>
               <View style={[styles.orLine, { backgroundColor: colors.border }]} />
-              <Text style={[styles.orText, { color: colors.textMuted }]}>or</Text>
+              <Text style={[styles.orText, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 13 }]}>or</Text>
               <View style={[styles.orLine, { backgroundColor: colors.border }]} />
             </View>
             
@@ -486,22 +723,38 @@ export default function PairingScreen() {
               subtitle="Enter partner's 4-digit code"
               onPress={() => setMode('enterCode')}
               index={1}
+              accessibilityHint="Opens keyboard to enter your partner's code"
             />
+
+            {/* Error message */}
+            {error && (
+              <Animated.View 
+                entering={FadeIn.duration(200)}
+                style={[styles.errorContainer, { backgroundColor: colors.error + '20' }]}
+              >
+                <Text style={[styles.errorText, { color: colors.error }]}>
+                  {error}
+                </Text>
+              </Animated.View>
+            )}
 
             {/* How it works */}
             <Animated.View 
               entering={FadeInUp.delay(160).duration(300)}
               style={[styles.howItWorks, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
-              <Text style={[styles.howTitle, { color: colors.text }]}>
+              <Text style={[styles.howTitle, { color: colors.text, fontSize: isSmallScreen ? 13 : 14 }]}>
                 {t.pairing.howItWorks}
               </Text>
               {[t.pairing.step1, t.pairing.step2, t.pairing.step3].map((step, i) => (
                 <View key={i} style={styles.step}>
-                  <Text style={[styles.stepNum, { color: colors.textMuted }]}>
+                  <Text style={[styles.stepNum, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 14 }]}>
                     {i + 1}.
                   </Text>
-                  <Text style={[styles.stepText, { color: colors.textSecondary }]}>
+                  <Text 
+                    style={[styles.stepText, { color: colors.textSecondary, fontSize: isSmallScreen ? 13 : 14 }]}
+                    numberOfLines={2}
+                  >
                     {step}
                   </Text>
                 </View>
@@ -512,7 +765,7 @@ export default function PairingScreen() {
 
         {mode === 'showCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
-            <Text style={[styles.codeLabel, { color: colors.textMuted }]}>
+            <Text style={[styles.codeLabel, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 14 }]}>
               Your pairing code
             </Text>
             
@@ -525,7 +778,10 @@ export default function PairingScreen() {
               style={styles.waitingInfo}
             >
               <ActivityIndicator size="small" color={colors.textMuted} />
-              <Text style={[styles.waitingText, { color: colors.textMuted }]}>
+              <Text 
+                style={[styles.waitingText, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 14 }]}
+                numberOfLines={2}
+              >
                 {waitingMessages[waitingMsgIndex]}
               </Text>
             </Animated.View>
@@ -534,7 +790,7 @@ export default function PairingScreen() {
               <Text style={[styles.expiryLabel, { color: colors.textMuted }]}>
                 Expires in
               </Text>
-              <Text style={[styles.expiryTime, { color: colors.text }]}>
+              <Text style={[styles.expiryTime, { color: colors.text, fontSize: isSmallScreen ? 20 : 24 }]}>
                 {formatTime(expiresIn)}
               </Text>
             </View>
@@ -542,6 +798,9 @@ export default function PairingScreen() {
             <Pressable 
               style={[styles.backButton, { borderColor: colors.border }]} 
               onPress={goBack}
+              accessibilityLabel="Cancel"
+              accessibilityHint="Go back to pairing options"
+              accessibilityRole="button"
             >
               <Text style={[styles.backButtonText, { color: colors.textSecondary }]}>
                 Cancel
@@ -552,10 +811,10 @@ export default function PairingScreen() {
 
         {mode === 'enterCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
-            <Text style={[styles.enterPrompt, { color: colors.text }]}>
+            <Text style={[styles.enterPrompt, { color: colors.text, fontSize: isSmallScreen ? 18 : 20 }]}>
               Enter 4-digit code
             </Text>
-            <Text style={[styles.enterHint, { color: colors.textMuted }]}>
+            <Text style={[styles.enterHint, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 14 }]}>
               Ask your partner for their code
             </Text>
             
@@ -584,21 +843,14 @@ export default function PairingScreen() {
             <Pressable 
               style={[styles.backButton, { borderColor: colors.border }]} 
               onPress={goBack}
+              accessibilityLabel="Cancel"
+              accessibilityHint="Go back to pairing options"
+              accessibilityRole="button"
             >
               <Text style={[styles.backButtonText, { color: colors.textSecondary }]}>
                 Cancel
               </Text>
             </Pressable>
-          </Animated.View>
-        )}
-
-        {loading && mode === 'select' && (
-          <Animated.View 
-            entering={FadeIn.duration(200)}
-            exiting={FadeOut.duration(200)}
-            style={[styles.loadingOverlay, { backgroundColor: colors.overlay }]}
-          >
-            <ActivityIndicator size="large" color={colors.text} />
           </Animated.View>
         )}
       </ScrollView>
@@ -612,42 +864,92 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 20,
+  },
+  loadingCenter: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     paddingTop: 8,
     paddingBottom: 24,
   },
   title: {
-    fontSize: 28,
     fontWeight: '700',
     letterSpacing: -0.5,
     marginBottom: 6,
   },
   subtitle: {
-    fontSize: 15,
     lineHeight: 22,
   },
   modeSelect: {
     flex: 1,
+  },
+  quickConnectCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  quickConnectPressable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  quickConnectContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  quickConnectIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  quickConnectText: {
+    flex: 1,
+  },
+  quickConnectTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  quickConnectDesc: {
+    fontSize: 12,
+  },
+  quickConnectToggle: {
+    width: 44,
+    height: 26,
+    borderRadius: 13,
+    padding: 2,
+  },
+  quickConnectToggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
   },
   actionButtonPressable: {
     marginBottom: 10,
   },
   actionButton: {
     paddingVertical: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderRadius: 8,
     alignItems: 'center',
+    minHeight: 80,
+    justifyContent: 'center',
   },
   actionButtonLabel: {
-    fontSize: 17,
     fontWeight: '600',
     marginBottom: 4,
   },
   actionButtonSubtitle: {
-    fontSize: 14,
     textAlign: 'center',
   },
   orDivider: {
@@ -661,8 +963,12 @@ const styles = StyleSheet.create({
   },
   orText: {
     paddingHorizontal: 16,
-    fontSize: 13,
     fontWeight: '500',
+  },
+  errorContainer: {
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
   },
   howItWorks: {
     marginTop: 24,
@@ -671,7 +977,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   howTitle: {
-    fontSize: 14,
     fontWeight: '600',
     marginBottom: 12,
   },
@@ -681,21 +986,18 @@ const styles = StyleSheet.create({
   },
   stepNum: {
     width: 20,
-    fontSize: 14,
     fontWeight: '500',
   },
   stepText: {
     flex: 1,
-    fontSize: 14,
     lineHeight: 20,
   },
   codeSection: {
     flex: 1,
     alignItems: 'center',
-    paddingTop: 32,
+    paddingTop: 24,
   },
   codeLabel: {
-    fontSize: 14,
     fontWeight: '500',
     marginBottom: 16,
     textTransform: 'uppercase',
@@ -703,18 +1005,15 @@ const styles = StyleSheet.create({
   },
   codeDisplay: {
     flexDirection: 'row',
-    gap: 12,
     marginBottom: 32,
+    justifyContent: 'center',
   },
   codeChar: {
-    width: 64,
-    height: 80,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   codeCharText: {
-    fontSize: 36,
     fontWeight: '700',
     fontFamily: 'monospace',
   },
@@ -723,9 +1022,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     marginBottom: 24,
+    paddingHorizontal: 16,
   },
   waitingText: {
-    fontSize: 14,
+    flex: 1,
+    textAlign: 'center',
   },
   expiry: {
     alignItems: 'center',
@@ -736,25 +1037,20 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   expiryTime: {
-    fontSize: 24,
     fontWeight: '600',
     fontFamily: 'monospace',
   },
   enterPrompt: {
-    fontSize: 20,
     fontWeight: '600',
     marginBottom: 4,
   },
   enterHint: {
-    fontSize: 14,
     marginBottom: 24,
   },
   codeInputContainer: {
     marginBottom: 24,
   },
   codeInputChar: {
-    width: 64,
-    height: 80,
     borderWidth: 2,
     borderRadius: 8,
     alignItems: 'center',
@@ -762,14 +1058,12 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   codeInputCharText: {
-    fontSize: 36,
     fontWeight: '700',
     fontFamily: 'monospace',
   },
   cursor: {
     position: 'absolute',
     bottom: 14,
-    width: 24,
     height: 3,
     borderRadius: 2,
   },
@@ -786,14 +1080,12 @@ const styles = StyleSheet.create({
   },
   submitButton: {
     paddingVertical: 16,
-    paddingHorizontal: 48,
+    paddingHorizontal: 32,
     borderRadius: 8,
     marginBottom: 16,
-    minWidth: 200,
     alignItems: 'center',
   },
   submitButtonText: {
-    fontSize: 16,
     fontWeight: '600',
   },
   backButton: {
@@ -805,10 +1097,5 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 15,
     fontWeight: '500',
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 })

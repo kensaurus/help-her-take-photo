@@ -10,6 +10,9 @@ interface Settings {
   flash: boolean
   sound: boolean
   autoSave: boolean
+  // Accessibility settings
+  reduceMotion: boolean
+  reduceHaptics: boolean
 }
 
 interface SettingsState {
@@ -23,6 +26,9 @@ const defaultSettings: Settings = {
   flash: false,
   sound: true,
   autoSave: true,
+  // Accessibility - defaults to system preference where possible
+  reduceMotion: false,
+  reduceHaptics: false,
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -47,7 +53,5 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 }))
 
-// Initialize on import
-;(async () => {
-  await useSettingsStore.getState().loadSettings()
-})()
+// Note: Do NOT auto-initialize here - it must happen after native modules are ready
+// Initialize in app/_layout.tsx instead

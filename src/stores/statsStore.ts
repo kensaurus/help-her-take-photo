@@ -84,7 +84,5 @@ export const useStatsStore = create<StatsState>((set, get) => ({
   },
 }))
 
-// Initialize on import
-;(async () => {
-  await useStatsStore.getState().loadStats()
-})()
+// Note: Do NOT auto-initialize here - it must happen after native modules are ready
+// Initialize in app/_layout.tsx instead

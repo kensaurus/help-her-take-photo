@@ -51,6 +51,7 @@ function ActionCard({
   onPress,
   highlight = false,
   index = 0,
+  accessibilityHint,
 }: { 
   label: string
   subtitle: string
@@ -58,6 +59,7 @@ function ActionCard({
   onPress: () => void
   highlight?: boolean
   index?: number
+  accessibilityHint?: string
 }) {
   const { colors } = useThemeStore()
   const scale = useSharedValue(1)
@@ -107,6 +109,9 @@ function ActionCard({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={styles.cardPressable}
+        accessibilityLabel={`${label}. ${subtitle}`}
+        accessibilityHint={accessibilityHint}
+        accessibilityRole="button"
       >
         <Animated.View style={[
           styles.card, 
@@ -122,10 +127,13 @@ function ActionCard({
           )}
           
           {/* Icon */}
-          <View style={[
-            styles.cardIcon,
-            { backgroundColor: highlight ? `${colors.primaryText}15` : colors.surfaceAlt }
-          ]}>
+          <View 
+            style={[
+              styles.cardIcon,
+              { backgroundColor: highlight ? `${colors.primaryText}15` : colors.surfaceAlt }
+            ]}
+            accessibilityElementsHidden
+          >
             <Icon 
               name={icon} 
               size={22} 
@@ -150,7 +158,7 @@ function ActionCard({
           </View>
           
           {/* Arrow */}
-          <View style={styles.cardArrowContainer}>
+          <View style={styles.cardArrowContainer} accessibilityElementsHidden>
             <Icon 
               name="chevron-right" 
               size={16} 
@@ -169,11 +177,13 @@ function ActionCard({
 function NavButton({ 
   label, 
   icon,
-  onPress 
+  onPress,
+  accessibilityHint,
 }: { 
   label: string
   icon: 'user' | 'settings'
-  onPress: () => void 
+  onPress: () => void
+  accessibilityHint?: string
 }) {
   const { colors } = useThemeStore()
   const scale = useSharedValue(1)
@@ -199,6 +209,9 @@ function NavButton({
         opacity.value = withTiming(1, { duration: 150 })
       }}
       hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+      accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
+      accessibilityRole="button"
     >
       <Animated.View style={[styles.navButton, animatedStyle]}>
         <Icon name={icon} size={18} color={colors.textSecondary} />
@@ -240,6 +253,9 @@ function ThemeToggle() {
       style={styles.themeToggle}
       onPress={handlePress}
       hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      accessibilityRole="button"
+      accessibilityHint="Toggles between dark and light theme"
     >
       <Animated.View style={animatedStyle}>
         <Icon 
@@ -466,6 +482,7 @@ export default function HomeScreen() {
             onPress={handleCamera}
             highlight
             index={0}
+            accessibilityHint="Opens camera mode to take photos with real-time guidance"
           />
           
           <ActionCard
@@ -474,6 +491,7 @@ export default function HomeScreen() {
             icon="eye"
             onPress={handleViewer}
             index={1}
+            accessibilityHint="Opens viewer mode to guide the photographer"
           />
           
           <View style={styles.spacer} />
@@ -487,6 +505,7 @@ export default function HomeScreen() {
               router.push('/gallery')
             }}
             index={2}
+            accessibilityHint="Opens the photo gallery to view saved photos"
           />
         </View>
 
@@ -498,13 +517,15 @@ export default function HomeScreen() {
           <NavButton 
             label={t.profile.title} 
             icon="user"
-            onPress={() => router.push('/profile')} 
+            onPress={() => router.push('/profile')}
+            accessibilityHint="View your profile and statistics"
           />
-          <View style={[styles.footerDot, { backgroundColor: colors.border }]} />
+          <View style={[styles.footerDot, { backgroundColor: colors.border }]} accessibilityElementsHidden />
           <NavButton 
             label={t.settings.title} 
             icon="settings"
-            onPress={() => router.push('/settings')} 
+            onPress={() => router.push('/settings')}
+            accessibilityHint="Open app settings"
           />
         </Animated.View>
 

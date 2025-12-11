@@ -33,7 +33,5 @@ export const useLanguageStore = create<LanguageState>((set) => ({
   },
 }))
 
-// Initialize on import
-;(async () => {
-  await useLanguageStore.getState().loadLanguage()
-})()
+// Note: Do NOT auto-initialize here - it must happen after native modules are ready
+// Initialize in app/_layout.tsx instead

@@ -1,163 +1,90 @@
 /**
- * Logging Service - Crash reporting and analytics
- * Uses Sentry for error tracking and performance monitoring
+ * Logging Service - Simple production-ready logging
+ * Can be extended with crash reporting services in the future
  */
 
-import * as Sentry from '@sentry/react-native'
 import { Platform } from 'react-native'
 import { getBuildInfo } from '../config/build'
 
 // Environment detection
 const isDev = __DEV__
 
-/**
- * Initialize Sentry
- * Call this in app/_layout.tsx before rendering
- */
-export function initSentry(dsn?: string) {
-  if (!dsn && !isDev) {
-    console.warn('Sentry DSN not provided - crash reporting disabled')
-    return
-  }
-
-  Sentry.init({
-    dsn: dsn || '', // Empty string disables in dev
-    enabled: !isDev,
-    enableInExpoDevelopment: false,
-    debug: isDev,
-    
-    // Performance Monitoring
-    tracesSampleRate: isDev ? 1.0 : 0.2,
-    
-    // Release info
-    release: getBuildInfo().fullVersion,
-    dist: getBuildInfo().buildNumber,
-    environment: isDev ? 'development' : 'production',
-
-    // Integration options
-    integrations: [
-      Sentry.reactNativeTracingIntegration(),
-    ],
-
-    // Filter sensitive data
-    beforeSend(event) {
-      // Remove sensitive data
-      if (event.extra) {
-        delete event.extra.password
-        delete event.extra.token
-        delete event.extra.apiKey
-      }
-      return event
-    },
-
-    // Filter breadcrumbs
-    beforeBreadcrumb(breadcrumb) {
-      // Filter out noisy console logs
-      if (breadcrumb.category === 'console' && breadcrumb.level === 'debug') {
-        return null
-      }
-      return breadcrumb
-    },
-  })
-}
-
-/**
- * Set user context for error tracking
- */
-export function setUser(userId: string, extra?: Record<string, string>) {
-  Sentry.setUser({
-    id: userId,
-    ...extra,
-  })
-}
-
-/**
- * Clear user context on logout
- */
-export function clearUser() {
-  Sentry.setUser(null)
-}
-
-/**
- * Log levels
- */
+// Log levels
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+// Log entry structure
+type LogEntry = {
+  level: LogLevel
+  message: string
+  timestamp: Date
+  data?: Record<string, unknown>
+}
+
+// Simple in-memory log buffer for debugging
+const LOG_BUFFER_SIZE = 100
+const logBuffer: LogEntry[] = []
+
+function addToBuffer(entry: LogEntry) {
+  logBuffer.push(entry)
+  if (logBuffer.length > LOG_BUFFER_SIZE) {
+    logBuffer.shift()
+  }
+}
+
 /**
- * Logger utility
+ * Logger utility - simple console-based logging
  */
 export const logger = {
   /**
    * Debug log (dev only)
    */
   debug(message: string, data?: Record<string, unknown>) {
+    const entry: LogEntry = { level: 'debug', message, timestamp: new Date(), data }
+    addToBuffer(entry)
+    
     if (isDev) {
       console.log(`[DEBUG] ${message}`, data || '')
     }
-    Sentry.addBreadcrumb({
-      message,
-      category: 'debug',
-      level: 'debug',
-      data,
-    })
   },
 
   /**
    * Info log
    */
   info(message: string, data?: Record<string, unknown>) {
+    const entry: LogEntry = { level: 'info', message, timestamp: new Date(), data }
+    addToBuffer(entry)
+    
     if (isDev) {
       console.info(`[INFO] ${message}`, data || '')
     }
-    Sentry.addBreadcrumb({
-      message,
-      category: 'info',
-      level: 'info',
-      data,
-    })
   },
 
   /**
    * Warning log
    */
   warn(message: string, data?: Record<string, unknown>) {
+    const entry: LogEntry = { level: 'warn', message, timestamp: new Date(), data }
+    addToBuffer(entry)
+    
     console.warn(`[WARN] ${message}`, data || '')
-    Sentry.addBreadcrumb({
-      message,
-      category: 'warning',
-      level: 'warning',
-      data,
-    })
   },
 
   /**
-   * Error log - also captures in Sentry
+   * Error log
    */
   error(message: string, error?: Error | unknown, data?: Record<string, unknown>) {
-    console.error(`[ERROR] ${message}`, error, data || '')
+    const entry: LogEntry = { level: 'error', message, timestamp: new Date(), data }
+    addToBuffer(entry)
     
-    if (error instanceof Error) {
-      Sentry.captureException(error, {
-        extra: { message, ...data },
-      })
-    } else {
-      Sentry.captureMessage(message, {
-        level: 'error',
-        extra: { error, ...data },
-      })
-    }
+    console.error(`[ERROR] ${message}`, error, data || '')
   },
 
   /**
    * Track a user action
    */
   trackAction(action: string, data?: Record<string, unknown>) {
-    Sentry.addBreadcrumb({
-      message: action,
-      category: 'user-action',
-      level: 'info',
-      data,
-    })
+    const entry: LogEntry = { level: 'info', message: action, timestamp: new Date(), data }
+    addToBuffer(entry)
     
     if (isDev) {
       console.log(`[ACTION] ${action}`, data || '')
@@ -168,41 +95,71 @@ export const logger = {
    * Track navigation
    */
   trackNavigation(screen: string, params?: Record<string, unknown>) {
-    Sentry.addBreadcrumb({
-      message: `Navigate to ${screen}`,
-      category: 'navigation',
-      level: 'info',
+    const entry: LogEntry = { 
+      level: 'info', 
+      message: `Navigate to ${screen}`, 
+      timestamp: new Date(),
       data: params,
-    })
+    }
+    addToBuffer(entry)
+    
+    if (isDev) {
+      console.log(`[NAV] ${screen}`, params || '')
+    }
   },
 
   /**
    * Track network request
    */
   trackRequest(method: string, url: string, status?: number) {
-    Sentry.addBreadcrumb({
-      message: `${method} ${url}`,
-      category: 'http',
-      level: status && status >= 400 ? 'error' : 'info',
+    const entry: LogEntry = { 
+      level: status && status >= 400 ? 'error' : 'info', 
+      message: `${method} ${url}`, 
+      timestamp: new Date(),
       data: { status },
-    })
+    }
+    addToBuffer(entry)
+    
+    if (isDev) {
+      console.log(`[HTTP] ${method} ${url} - ${status || 'pending'}`)
+    }
+  },
+
+  /**
+   * Get recent logs (useful for debugging)
+   */
+  getRecentLogs: () => [...logBuffer],
+
+  /**
+   * Clear log buffer
+   */
+  clearLogs: () => {
+    logBuffer.length = 0
   },
 }
 
 /**
- * Performance monitoring
+ * Set user context for logging
+ */
+export function setUser(userId: string, extra?: Record<string, string>) {
+  if (isDev) {
+    console.log(`[USER] Set user ID: ${userId}`, extra)
+  }
+}
+
+/**
+ * Clear user context
+ */
+export function clearUser() {
+  if (isDev) {
+    console.log('[USER] Cleared user')
+  }
+}
+
+/**
+ * Performance monitoring utilities
  */
 export const performance = {
-  /**
-   * Start a transaction for performance monitoring
-   */
-  startTransaction(name: string, op: string = 'task') {
-    return Sentry.startInactiveSpan({
-      name,
-      op,
-    })
-  },
-
   /**
    * Measure async operation duration
    */
@@ -215,12 +172,9 @@ export const performance = {
       const result = await operation()
       const duration = Date.now() - start
       
-      Sentry.addBreadcrumb({
-        message: `${name} completed`,
-        category: 'performance',
-        level: 'info',
-        data: { duration: `${duration}ms` },
-      })
+      if (isDev) {
+        console.log(`[PERF] ${name} completed in ${duration}ms`)
+      }
       
       return result
     } catch (error) {
@@ -230,24 +184,3 @@ export const performance = {
     }
   },
 }
-
-/**
- * Error boundary wrapper
- */
-export const ErrorBoundary = Sentry.wrap
-
-/**
- * Capture feedback from user
- */
-export function captureFeedback(
-  message: string, 
-  email?: string, 
-  name?: string
-) {
-  Sentry.captureFeedback({
-    message,
-    email,
-    name,
-  })
-}
-
