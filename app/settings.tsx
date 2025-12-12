@@ -477,6 +477,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    overflow: 'visible', // Prevent icon clipping
   },
   linkCardLeft: {
     flexDirection: 'row',
@@ -526,6 +527,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingRight: 2, // Extra space for chevron icon
   },
   languageValueText: {
     fontSize: 15,

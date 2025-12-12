@@ -418,9 +418,11 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'chevron-right':
-        // Simple V-shape pointing right - using two lines meeting at center-right
-        const chevronLen = size * 0.35
+        // Simple V-shape pointing right - centered within bounds
+        const chevronLen = size * 0.32
         const chevronThick = stroke
+        // Center the chevron properly so rotation doesn't clip
+        const chevronOffset = size * 0.35
         return (
           <View style={baseStyle}>
             {/* Top line of chevron */}
@@ -428,8 +430,8 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
               style={[
                 styles.absolute,
                 {
-                  top: half - chevronLen * 0.7,
-                  left: half - chevronLen * 0.3,
+                  top: half - chevronLen * 0.6,
+                  left: chevronOffset,
                   width: chevronLen,
                   height: chevronThick,
                   backgroundColor: iconColor,
@@ -443,8 +445,8 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
               style={[
                 styles.absolute,
                 {
-                  top: half + chevronLen * 0.7 - chevronThick,
-                  left: half - chevronLen * 0.3,
+                  top: half + chevronLen * 0.6 - chevronThick,
+                  left: chevronOffset,
                   width: chevronLen,
                   height: chevronThick,
                   backgroundColor: iconColor,

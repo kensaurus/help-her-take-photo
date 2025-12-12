@@ -64,6 +64,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "babel-preset-expo": "^54.0.8",
+    "dotenv": "^17.2.3",
     "eslint": "^8.57.0",
     "eslint-config-expo": "^8.0.0",
     "eslint-plugin-react": "^7.34.0",

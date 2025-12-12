@@ -700,6 +700,8 @@ const styles = StyleSheet.create({
   },
   cardArrowContainer: {
     paddingLeft: 12,
+    paddingRight: 2, // Extra space to prevent icon clipping
+    overflow: 'visible',
   },
   spacer: {
     height: 16,
