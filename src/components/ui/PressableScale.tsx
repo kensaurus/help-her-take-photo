@@ -103,7 +103,7 @@ export function PressableScale({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       accessibilityRole={accessibilityRole}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled: disabled ?? undefined }}
       {...props}
     >
       {children}
@@ -153,7 +153,7 @@ export function PressableOpacity({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       accessibilityRole={accessibilityRole}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ disabled: disabled ?? undefined }}
       {...props}
     >
       {children}

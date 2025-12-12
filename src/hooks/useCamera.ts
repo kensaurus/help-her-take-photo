@@ -7,7 +7,6 @@ import {
   Camera,
   useCameraDevice,
   useCameraFormat,
-  useFrameProcessor,
   type PhotoFile,
   type CameraPosition,
 } from 'react-native-vision-camera'
@@ -21,14 +20,15 @@ export function useCamera() {
   const [isTakingPhoto, setIsTakingPhoto] = useState(false)
   const [lastPhoto, setLastPhoto] = useState<PhotoFile | null>(null)
   const [flashEnabled, setFlashEnabled] = useState(false)
+  const [cameraPosition, setCameraPosition] = useState<CameraPosition>('back')
   
-  const { camera: cameraSettings, hapticFeedback, setCameraSettings } = useSettingsStore()
+  const { settings } = useSettingsStore()
+  const hapticEnabled = !settings.reduceHaptics
   
-  const device = useCameraDevice(cameraSettings.cameraPosition)
+  const device = useCameraDevice(cameraPosition)
   
   const format = useCameraFormat(device, [
     { photoResolution: { width: 1920, height: 1080 } },
-    { fps: cameraSettings.fps },
   ])
 
   useEffect(() => {
@@ -51,7 +51,7 @@ export function useCamera() {
     try {
       setIsTakingPhoto(true)
       
-      if (hapticFeedback) {
+      if (hapticEnabled) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
       }
 
@@ -68,13 +68,13 @@ export function useCamera() {
     } finally {
       setIsTakingPhoto(false)
     }
-  }, [isTakingPhoto, flashEnabled, hapticFeedback])
+  }, [isTakingPhoto, flashEnabled, hapticEnabled])
 
   const saveToLibrary = useCallback(async (photo: PhotoFile): Promise<string | null> => {
     try {
       const asset = await MediaLibrary.createAssetAsync(`file://${photo.path}`)
       
-      if (hapticFeedback) {
+      if (hapticEnabled) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       }
       
@@ -83,7 +83,7 @@ export function useCamera() {
       console.error('Failed to save photo:', error)
       return null
     }
-  }, [hapticFeedback])
+  }, [hapticEnabled])
 
   const takeAndSave = useCallback(async (): Promise<string | null> => {
     const photo = await takePhoto()
@@ -96,23 +96,21 @@ export function useCamera() {
   }, [])
 
   const toggleCamera = useCallback(() => {
-    const newPosition: CameraPosition = 
-      cameraSettings.cameraPosition === 'back' ? 'front' : 'back'
-    setCameraSettings({ cameraPosition: newPosition })
-  }, [cameraSettings.cameraPosition, setCameraSettings])
+    setCameraPosition((prev) => prev === 'back' ? 'front' : 'back')
+  }, [])
 
   const focusAtPoint = useCallback(async (x: number, y: number) => {
     if (!cameraRef.current || !device?.supportsFocus) return
     
     try {
       await cameraRef.current.focus({ x, y })
-      if (hapticFeedback) {
+      if (hapticEnabled) {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
       }
     } catch {
       // Focus may fail if point is outside bounds
     }
-  }, [device?.supportsFocus, hapticFeedback])
+  }, [device?.supportsFocus, hapticEnabled])
 
   return {
     cameraRef,
@@ -122,7 +120,7 @@ export function useCamera() {
     isTakingPhoto,
     lastPhoto,
     flashEnabled,
-    cameraPosition: cameraSettings.cameraPosition,
+    cameraPosition,
     takePhoto,
     saveToLibrary,
     takeAndSave,

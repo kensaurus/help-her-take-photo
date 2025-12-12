@@ -16,7 +16,7 @@ import {
   RefreshControl,
   useWindowDimensions,
 } from 'react-native'
-import { FlashList } from '@shopify/flash-list'
+import { FlashList, ListRenderItemInfo } from '@shopify/flash-list'
 import { Image } from 'expo-image'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
@@ -420,7 +420,7 @@ export default function GalleryScreen() {
     )
   }
 
-  const renderPhoto = useCallback(({ item, index }: { item: Photo; index: number }) => (
+  const renderPhoto = useCallback(({ item, index }: ListRenderItemInfo<Photo>) => (
     <Animated.View entering={FadeInUp.delay(index * 25).duration(250)}>
       <Pressable 
         style={[
@@ -534,9 +534,9 @@ export default function GalleryScreen() {
           </Animated.View>
         </View>
       ) : (
-        <FlashList
+        <FlashList<Photo>
           data={filteredPhotos}
-          keyExtractor={item => item.id}
+          keyExtractor={(item) => item.id}
           numColumns={COLUMN_COUNT}
           renderItem={renderPhoto}
           contentContainerStyle={styles.grid}
@@ -551,6 +551,7 @@ export default function GalleryScreen() {
               colors={[colors.primary]}
             />
           }
+          accessible={true}
           accessibilityLabel={`Photo gallery with ${filteredPhotos.length} photos`}
         />
       )}

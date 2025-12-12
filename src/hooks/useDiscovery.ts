@@ -76,6 +76,10 @@ export function useDiscovery() {
   }, [setStatus])
 
   const publishService = useCallback((role: DeviceRole, port: number) => {
+    if (!myDeviceId) {
+      console.warn('Cannot publish service without device ID')
+      return
+    }
     discoveryService.publishService(myDeviceId, role, port)
     setIsPublishing(true)
   }, [myDeviceId])
