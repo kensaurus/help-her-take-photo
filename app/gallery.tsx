@@ -168,7 +168,7 @@ function PhotoViewer({
   onShare: () => void
   onDelete: () => void
   onDownload: () => void
-  t: ReturnType<typeof useLanguageStore>['t']
+  t: typeof import('../src/i18n/translations').translations.en
 }) {
   const scale = useSharedValue(1)
   const translateX = useSharedValue(0)

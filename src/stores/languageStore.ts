@@ -6,6 +6,9 @@ import { create } from 'zustand'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Language, getTranslation, translations } from '../i18n/translations'
 
+// Re-export Language type for use in other files
+export type { Language } from '../i18n/translations'
+
 interface LanguageState {
   language: Language
   t: typeof translations.en

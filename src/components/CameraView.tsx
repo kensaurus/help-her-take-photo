@@ -37,7 +37,8 @@ export function CameraView({
     focusAtPoint,
   } = useCamera()
 
-  const { showGridOverlay } = useSettingsStore()
+  const { settings } = useSettingsStore()
+  const showGridOverlay = settings.showGrid
 
   const handlePress = useCallback((event: { nativeEvent: { locationX: number; locationY: number } }) => {
     const { locationX, locationY } = event.nativeEvent

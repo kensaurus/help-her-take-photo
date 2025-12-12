@@ -105,7 +105,6 @@ export default function RootLayout() {
               fontSize: 18,
             },
             headerShadowVisible: false,
-            headerBackTitleVisible: false,
             animation: 'slide_from_right',
             gestureEnabled: true,
             gestureDirection: 'horizontal',

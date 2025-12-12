@@ -401,7 +401,7 @@ export default function PairingScreen() {
     setPairedDeviceId, 
     setRole: setPairingRole 
   } = usePairingStore()
-  const { role } = useConnectionStore()
+  const { myRole: role } = useConnectionStore()
   const { t } = useLanguageStore()
   const { incrementSessions } = useStatsStore()
   

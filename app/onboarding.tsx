@@ -91,7 +91,7 @@ function SlideItem({
 }: {
   item: OnboardingSlide
   index: number
-  scrollX: Animated.SharedValue<number>
+  scrollX: { value: number }
   width: number
 }) {
   const { colors } = useThemeStore()

@@ -148,7 +148,7 @@ export default function FeedbackScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
 
     const result = await feedbackApi.submit({
-      deviceToken: myDeviceId || undefined,
+      deviceId: myDeviceId || undefined,
       type,
       message,
       email: email || undefined,

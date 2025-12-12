@@ -222,7 +222,7 @@ export default function SettingsScreen() {
                     false: mode === 'dark' ? '#4A4A4A' : '#D1D5DB', 
                     true: colors.success 
                   }}
-                  thumbColor={mode === 'dark' ? '#FFFFFF' : (mode === 'dark' ? '#9CA3AF' : '#FFFFFF')}
+                  thumbColor="#FFFFFF"
                   ios_backgroundColor={mode === 'dark' ? '#4A4A4A' : '#D1D5DB'}
                 />
               </View>

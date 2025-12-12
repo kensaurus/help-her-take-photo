@@ -44,10 +44,6 @@ export default function ChangelogScreen() {
               </Text>
             </View>
             
-            <Text style={[styles.entryBuild, { color: colors.textMuted }]}>
-              Build {entry.build}
-            </Text>
-            
             <View style={styles.changesList}>
               {entry.changes.map((change, i) => (
                 <Text 
