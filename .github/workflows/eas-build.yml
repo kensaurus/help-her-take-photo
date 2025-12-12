@@ -1,13 +1,13 @@
 name: EAS Build
 
+# Only trigger manually or on releases - use OTA updates for regular pushes
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
-      - 'docs/**'
+  # Removed auto-push trigger - OTA updates are faster for JS changes
+  # push:
+  #   branches:
+  #     - main
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       platform:
@@ -70,13 +70,13 @@ jobs:
         run: npm run typecheck --if-present
         continue-on-error: true
 
-      - name: 📱 Build Android (Push to main)
-        if: github.event_name == 'push'
-        run: eas build --platform android --profile preview --non-interactive --no-wait
+      - name: 📱 Build Android (Release)
+        if: github.event_name == 'release'
+        run: eas build --platform android --profile production --non-interactive --no-wait
 
-      - name: 📱 Build iOS (Push to main)
-        if: github.event_name == 'push'
-        run: eas build --platform ios --profile preview --non-interactive --no-wait
+      - name: 📱 Build iOS (Release)
+        if: github.event_name == 'release'
+        run: eas build --platform ios --profile production --non-interactive --no-wait
 
       - name: 📱 Build (Manual trigger)
         if: github.event_name == 'workflow_dispatch'
