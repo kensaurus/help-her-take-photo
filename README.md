@@ -13,11 +13,11 @@ A mobile app that helps couples take better photos by allowing one person to rem
 - 📱 **Real-time Camera View** - See what your partner sees
 - 📷 **Remote Capture** - Take the perfect shot from anywhere
 - 🖼️ **Instant Gallery** - Share high-res photos immediately
-- 🌍 **Multi-language** - English, Thai, Chinese, Japanese
+- 🌍 **Multi-language** - English, Thai, Chinese, Japanese (selectable in onboarding)
 - 🌙 **Dark Mode** - Easy on the eyes
 - 🎮 **Gamification** - Track your "scoldings saved"
 - 📝 **Feedback** - Submit suggestions directly from the app
-- 🎯 **Onboarding** - First-time user experience with 4-slide walkthrough
+- 🎯 **Onboarding** - First-time user experience with language selection
 
 ## 🚀 Quick Start
 
@@ -62,7 +62,29 @@ npx expo start
 | Lists | @shopify/flash-list |
 | Images | expo-image |
 | Haptics | expo-haptics |
-| Backend | Fastify + Prisma + Supabase |
+| **Backend** | **Supabase (Direct)** |
+
+## 🏛️ Architecture
+
+```
+┌─────────────────────────────────────────┐
+│          MOBILE APP (Expo)              │
+│  React Native + Zustand + Reanimated    │
+└─────────────────┬───────────────────────┘
+                  │
+                  │ Direct Connection (supabase-js)
+                  ▼
+┌─────────────────────────────────────────┐
+│         SUPABASE BACKEND                │
+├─────────────────────────────────────────┤
+│  • PostgreSQL Database                  │
+│  • Row Level Security (RLS)             │
+│  • Real-time Subscriptions (ready)      │
+│  • Storage (for photos)                 │
+└─────────────────────────────────────────┘
+```
+
+**Note:** No separate API server required. The app connects directly to Supabase.
 
 ## 📁 Project Structure
 
@@ -70,7 +92,7 @@ npx expo start
 ├── app/                    # Expo Router screens
 │   ├── _layout.tsx        # Root navigation & store initialization
 │   ├── index.tsx          # Home screen (role selection)
-│   ├── onboarding.tsx     # First-time user flow
+│   ├── onboarding.tsx     # First-time user flow + language selection
 │   ├── pairing.tsx        # Device pairing (4-digit code)
 │   ├── camera.tsx         # Camera view (photographer)
 │   ├── viewer.tsx         # Remote viewer (director)
@@ -81,31 +103,33 @@ npx expo start
 │   └── changelog.tsx      # Version history
 ├── src/
 │   ├── components/        # Reusable UI components
-│   │   ├── ui/           # Base UI (Icon, Skeleton, PressableScale)
-│   │   └── *.tsx         # Feature components
+│   │   └── ui/           # Base UI (Icon, Skeleton, PressableScale)
 │   ├── stores/           # Zustand state stores
-│   │   ├── connectionStore.ts  # WebSocket connection state
-│   │   ├── pairingStore.ts     # Device pairing state
-│   │   ├── languageStore.ts    # i18n translations
-│   │   ├── themeStore.ts       # Dark/Light mode
-│   │   ├── statsStore.ts       # User statistics
-│   │   ├── settingsStore.ts    # App preferences
-│   │   └── onboardingStore.ts  # First-run state
 │   ├── services/         # Business logic
-│   │   ├── api.ts        # REST API client
-│   │   ├── streaming.ts  # WebSocket streaming
-│   │   ├── p2p.ts        # Peer-to-peer connection
-│   │   ├── notifications.ts  # Push notifications
-│   │   ├── security.ts   # Secure storage & biometrics
-│   │   ├── logging.ts    # Console logging
-│   │   └── sound.ts      # Audio feedback
+│   │   ├── api.ts        # Supabase API client
+│   │   └── supabase.ts   # Supabase configuration
 │   ├── hooks/            # Custom React hooks
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── types/            # TypeScript definitions
 │   └── config/           # Build configuration
+├── supabase/
+│   └── migrations/       # SQL migrations for Supabase
 ├── assets/               # Images, icons, sounds
 └── scripts/              # Build & utility scripts
 ```
+
+## 🗄️ Database Schema (Supabase)
+
+| Table | Purpose |
+|-------|---------|
+| `pairing_sessions` | 4-digit code pairing |
+| `devices` | Device registration |
+| `captures` | Photo metadata |
+| `user_stats` | Gamification (XP, levels) |
+| `user_settings` | User preferences |
+| `feedback` | Bug reports & feature requests |
+| `session_events` | Analytics |
+| `active_connections` | Real-time connections |
 
 ## 🔧 Development
 
@@ -147,24 +171,18 @@ npx expo start --dev-client
 
 ### Build Profiles
 
-| Profile | Use Case | Distribution | API |
-|---------|----------|--------------|-----|
-| `development` | Local testing with dev client | Internal APK | localhost:3000 |
-| `preview` | Internal QA testing | Internal APK | Production |
-| `staging` | Pre-production validation | Internal APK | Staging |
-| `production` | App Store / Play Store | Store Bundle | Production |
+| Profile | Use Case | Distribution |
+|---------|----------|--------------|
+| `development` | Local testing with dev client | Internal APK |
+| `preview` | Internal QA testing | Internal APK |
+| `staging` | Pre-production validation | Internal APK |
+| `production` | App Store / Play Store | Store Bundle |
 
 ### Build Commands
 
 ```bash
-# Development (with hot reload)
-eas build --profile development --platform android
-
 # Preview (internal testing)
 eas build --profile preview --platform all
-
-# Staging (pre-production)
-eas build --profile staging --platform all
 
 # Production (store submission)
 eas build --profile production --platform all
@@ -175,9 +193,6 @@ eas build --profile production --platform all
 ```bash
 # Push update to preview channel
 eas update --branch preview --message "Your message"
-
-# Push update to production
-eas update --branch production --message "Your message"
 ```
 
 ## 🔐 Environment Variables
@@ -185,21 +200,13 @@ eas update --branch production --message "Your message"
 Create `.env` in project root:
 
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:3000/api
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Environment variables per profile (configured in `eas.json`):
-
-| Profile | API URL |
-|---------|---------|
-| development | `http://localhost:3000/api` |
-| preview | `https://help-her-take-photo-api.vercel.app/api` |
-| staging | `https://help-her-take-photo-api-staging.vercel.app/api` |
-| production | `https://help-her-take-photo-api.vercel.app/api` |
+Get these from **Supabase Dashboard → Settings → API**
 
 ## 📱 State Management
-
-Zustand stores are initialized in `app/_layout.tsx` after native modules are ready:
 
 | Store | Purpose |
 |-------|---------|
@@ -251,7 +258,7 @@ chore: maintenance
 
 - [Handoff Documentation](./HANDOFF.md) - Comprehensive developer guide
 - [Expo Documentation](https://docs.expo.dev)
-- [Backend API](../help-her-take-photo-api/README.md)
+- [Supabase Documentation](https://supabase.com/docs)
 
 ## 📄 License
 

@@ -1,5 +1,6 @@
 /**
  * Onboarding - Welcome flow for first-time users
+ * Includes language selection on first slide
  * Responsive design with smooth animations
  */
 
@@ -13,6 +14,8 @@ import {
   useWindowDimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Modal,
+  ScrollView,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -30,8 +33,16 @@ import Animated, {
 import * as Haptics from 'expo-haptics'
 import { useOnboardingStore } from '../src/stores/onboardingStore'
 import { useThemeStore } from '../src/stores/themeStore'
-import { useLanguageStore } from '../src/stores/languageStore'
+import { useLanguageStore, type Language } from '../src/stores/languageStore'
 import { Icon } from '../src/components/ui/Icon'
+
+// Language options with native names
+const languages: { code: Language; name: string; nativeName: string }[] = [
+  { code: 'en', name: 'English', nativeName: 'English' },
+  { code: 'th', name: 'Thai', nativeName: 'ภาษาไทย' },
+  { code: 'zh', name: 'Chinese', nativeName: '中文' },
+  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
+]
 
 interface OnboardingSlide {
   id: string
@@ -190,6 +201,98 @@ function Pagination({
   )
 }
 
+/**
+ * Language Selector Button
+ */
+function LanguageSelector() {
+  const { colors } = useThemeStore()
+  const { language, setLanguage } = useLanguageStore()
+  const [showModal, setShowModal] = useState(false)
+  
+  const currentLang = languages.find(l => l.code === language) || languages[0]
+  
+  return (
+    <>
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          setShowModal(true)
+        }}
+        style={[styles.languageButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        accessibilityLabel={`Language: ${currentLang.name}. Tap to change.`}
+        accessibilityRole="button"
+      >
+        <Icon name="settings" size={16} color={colors.textSecondary} />
+        <Text style={[styles.languageButtonText, { color: colors.text }]}>
+          {currentLang.nativeName}
+        </Text>
+        <Icon name="chevron-down" size={14} color={colors.textMuted} />
+      </Pressable>
+      
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowModal(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay} 
+          onPress={() => setShowModal(false)}
+        >
+          <Animated.View 
+            entering={FadeInUp.duration(200)}
+            style={[styles.modalContent, { backgroundColor: colors.surface }]}
+          >
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Select Language
+            </Text>
+            <ScrollView style={styles.languageList}>
+              {languages.map((lang) => (
+                <Pressable
+                  key={lang.code}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                    setLanguage(lang.code)
+                    setShowModal(false)
+                  }}
+                  style={[
+                    styles.languageOption,
+                    { 
+                      backgroundColor: language === lang.code ? colors.primary : colors.surfaceAlt,
+                      borderColor: language === lang.code ? colors.primary : colors.border,
+                    }
+                  ]}
+                  accessibilityLabel={`${lang.name} - ${lang.nativeName}`}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: language === lang.code }}
+                >
+                  <View>
+                    <Text style={[
+                      styles.languageOptionName, 
+                      { color: language === lang.code ? colors.primaryText : colors.text }
+                    ]}>
+                      {lang.nativeName}
+                    </Text>
+                    <Text style={[
+                      styles.languageOptionSubtext,
+                      { color: language === lang.code ? colors.primaryText : colors.textMuted }
+                    ]}>
+                      {lang.name}
+                    </Text>
+                  </View>
+                  {language === lang.code && (
+                    <Icon name="check" size={20} color={colors.primaryText} />
+                  )}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Animated.View>
+        </Pressable>
+      </Modal>
+    </>
+  )
+}
+
 export default function OnboardingScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
@@ -203,6 +306,7 @@ export default function OnboardingScreen() {
 
   const isSmallScreen = height < 700
   const isLastSlide = currentIndex === slides.length - 1
+  const isFirstSlide = currentIndex === 0
 
   const handleScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -243,23 +347,32 @@ export default function OnboardingScreen() {
       style={[styles.container, { backgroundColor: colors.background }]}
       edges={['top', 'bottom']}
     >
-      {/* Skip Button */}
-      <Animated.View
-        entering={FadeIn.delay(300).duration(400)}
-        style={styles.skipContainer}
-      >
-        <Pressable
-          onPress={handleSkip}
-          style={styles.skipButton}
-          accessibilityLabel="Skip onboarding"
-          accessibilityRole="button"
-          accessibilityHint="Skip to the main app"
-        >
-          <Text style={[styles.skipText, { color: colors.textMuted }]}>
-            Skip
-          </Text>
-        </Pressable>
-      </Animated.View>
+      {/* Top Bar: Language (left) + Skip (right) */}
+      <View style={styles.topBar}>
+        {/* Language Selector - only on first slide */}
+        <Animated.View entering={FadeIn.delay(200).duration(400)}>
+          {isFirstSlide ? (
+            <LanguageSelector />
+          ) : (
+            <View style={styles.topBarPlaceholder} />
+          )}
+        </Animated.View>
+        
+        {/* Skip Button */}
+        <Animated.View entering={FadeIn.delay(300).duration(400)}>
+          <Pressable
+            onPress={handleSkip}
+            style={styles.skipButton}
+            accessibilityLabel="Skip onboarding"
+            accessibilityRole="button"
+            accessibilityHint="Skip to the main app"
+          >
+            <Text style={[styles.skipText, { color: colors.textMuted }]}>
+              Skip
+            </Text>
+          </Pressable>
+        </Animated.View>
+      </View>
 
       {/* Slides */}
       <FlatList
@@ -356,11 +469,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  skipContainer: {
-    position: 'absolute',
-    top: 16,
-    right: 20,
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
     zIndex: 10,
+  },
+  topBarPlaceholder: {
+    width: 100,
   },
   skipButton: {
     paddingVertical: 12,
@@ -369,6 +487,59 @@ const styles = StyleSheet.create({
   skipText: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  languageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  languageButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 16,
+    padding: 20,
+    maxHeight: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  languageList: {
+    maxHeight: 300,
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  languageOptionName: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  languageOptionSubtext: {
+    fontSize: 13,
+    marginTop: 2,
   },
   slide: {
     flex: 1,

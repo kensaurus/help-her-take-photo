@@ -1,7 +1,7 @@
 # 📱 Help Her Take Photo - Developer Handoff Documentation
 
-> **Last Updated:** December 6, 2025
-> **Version:** 1.0.0
+> **Last Updated:** December 12, 2025
+> **Version:** 1.1.0
 > **Author:** kensaurus
 
 ---
@@ -12,13 +12,14 @@
 2. [Architecture](#architecture)
 3. [Tech Stack & Libraries](#tech-stack--libraries)
 4. [Project Structure](#project-structure)
-5. [Development Setup](#development-setup)
-6. [Build & Deployment](#build--deployment)
-7. [CI/CD Pipeline](#cicd-pipeline)
-8. [Environment Variables](#environment-variables)
-9. [Known Issues & Technical Debt](#known-issues--technical-debt)
-10. [Feature Status](#feature-status)
-11. [Quick Answers to Common Questions](#quick-answers)
+5. [Database Schema](#database-schema)
+6. [Development Setup](#development-setup)
+7. [Build & Deployment](#build--deployment)
+8. [CI/CD Pipeline](#cicd-pipeline)
+9. [Environment Variables](#environment-variables)
+10. [Known Issues & Technical Debt](#known-issues--technical-debt)
+11. [Feature Status](#feature-status)
+12. [Quick Answers to Common Questions](#quick-answers)
 
 ---
 
@@ -36,7 +37,7 @@
 - ✅ Real-time camera streaming (P2P UDP)
 - ✅ Remote photo capture
 - ✅ Photo gallery with sharing
-- ✅ Multi-language support (EN, TH, ZH, JA)
+- ✅ Multi-language support (EN, TH, ZH, JA) - **selectable in onboarding**
 - ✅ Dark/Light theme
 - ✅ Gamification (scoldings saved counter)
 - ✅ Feedback submission
@@ -46,6 +47,8 @@
 
 ## 🏗 Architecture
 
+### Current Architecture (Direct Supabase)
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        FRONTEND                              │
@@ -54,34 +57,41 @@
 │   • Zustand (State Management)                               │
 │   • react-native-reanimated (Animations)                     │
 │   • expo-camera / vision-camera (Camera)                     │
-│   • react-native-udp (P2P Streaming)                         │
-│   • react-native-zeroconf (mDNS Discovery)                   │
+│   • @supabase/supabase-js (Database Client)                  │
 └─────────────────────────────────────────────────────────────┘
                               │
-                              │ HTTPS (Pairing API)
+                              │ Direct Connection (HTTPS)
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                        BACKEND                               │
-│   Fastify + Prisma + Supabase PostgreSQL                    │
+│                     SUPABASE BACKEND                         │
 ├─────────────────────────────────────────────────────────────┤
-│   Endpoints:                                                 │
-│   • POST /api/pair/create    - Generate 4-digit code        │
-│   • POST /api/pair/join      - Join with code               │
-│   • POST /api/pair/partner   - Get partner info             │
-│   • POST /api/pair/unpair    - Disconnect devices           │
-│   • GET  /api/pair/status/:code - Poll pairing status       │
-│   • POST /api/feedback/submit - Submit user feedback        │
-│   • POST /api/session/*      - Multi-session management     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                        DATABASE                              │
-│   Supabase PostgreSQL                                        │
+│   Database Tables:                                           │
+│   • pairing_sessions  - 4-digit code pairing                │
+│   • devices           - Device registration                 │
+│   • captures          - Photo metadata                      │
+│   • user_stats        - Gamification (XP, levels)           │
+│   • user_settings     - User preferences                    │
+│   • feedback          - Bug reports & feature requests      │
+│   • session_events    - Analytics                           │
+│   • active_connections- Real-time connections               │
 ├─────────────────────────────────────────────────────────────┤
-│   Tables: devices, device_pairs, feedbacks, sessions        │
+│   Security:                                                  │
+│   • Row Level Security (RLS) enabled on all tables          │
+│   • Privacy enforced at application level (device_id filter)│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Why Direct Supabase (No API Server)?
+
+| Aspect | Old (Separate API) | New (Direct Supabase) |
+|--------|-------------------|----------------------|
+| **Deployment** | Server maintenance | Zero maintenance |
+| **Cost** | Pay for hosting | Free tier |
+| **Latency** | Extra hop | Direct connection |
+| **Scaling** | Manual | Automatic |
+| **Security** | Custom auth | Built-in RLS |
+
+**Note:** The `help-her-take-photo-api` repo is **archived** and no longer needed.
 
 ---
 
@@ -99,20 +109,10 @@
 | **Animations** | react-native-reanimated | 4.1.1 | 60fps animations |
 | **Gestures** | react-native-gesture-handler | 2.28.0 | Touch handling |
 | **Camera** | expo-camera | 17.0.10 | Camera access |
-| **Vision** | react-native-vision-camera | 4.7.3 | Advanced camera |
 | **Storage** | @react-native-async-storage | 2.2.0 | Persistent storage |
 | **Haptics** | expo-haptics | 15.0.8 | Tactile feedback |
 | **OTA Updates** | expo-updates | 29.0.14 | Over-the-air updates |
-
-### Backend (help-her-take-photo-api)
-
-| Category | Library | Version | Purpose |
-|----------|---------|---------|---------|
-| **Server** | Fastify | 5.6.2 | HTTP server |
-| **ORM** | Prisma | 6.9.0 | Database ORM |
-| **Validation** | Zod | 3.25.56 | Schema validation |
-| **WebSockets** | @fastify/websocket | 11.2.0 | Real-time comms |
-| **CORS** | @fastify/cors | 11.1.0 | Cross-origin |
+| **Backend** | @supabase/supabase-js | 2.86.2 | Database client |
 
 ### ✅ Library Status
 All libraries are **up-to-date** as of December 2025:
@@ -124,12 +124,12 @@ All libraries are **up-to-date** as of December 2025:
 
 ## 📁 Project Structure
 
-### Frontend
 ```
 help-her-take-photo/
 ├── app/                    # Expo Router pages
 │   ├── _layout.tsx        # Root layout with navigation
 │   ├── index.tsx          # Home screen (role selection)
+│   ├── onboarding.tsx     # First-time flow + language selection
 │   ├── pairing.tsx        # Device pairing screen
 │   ├── camera.tsx         # Camera view (photographer)
 │   ├── viewer.tsx         # Remote viewer (director)
@@ -140,84 +140,102 @@ help-her-take-photo/
 │   └── changelog.tsx      # Version changelog
 ├── src/
 │   ├── components/        # Reusable components
-│   │   └── ui/           # AnimatedButton, FadeView
+│   │   └── ui/           # AnimatedButton, FadeView, Icon
 │   ├── stores/           # Zustand stores
 │   │   ├── pairingStore.ts
 │   │   ├── connectionStore.ts
 │   │   ├── settingsStore.ts
 │   │   ├── languageStore.ts
 │   │   ├── statsStore.ts
-│   │   └── themeStore.ts
-│   ├── services/         # API client
+│   │   ├── themeStore.ts
+│   │   └── onboardingStore.ts
+│   ├── services/         # API & business logic
+│   │   ├── api.ts        # Supabase API methods
+│   │   └── supabase.ts   # Supabase client config
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── config/           # Build info, changelog
 │   └── types/            # TypeScript types
+├── supabase/
+│   └── migrations/       # SQL migration files
+│       ├── 001_pairing_tables.sql
+│       ├── 004_simple_migration.sql
+│       └── 006_simple_rls.sql
 ├── assets/               # Images, icons
 ├── scripts/              # Build scripts
 ├── .github/workflows/    # CI/CD
-├── app.json              # Expo config
+├── app.config.ts         # Expo config (dynamic)
 ├── eas.json              # EAS Build config
 └── package.json
 ```
 
-### Backend
-```
-help-her-take-photo-api/
-├── src/
-│   ├── index.ts          # Fastify server entry
-│   ├── lib/
-│   │   └── prisma.ts     # Prisma client
-│   ├── routes/
-│   │   ├── pairing.ts    # Pairing endpoints
-│   │   ├── feedback.ts   # Feedback endpoints
-│   │   └── session.ts    # Session endpoints
-│   └── schemas/          # Zod schemas
-├── prisma/
-│   └── schema.prisma     # Database schema
-├── package.json
-└── .env                  # Environment variables
-```
+---
+
+## 🗄️ Database Schema
+
+### Tables in Supabase
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `pairing_sessions` | 4-digit code pairing | `code`, `device_id`, `partner_device_id`, `status` |
+| `devices` | Device registration | `device_id`, `platform`, `push_token` |
+| `captures` | Photo metadata | `camera_device_id`, `storage_path`, `is_favorite` |
+| `user_stats` | Gamification | `device_id`, `photos_taken`, `level`, `xp` |
+| `user_settings` | Preferences | `device_id`, `theme`, `language` |
+| `feedback` | Bug reports | `device_token`, `type`, `message` |
+| `session_events` | Analytics | `device_id`, `event_type`, `event_data` |
+| `active_connections` | Real-time | `camera_device_id`, `viewer_device_id` |
+
+### Privacy Model
+
+Since there's no user authentication:
+- Each device has a unique `device_id` (UUID)
+- All queries filter by `device_id`
+- RLS policies allow all operations (privacy at app level)
+- Users can only see their own data
+
+### SQL Migrations
+
+Migrations are in `supabase/migrations/`. Run them in order:
+1. `001_pairing_tables.sql` - Initial pairing & feedback
+2. `004_simple_migration.sql` - All new tables
+3. `006_simple_rls.sql` - RLS policies
 
 ---
 
 ## 🚀 Development Setup
 
 ### Prerequisites
-- Node.js 20.19.4+
+- Node.js 20.x+
 - npm or yarn
 - Expo Go app (for testing)
-- Android Studio (for Android builds)
-- Xcode 26+ (for iOS builds, macOS only)
+- Supabase account
 
-### Frontend Setup
+### Setup Steps
+
 ```bash
+# 1. Clone repo
+git clone https://github.com/kensaurus/help-her-take-photo.git
 cd help-her-take-photo
+
+# 2. Install dependencies
 npm install
+
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your Supabase credentials
+
+# 4. Start development
 npx expo start
 ```
 
-### Backend Setup
-```bash
-cd help-her-take-photo-api
-npm install
-cp .env.example .env  # Configure DATABASE_URL
-npx prisma generate
-npx prisma db push
-npm run dev
-```
-
 ### Environment Variables
-Frontend `.env`:
+
 ```env
-EXPO_PUBLIC_API_URL=http://localhost:3000/api
+EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Backend `.env`:
-```env
-DATABASE_URL="postgresql://..."
-DIRECT_URL="postgresql://..."
-PORT=3000
-```
+Get these from **Supabase Dashboard → Settings → API**
 
 ---
 
@@ -227,26 +245,21 @@ PORT=3000
 
 | Profile | Distribution | Use Case |
 |---------|--------------|----------|
-| `development` | internal | Dev client with localhost API |
-| `preview` | internal | Testing with production API |
+| `development` | internal | Dev client with hot reload |
+| `preview` | internal | Testing with production DB |
 | `staging` | internal | Pre-release testing |
 | `production` | store | App Store / Play Store |
 
-### Manual Build Commands
+### Build Commands
+
 ```bash
-# Android only
+# Preview build (Android)
 eas build --platform android --profile preview
 
-# iOS only (requires Apple credentials)
-eas build --platform ios --profile preview
+# Production build (both platforms)
+eas build --platform all --profile production
 
-# Both platforms
-eas build --platform all --profile preview
-```
-
-### OTA Updates
-```bash
-# Push update to preview channel
+# OTA Update
 eas update --branch preview --message "Bug fixes"
 ```
 
@@ -260,45 +273,12 @@ eas update --branch preview --message "Bug fixes"
 |----------|---------|--------|
 | `eas-build.yml` | Push to main | Build Android + iOS |
 | `eas-update.yml` | Push to main | OTA update |
-| `pr-preview.yml` | PR opened | Preview build |
 
 ### Required GitHub Secrets
+
 ```
 EXPO_TOKEN  # Personal access token from expo.dev
 ```
-
-### Pipeline Status ✅
-The current setup follows **Expo best practices**:
-- Uses `expo/expo-github-action@v8`
-- Parallel Android + iOS builds
-- Non-interactive mode with `--no-wait`
-- Concurrency control to cancel stale builds
-- Path filtering to skip doc changes
-
----
-
-## ⚙️ Environment Variables
-
-### Expo Console (expo.dev)
-
-**You do NOT need to add env vars on Expo console** if they're in `eas.json`. The `env` block in each profile handles this:
-
-```json
-{
-  "build": {
-    "preview": {
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://your-api.vercel.app/api"
-      }
-    }
-  }
-}
-```
-
-### When to Use Expo Console Env Vars
-- Secrets that shouldn't be in code (API keys)
-- Team-shared variables
-- Override values per build
 
 ---
 
@@ -306,28 +286,22 @@ The current setup follows **Expo best practices**:
 
 ### Current Issues
 
-1. **iOS Build Not Triggered**
-   - **Cause:** Apple Developer credentials not configured
-   - **Fix:** Run `eas credentials` to set up iOS signing
+1. **iOS Build Not Configured**
+   - **Cause:** Apple Developer credentials not set up
+   - **Fix:** Run `eas credentials --platform ios`
 
-2. **Build Speed (~15 min)**
-   - Normal for first builds
-   - Subsequent builds cache dependencies
-   - Use OTA updates for faster iteration
-
-3. **Node Version Warning**
-   - React Native 0.81.5 prefers Node 20.19.4+
-   - Current `eas.json` uses 20.18.0
-   - Consider updating to 22.x LTS
+2. **P2P Streaming**
+   - UDP streaming needs more testing
+   - Consider WebRTC for better reliability
 
 ### Technical Debt
 
 | Item | Priority | Description |
 |------|----------|-------------|
-| P2P Streaming | Medium | UDP streaming needs more testing |
 | Tests | High | No unit/integration tests yet |
 | Error Boundaries | Medium | Add crash recovery UI |
 | Analytics | Low | Add event tracking |
+| Offline Mode | Low | Handle offline scenarios |
 
 ---
 
@@ -338,11 +312,13 @@ The current setup follows **Expo best practices**:
 - [x] Camera capture and preview
 - [x] Photo gallery with sharing
 - [x] Multi-language (EN, TH, ZH, JA)
+- [x] Language selection in onboarding
 - [x] Dark/Light theme
 - [x] User profile with gamification
 - [x] Feedback form to Supabase
 - [x] OTA updates configured
 - [x] CI/CD pipeline
+- [x] Direct Supabase integration
 
 ### In Progress 🚧
 - [ ] Real-time P2P streaming
@@ -360,33 +336,33 @@ The current setup follows **Expo best practices**:
 ## ❓ Quick Answers
 
 ### Why no iOS builds?
-iOS requires Apple Developer Program membership ($99/year) and credentials setup. Run:
+iOS requires Apple Developer Program ($99/year). Run:
 ```bash
 eas credentials --platform ios
 ```
 
-### Why do builds take 15+ minutes?
-- First builds compile all native code
-- EAS free tier has queue time
-- **Speed up options:**
-  - Paid EAS plan (priority queue, M1 workers)
-  - Use OTA updates for JS-only changes
-  - Enable build cache (SDK 53+)
+### How does pairing work?
+1. Device A generates 4-digit code (stored in Supabase)
+2. Device B enters code
+3. Supabase updates session with partner
+4. Both devices navigate to camera/viewer
 
-### Are libraries up to date?
-✅ Yes! Using Expo SDK 54 (latest), React Native 0.81.5, Reanimated 4.
-
-### Do I need env vars on Expo console?
-No, they're in `eas.json`. Only add secrets there if needed.
+### How is privacy handled?
+- Each device has a unique `device_id`
+- All API calls filter by this ID
+- RLS policies ensure data isolation
 
 ### How to test quickly?
 ```bash
-# Local development
+# Local with tunnel
 npx expo start --tunnel
 
 # OTA update (faster than full build)
 eas update --branch preview
 ```
+
+### Where's the API server?
+**Archived!** We now use direct Supabase access. The `help-her-take-photo-api` repo is deprecated.
 
 ---
 
@@ -394,15 +370,14 @@ eas update --branch preview
 
 - **Repository:** github.com/kensaurus/help-her-take-photo
 - **Expo Dashboard:** expo.dev/accounts/kensaurus
+- **Supabase Dashboard:** supabase.com/dashboard
 - **Author:** kensaurus (kensaur.us)
 
 ### Useful Links
 - [Expo Documentation](https://docs.expo.dev)
+- [Supabase Documentation](https://supabase.com/docs)
 - [EAS Build Guide](https://docs.expo.dev/build/introduction/)
-- [React Native 0.81](https://reactnative.dev/blog/2025/08/12/react-native-0.81)
-- [Expo SDK 54 Changelog](https://expo.dev/changelog/sdk-54)
 
 ---
 
 *© 2025 kensaurus - kensaur.us*
-
