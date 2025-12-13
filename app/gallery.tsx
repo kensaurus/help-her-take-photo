@@ -1,6 +1,7 @@
 /**
  * Gallery - Enhanced with share, zoom, skeleton loaders, and theme support
  * Full accessibility support and responsive design
+ * Now loads photos from Supabase captures table
  */
 
 import { useState, useCallback, useEffect } from 'react'
@@ -37,7 +38,10 @@ import * as MediaLibrary from 'expo-media-library'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
+import { usePairingStore } from '../src/stores/pairingStore'
 import { Icon } from '../src/components/ui/Icon'
+import { capturesApi } from '../src/services/api'
+import { sessionLogger } from '../src/services/sessionLogger'
 
 const COLUMN_COUNT = 3
 const GAP = 3
@@ -348,17 +352,49 @@ export default function GalleryScreen() {
   const [filter, setFilter] = useState<'all' | 'byMe' | 'byPartner'>('all')
 
   const [photos, setPhotos] = useState<Photo[]>([])
+  const { myDeviceId } = usePairingStore()
   
   // Calculate responsive photo size
   const photoSize = (screenWidth - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
 
-  // Simulate initial load
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  // Load photos from Supabase
+  const loadPhotos = useCallback(async () => {
+    if (!myDeviceId) {
       setIsLoading(false)
-    }, 800)
-    return () => clearTimeout(timer)
-  }, [])
+      return
+    }
+
+    try {
+      sessionLogger.info('gallery_loading_photos', { deviceId: myDeviceId })
+      const { captures, error } = await capturesApi.getByDevice(myDeviceId, { limit: 100 })
+      
+      if (error) {
+        sessionLogger.error('gallery_load_failed', new Error(error))
+        setIsLoading(false)
+        return
+      }
+
+      // Transform captures to Photo format
+      const loadedPhotos: Photo[] = captures.map(capture => ({
+        id: capture.id,
+        uri: capture.storage_path || capture.thumbnail_path || '',
+        byMe: capture.captured_by === 'camera',
+        timestamp: new Date(capture.created_at),
+      }))
+
+      setPhotos(loadedPhotos)
+      sessionLogger.info('gallery_photos_loaded', { count: loadedPhotos.length })
+    } catch (err) {
+      sessionLogger.error('gallery_load_error', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [myDeviceId])
+
+  // Initial load
+  useEffect(() => {
+    loadPhotos()
+  }, [loadPhotos])
 
   const filteredPhotos = photos.filter(p => {
     if (filter === 'all') return true
@@ -369,7 +405,7 @@ export default function GalleryScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 600))
+    await loadPhotos()
     setRefreshing(false)
   }
 
@@ -410,10 +446,24 @@ export default function GalleryScreen() {
         { 
           text: t.common.delete, 
           style: 'destructive',
-          onPress: () => {
-            setPhotos(prev => prev.filter(p => p.id !== selectedPhoto.id))
-            setSelectedPhoto(null)
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+          onPress: async () => {
+            try {
+              // Delete from Supabase
+              const { success, error } = await capturesApi.delete(selectedPhoto.id)
+              
+              if (success) {
+                setPhotos(prev => prev.filter(p => p.id !== selectedPhoto.id))
+                setSelectedPhoto(null)
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+                sessionLogger.info('photo_deleted', { photoId: selectedPhoto.id })
+              } else {
+                sessionLogger.error('photo_delete_failed', new Error(error || 'Unknown error'))
+                Alert.alert(t.common.error, 'Failed to delete photo')
+              }
+            } catch (err) {
+              sessionLogger.error('photo_delete_error', err)
+              Alert.alert(t.common.error, 'Failed to delete photo')
+            }
           }
         },
       ]

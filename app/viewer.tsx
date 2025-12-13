@@ -250,7 +250,39 @@ export default function ViewerScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 800))
+    sessionLogger.info('viewer_refresh_triggered')
+    
+    // Reconnect WebRTC
+    if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
+      await webrtcService.destroy()
+      setIsReceiving(false)
+      setRemoteStream(null)
+      
+      // Small delay before reconnecting
+      await new Promise(r => setTimeout(r, 500))
+      
+      webrtcService.init(
+        myDeviceId,
+        pairedDeviceId,
+        sessionId,
+        'director',
+        {
+          onRemoteStream: (stream) => {
+            sessionLogger.info('remote_stream_received')
+            setRemoteStream(stream)
+            setIsReceiving(true)
+          },
+          onConnectionStateChange: (state) => {
+            sessionLogger.info('webrtc_state', { state })
+            setConnectionState(state)
+          },
+          onError: (error) => {
+            sessionLogger.error('webrtc_error', error)
+          },
+        }
+      )
+    }
+    
     setRefreshing(false)
   }
 

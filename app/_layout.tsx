@@ -28,8 +28,8 @@ export default function RootLayout() {
   const { colors, mode, loadTheme } = useThemeStore()
   const { hasSeenOnboarding, loadOnboardingState } = useOnboardingStore()
   const { loadSettings } = useSettingsStore()
-  const { loadStats } = useStatsStore()
-  const { loadFromStorage: loadPairing } = usePairingStore()
+  const { loadStats, setDeviceId: setStatsDeviceId } = useStatsStore()
+  const { loadFromStorage: loadPairing, myDeviceId } = usePairingStore()
   const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
@@ -46,6 +46,12 @@ export default function RootLayout() {
         loadStats(),
         loadPairing(),
       ])
+      
+      // Set device ID in stats store for Supabase sync
+      const pairingState = usePairingStore.getState()
+      if (pairingState.myDeviceId) {
+        setStatsDeviceId(pairingState.myDeviceId)
+      }
       
       // Register for push notifications (non-blocking)
       notificationService.registerForPushNotifications()

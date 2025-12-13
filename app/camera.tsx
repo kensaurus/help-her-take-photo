@@ -598,25 +598,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a1a1a',
     position: 'relative',
   },
-  mockCamera: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  mockCameraText: {
-    fontSize: 64,
-    marginBottom: 16,
-  },
-  mockCameraLabel: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: '500',
-  },
-  mockCameraHint: {
-    fontSize: 13,
-    color: '#444',
-    marginTop: 8,
-  },
   gridOverlay: {
     position: 'absolute',
     top: 0,
