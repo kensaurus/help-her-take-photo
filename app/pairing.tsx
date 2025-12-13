@@ -398,7 +398,8 @@ export default function PairingScreen() {
   const { 
     myDeviceId, 
     setMyDeviceId,
-    setPairedDeviceId, 
+    setPairedDeviceId,
+    setSessionId,
     setRole: setPairingRole 
   } = usePairingStore()
   const { myRole: role } = useConnectionStore()
@@ -512,6 +513,9 @@ export default function PairingScreen() {
         await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
         // Await state persistence before navigation to prevent race condition
         await setPairedDeviceId(result.partnerId)
+        if (result.sessionId) {
+          await setSessionId(result.sessionId)
+        }
         await setPairingRole(role || 'camera')
         incrementSessions()
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
@@ -541,6 +545,9 @@ export default function PairingScreen() {
           await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
           // Await state persistence before navigation to prevent race condition
           await setPairedDeviceId(result.partnerId)
+          if (result.sessionId) {
+            await setSessionId(result.sessionId)
+          }
           await setPairingRole(role || 'camera')
           incrementSessions()
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
@@ -550,7 +557,7 @@ export default function PairingScreen() {
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [mode, code, myDeviceId, role, setPairedDeviceId, setPairingRole, incrementSessions, router, quickConnect])
+  }, [mode, code, myDeviceId, role, setPairedDeviceId, setSessionId, setPairingRole, incrementSessions, router, quickConnect])
 
   // Countdown
   useEffect(() => {

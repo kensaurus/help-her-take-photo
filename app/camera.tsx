@@ -1,6 +1,7 @@
 /**
  * Camera - The photographer's view (with encouragement!)
  * Full accessibility support and permission handling
+ * Now with real camera preview and WebRTC streaming
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -29,7 +30,7 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import * as MediaLibrary from 'expo-media-library'
-import { Camera } from 'expo-camera'
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useSettingsStore } from '../src/stores/settingsStore'
@@ -38,6 +39,8 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
 import { pairingApi } from '../src/services/api'
+import { sessionLogger } from '../src/services/sessionLogger'
+import { webrtcService } from '../src/services/webrtc'
 
 const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
@@ -207,27 +210,91 @@ function PermissionDenied({
 export default function CameraScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
-  const { isPaired, myDeviceId, clearPairing } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
   const { incrementPhotos, stats } = useStatsStore()
   const { width: screenWidth, height: screenHeight } = useWindowDimensions()
   
+  const cameraRef = useRef<CameraView>(null)
+  const [permission, requestPermission] = useCameraPermissions()
+  const [facing, setFacing] = useState<CameraType>('back')
   const [isSharing, setIsSharing] = useState(false)
+  const [isConnected, setIsConnected] = useState(false)
   const [photoCount, setPhotoCount] = useState(0)
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
-  const [hasPermission, setHasPermission] = useState<boolean | null>(null)
+  const [lastCommand, setLastCommand] = useState<string | null>(null)
   
   const encouragements = t.camera.encouragements
 
-  // Request camera permission on mount
+  // Initialize logging
   useEffect(() => {
-    (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync()
-      setHasPermission(status === 'granted')
-    })()
-  }, [])
+    if (myDeviceId) {
+      sessionLogger.init(myDeviceId, sessionId ?? undefined)
+      sessionLogger.info('camera_screen_opened')
+    }
+    return () => {
+      sessionLogger.info('camera_screen_closed')
+    }
+  }, [myDeviceId, sessionId])
+
+  // Initialize WebRTC when paired and sharing
+  useEffect(() => {
+    if (isPaired && isSharing && myDeviceId && pairedDeviceId && sessionId) {
+      sessionLogger.info('starting_webrtc_connection')
+      
+      webrtcService.init(
+        myDeviceId,
+        pairedDeviceId,
+        sessionId,
+        'camera',
+        {
+          onConnectionStateChange: (state) => {
+            sessionLogger.info('webrtc_state', { state })
+            setIsConnected(state === 'connected')
+          },
+          onError: (error) => {
+            sessionLogger.error('webrtc_error', error)
+            Alert.alert('Connection Error', error.message)
+          },
+        }
+      )
+
+      // Listen for commands from director
+      webrtcService.onCommand((command, data) => {
+        sessionLogger.info('command_received', { command, data })
+        setLastCommand(command)
+        handleRemoteCommand(command, data)
+        setTimeout(() => setLastCommand(null), 2000)
+      })
+
+      return () => {
+        webrtcService.destroy()
+        setIsConnected(false)
+      }
+    }
+  }, [isPaired, isSharing, myDeviceId, pairedDeviceId, sessionId])
+
+  // Handle commands from director
+  const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    
+    switch (command) {
+      case 'capture':
+        handleCapture()
+        break
+      case 'flip':
+        setFacing(f => f === 'back' ? 'front' : 'back')
+        break
+      case 'direction':
+        // Show direction overlay briefly
+        setShowEncouragement(true)
+        setEncouragement(`👆 ${data?.direction || 'Adjust'}`)
+        setTimeout(() => setShowEncouragement(false), 2000)
+        break
+    }
+  }
 
   // Quick Connect: Auto-disconnect when leaving camera
   useEffect(() => {
@@ -241,18 +308,18 @@ export default function CameraScreen() {
             await pairingApi.unpair(myDeviceId)
             clearPairing()
             await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
-            console.log('[Quick Connect] Auto-disconnected')
+            sessionLogger.info('quick_connect_auto_disconnected')
           }
         } catch (error) {
-          console.error('[Quick Connect] Error during cleanup:', error)
+          sessionLogger.error('quick_connect_cleanup_error', error)
         }
       })()
     }
   }, [myDeviceId, clearPairing])
 
   const handleRequestPermission = async () => {
-    const { status } = await Camera.requestCameraPermissionsAsync()
-    if (status !== 'granted') {
+    const result = await requestPermission()
+    if (!result.granted) {
       Alert.alert(
         'Permission Required',
         'Please enable camera access in your device settings to use this feature.',
@@ -262,11 +329,10 @@ export default function CameraScreen() {
         ]
       )
     }
-    setHasPermission(status === 'granted')
   }
 
   // Show permission denied view
-  if (hasPermission === false) {
+  if (!permission?.granted) {
     return (
       <PermissionDenied 
         onRequestPermission={handleRequestPermission}
@@ -284,21 +350,53 @@ export default function CameraScreen() {
   }, [encouragements])
 
   const handleCapture = async () => {
-    setPhotoCount(prev => prev + 1)
-    incrementPhotos()
-    showRandomEncouragement()
+    if (!cameraRef.current) return
     
-    // Simulate saving
-    if (settings.autoSave) {
-      try {
-        // In real app: save photo to library
-      } catch {}
+    try {
+      sessionLogger.info('capture_started')
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+        skipProcessing: false,
+      })
+      
+      if (photo) {
+        setPhotoCount(prev => prev + 1)
+        incrementPhotos()
+        showRandomEncouragement()
+        sessionLogger.info('capture_success', { uri: photo.uri })
+        
+        // Save to library
+        if (settings.autoSave) {
+          try {
+            const asset = await MediaLibrary.createAssetAsync(photo.uri)
+            sessionLogger.info('photo_saved', { assetId: asset.id })
+          } catch (saveError) {
+            sessionLogger.error('photo_save_failed', saveError)
+          }
+        }
+      }
+    } catch (error) {
+      sessionLogger.error('capture_failed', error)
+      Alert.alert('Capture Failed', 'Could not take photo. Please try again.')
     }
   }
 
   const toggleSharing = () => {
-    setIsSharing(!isSharing)
+    const newState = !isSharing
+    setIsSharing(newState)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    sessionLogger.info('sharing_toggled', { isSharing: newState })
+    
+    if (!newState) {
+      // Stop WebRTC when sharing is turned off
+      webrtcService.destroy()
+      setIsConnected(false)
+    }
+  }
+
+  const toggleCameraFacing = () => {
+    setFacing(f => f === 'back' ? 'front' : 'back')
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
 
   const handleShare = async () => {
@@ -311,21 +409,26 @@ export default function CameraScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Camera preview placeholder */}
+      {/* Real Camera preview */}
       <View style={styles.cameraPreview}>
-        <View style={styles.mockCamera}>
-          <Text style={styles.mockCameraText}>📷</Text>
-          <Text style={styles.mockCameraLabel}>Camera Preview</Text>
-          <Text style={styles.mockCameraHint}>(Vision Camera loads on device)</Text>
-        </View>
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          onCameraReady={() => sessionLogger.info('camera_ready')}
+        />
         
         {settings.showGrid && <GridOverlay />}
         
         {/* Status bar */}
         <View style={styles.statusBar}>
-          <View style={[styles.statusDot, isPaired ? styles.statusDotOn : styles.statusDotOff]} />
+          <View style={[
+            styles.statusDot, 
+            isConnected ? styles.statusDotLive : 
+            isPaired ? styles.statusDotOn : styles.statusDotOff
+          ]} />
           <Text style={styles.statusText}>
-            {isPaired ? (isSharing ? 'LIVE' : 'Connected') : t.camera.notConnected}
+            {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
           </Text>
         </View>
         
@@ -333,6 +436,13 @@ export default function CameraScreen() {
         <View style={styles.photoCount}>
           <Text style={styles.photoCountText}>{photoCount} {t.camera.captured}</Text>
         </View>
+
+        {/* Remote command indicator */}
+        {lastCommand && (
+          <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.commandOverlay}>
+            <Text style={styles.commandText}>📍 {lastCommand}</Text>
+          </Animated.View>
+        )}
         
         {/* Encouragement toast */}
         <EncouragementToast message={encouragement} visible={showEncouragement} />
@@ -391,6 +501,17 @@ export default function CameraScreen() {
             <Text style={styles.quickActionLabel}>Gallery</Text>
           </Pressable>
           
+          <Pressable 
+            style={styles.quickAction}
+            onPress={toggleCameraFacing}
+            accessibilityLabel="Flip camera"
+            accessibilityHint="Switch between front and back camera"
+            accessibilityRole="button"
+          >
+            <Text style={styles.quickActionText}>🔄</Text>
+            <Text style={styles.quickActionLabel}>Flip</Text>
+          </Pressable>
+
           <Pressable 
             style={styles.quickAction}
             onPress={handleShare}
@@ -540,6 +661,13 @@ const styles = StyleSheet.create({
   statusDotOff: {
     backgroundColor: '#DC2626',
   },
+  statusDotLive: {
+    backgroundColor: '#DC2626',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+  },
   statusText: {
     fontSize: 13,
     fontWeight: '600',
@@ -557,6 +685,22 @@ const styles = StyleSheet.create({
   photoCountText: {
     fontSize: 13,
     fontWeight: '500',
+    color: '#fff',
+  },
+  commandOverlay: {
+    position: 'absolute',
+    top: '40%',
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(34, 197, 94, 0.9)',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  commandText: {
+    fontSize: 18,
+    fontWeight: '700',
     color: '#fff',
   },
   toast: {

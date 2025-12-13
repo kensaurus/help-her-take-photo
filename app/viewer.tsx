@@ -1,8 +1,9 @@
 /**
  * Viewer / Director Mode - Where she takes control
+ * Now with real WebRTC video streaming
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { 
   View, 
   Text, 
@@ -11,6 +12,7 @@ import {
   Dimensions,
   RefreshControl,
   ScrollView,
+  Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -26,10 +28,13 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import { RTCView, MediaStream } from 'react-native-webrtc'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { pairingApi } from '../src/services/api'
+import { sessionLogger } from '../src/services/sessionLogger'
+import { webrtcService } from '../src/services/webrtc'
 
 const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
@@ -137,22 +142,69 @@ function SentIndicator({ message }: { message: string }) {
 
 export default function ViewerScreen() {
   const router = useRouter()
-  const { isPaired, myDeviceId, clearPairing } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats } = useStatsStore()
   
   const [isConnected, setIsConnected] = useState(false)
   const [isReceiving, setIsReceiving] = useState(false)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [connectionState, setConnectionState] = useState<string>('disconnected')
   const [lastCommand, setLastCommand] = useState('')
   const [showSent, setShowSent] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
-  // Simulate connection
+  // Initialize logging
   useEffect(() => {
-    if (isPaired) {
-      setTimeout(() => setIsConnected(true), 1500)
+    if (myDeviceId) {
+      sessionLogger.init(myDeviceId, sessionId ?? undefined)
+      sessionLogger.info('viewer_screen_opened')
     }
-  }, [isPaired])
+    return () => {
+      sessionLogger.info('viewer_screen_closed')
+    }
+  }, [myDeviceId, sessionId])
+
+  // Initialize WebRTC when paired
+  useEffect(() => {
+    if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
+      sessionLogger.info('starting_webrtc_as_director')
+      setIsConnected(true)
+      
+      webrtcService.init(
+        myDeviceId,
+        pairedDeviceId,
+        sessionId,
+        'director',
+        {
+          onRemoteStream: (stream) => {
+            sessionLogger.info('remote_stream_received')
+            setRemoteStream(stream)
+            setIsReceiving(true)
+          },
+          onConnectionStateChange: (state) => {
+            sessionLogger.info('webrtc_state', { state })
+            setConnectionState(state)
+            if (state === 'failed' || state === 'disconnected') {
+              setIsReceiving(false)
+              setRemoteStream(null)
+            }
+          },
+          onError: (error) => {
+            sessionLogger.error('webrtc_error', error)
+            Alert.alert('Connection Error', error.message)
+          },
+        }
+      )
+
+      return () => {
+        webrtcService.destroy()
+        setIsConnected(false)
+        setIsReceiving(false)
+        setRemoteStream(null)
+      }
+    }
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
 
   // Quick Connect: Auto-disconnect when leaving viewer
   useEffect(() => {
@@ -175,18 +227,24 @@ export default function ViewerScreen() {
     }
   }, [myDeviceId, clearPairing])
 
-  const sendDirection = (direction: keyof typeof t.viewer.directions) => {
+  const sendDirection = async (direction: keyof typeof t.viewer.directions) => {
     setLastCommand(t.viewer.directions[direction])
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1500)
-    // In real app: send via P2P connection
+    
+    // Send command via WebRTC
+    await webrtcService.sendCommand('direction', { direction })
+    sessionLogger.info('direction_sent', { direction })
   }
 
-  const handleTakePhoto = () => {
+  const handleTakePhoto = async () => {
     setLastCommand(t.viewer.takePhoto)
     setShowSent(true)
     setTimeout(() => setShowSent(false), 2000)
-    // In real app: send capture command
+    
+    // Send capture command via WebRTC
+    await webrtcService.sendCommand('capture')
+    sessionLogger.info('capture_command_sent')
   }
 
   const handleRefresh = async () => {
@@ -238,16 +296,26 @@ export default function ViewerScreen() {
           <View style={styles.previewContainer}>
             {isConnected ? (
               <View style={styles.preview}>
-                {isReceiving ? (
+                {isReceiving && remoteStream ? (
                   <View style={styles.livePreview}>
-                    <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>
-                    {/* Real preview would go here */}
+                    <RTCView
+                      streamURL={remoteStream.toURL()}
+                      style={StyleSheet.absoluteFill}
+                      objectFit="cover"
+                      mirror={false}
+                    />
+                    <View style={styles.liveOverlay}>
+                      <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.waitingPreview}>
                     <Text style={styles.waitingEmoji}>👀</Text>
                     <Text style={styles.waitingText}>
                       {waitingMessages[waitingMsgIndex]}
+                    </Text>
+                    <Text style={styles.connectionStatus}>
+                      Status: {connectionState}
                     </Text>
                   </View>
                 )}
@@ -380,18 +448,26 @@ const styles = StyleSheet.create({
   },
   livePreview: {
     flex: 1,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-start',
-    padding: 16,
+    position: 'relative',
+  },
+  liveOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
   },
   liveLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#DC2626',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    color: '#fff',
+    backgroundColor: 'rgba(220, 38, 38, 0.9)',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 4,
+  },
+  connectionStatus: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 8,
   },
   waitingPreview: {
     flex: 1,

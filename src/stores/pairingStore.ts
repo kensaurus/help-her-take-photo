@@ -8,10 +8,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 interface PairingState {
   myDeviceId: string | null
   pairedDeviceId: string | null
+  sessionId: string | null
   role: 'camera' | 'viewer' | null
   isPaired: boolean
   setMyDeviceId: (id: string) => void
   setPairedDeviceId: (id: string | null) => void
+  setSessionId: (id: string | null) => void
   setRole: (role: 'camera' | 'viewer') => void
   clearPairing: () => void
   loadFromStorage: () => Promise<void>
@@ -20,6 +22,7 @@ interface PairingState {
 export const usePairingStore = create<PairingState>((set, get) => ({
   myDeviceId: null,
   pairedDeviceId: null,
+  sessionId: null,
   role: null,
   isPaired: false,
 
@@ -37,26 +40,37 @@ export const usePairingStore = create<PairingState>((set, get) => ({
     set({ pairedDeviceId: id, isPaired: !!id })
   },
 
+  setSessionId: async (id) => {
+    if (id) {
+      await AsyncStorage.setItem('sessionId', id)
+    } else {
+      await AsyncStorage.removeItem('sessionId')
+    }
+    set({ sessionId: id })
+  },
+
   setRole: async (role) => {
     await AsyncStorage.setItem('role', role)
     set({ role })
   },
 
   clearPairing: async () => {
-    await AsyncStorage.multiRemove(['pairedDeviceId', 'role'])
-    set({ pairedDeviceId: null, role: null, isPaired: false })
+    await AsyncStorage.multiRemove(['pairedDeviceId', 'sessionId', 'role'])
+    set({ pairedDeviceId: null, sessionId: null, role: null, isPaired: false })
   },
 
   loadFromStorage: async () => {
     try {
-      const [myDeviceId, pairedDeviceId, role] = await AsyncStorage.multiGet([
+      const [myDeviceId, pairedDeviceId, sessionId, role] = await AsyncStorage.multiGet([
         'myDeviceId',
         'pairedDeviceId',
+        'sessionId',
         'role',
       ])
       set({
         myDeviceId: myDeviceId[1],
         pairedDeviceId: pairedDeviceId[1],
+        sessionId: sessionId[1],
         role: role[1] as 'camera' | 'viewer' | null,
         isPaired: !!pairedDeviceId[1],
       })

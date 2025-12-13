@@ -85,7 +85,7 @@ export const pairingApi = {
   /**
    * Join a pairing session with a code
    */
-  async joinPairing(deviceId: string, code: string): Promise<{ partnerId?: string; error?: string }> {
+  async joinPairing(deviceId: string, code: string): Promise<{ partnerId?: string; sessionId?: string; error?: string }> {
     try {
       // Find pending session with this code
       const { data: session, error: findError } = await supabase
@@ -118,7 +118,7 @@ export const pairingApi = {
         return { error: updateError.message }
       }
 
-      return { partnerId: session.device_id }
+      return { partnerId: session.device_id, sessionId: session.id }
     } catch (error) {
       console.error('Join pairing error:', error)
       return { error: error instanceof Error ? error.message : 'Failed to join' }
@@ -128,7 +128,7 @@ export const pairingApi = {
   /**
    * Check if a partner has joined
    */
-  async getPartner(deviceId: string, code: string): Promise<{ partnerId?: string; error?: string }> {
+  async getPartner(deviceId: string, code: string): Promise<{ partnerId?: string; sessionId?: string; error?: string }> {
     try {
       const { data: session } = await supabase
         .from('pairing_sessions')
@@ -142,7 +142,7 @@ export const pairingApi = {
       }
 
       if (session.status === 'paired' && session.partner_device_id) {
-        return { partnerId: session.partner_device_id }
+        return { partnerId: session.partner_device_id, sessionId: session.id }
       }
 
       // Not paired yet
