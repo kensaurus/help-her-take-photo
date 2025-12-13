@@ -1,7 +1,7 @@
 # 📱 Help Her Take Photo - Developer Handoff Documentation
 
-> **Last Updated:** December 12, 2025
-> **Version:** 1.1.0
+> **Last Updated:** December 13, 2025
+> **Version:** 1.1.1
 > **Author:** kensaurus
 
 ---
@@ -113,6 +113,8 @@
 | **Haptics** | expo-haptics | 15.0.8 | Tactile feedback |
 | **OTA Updates** | expo-updates | 29.0.14 | Over-the-air updates |
 | **Backend** | @supabase/supabase-js | 2.86.2 | Database client |
+| **Video** | react-native-webrtc | 124.0.7 | P2P video streaming |
+| **Versioning** | expo-application | 7.0.8 | App version tracking |
 
 ### ✅ Library Status
 All libraries are **up-to-date** as of December 2025:
@@ -186,7 +188,7 @@ help-her-take-photo/
 | `feedback` | Bug reports | `device_token`, `type`, `message` |
 | `session_events` | Analytics | `device_id`, `event_type`, `event_data` |
 | `active_connections` | Real-time | `camera_device_id`, `viewer_device_id` |
-| **`app_logs`** | Debug logging | `device_id`, `level`, `event`, `data`, `timestamp` |
+| **`app_logs`** | Debug logging | `device_id`, `level`, `event`, `data`, `timestamp`, `platform`, `app_version` |
 | **`webrtc_signals`** | WebRTC signaling | `session_id`, `from_device_id`, `signal_type`, `signal_data` |
 | **`commands`** | Direction commands | `session_id`, `command_type`, `command_data` |
 
@@ -219,8 +221,8 @@ The app uses `sessionLogger` (`src/services/sessionLogger.ts`) to log all events
 // Usage in components
 import { sessionLogger } from '../src/services/sessionLogger'
 
-// Initialize (done in _layout.tsx)
-sessionLogger.init(deviceId, sessionId)
+// Initialize (done automatically in app/_layout.tsx on app start)
+// sessionLogger.init(deviceId, sessionId)
 
 // Log events
 sessionLogger.info('event_name', { data: 'value' })
@@ -267,7 +269,30 @@ ORDER BY timestamp DESC;
 SELECT * FROM app_logs 
 WHERE data->>'error_message' IS NOT NULL
 ORDER BY timestamp DESC;
+
+-- 8. Filter by platform
+SELECT * FROM app_logs 
+WHERE platform LIKE 'android%'
+ORDER BY timestamp DESC;
+
+-- 9. Filter by app version
+SELECT * FROM app_logs 
+WHERE app_version = '1.0.0'
+ORDER BY timestamp DESC;
 ```
+
+### Log Entry Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `device_id` | UUID | Unique device identifier |
+| `session_id` | UUID | Pairing session (nullable) |
+| `level` | string | Log level (`debug`, `info`, `warn`, `error`) |
+| `event` | string | Event name (e.g., `webrtc_connected`) |
+| `data` | JSONB | Event payload |
+| `timestamp` | ISO 8601 | When event occurred |
+| `platform` | string | OS + version (`android 35`, `ios 17.2`) |
+| `app_version` | string | App version from `expo-application` |
 
 ### Log Levels
 
@@ -379,8 +404,8 @@ eas update --branch preview --message "Bug fixes"
 
 | Workflow | Trigger | Action |
 |----------|---------|--------|
-| `eas-build.yml` | Push to main | Build Android + iOS |
-| `eas-update.yml` | Push to main | OTA update |
+| `eas-build.yml` | Release / Manual | Build Android + iOS APK/IPA |
+| `eas-update.yml` | Push to main | OTA update to preview channel |
 
 ### Required GitHub Secrets
 

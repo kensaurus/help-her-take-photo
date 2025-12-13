@@ -21,6 +21,22 @@ A mobile app that helps couples take better photos by allowing one person to rem
 - 🎯 **Onboarding** - First-time user experience with language selection
 - 📊 **Debug Logging** - All events logged to Supabase for debugging
 
+## 🏗 Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Framework | Expo SDK 54, React Native 0.81 |
+| Navigation | Expo Router v6 |
+| State | Zustand |
+| Animations | Reanimated 4 |
+| Camera | expo-camera, vision-camera |
+| Video Streaming | **react-native-webrtc** (P2P) |
+| Storage | AsyncStorage, expo-secure-store |
+| Lists | @shopify/flash-list |
+| Images | expo-image |
+| Haptics | expo-haptics |
+| **Backend** | **Supabase (Direct)** |
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -50,21 +66,6 @@ npx expo start
 2. **Android Emulator**: Press `a` in terminal
 3. **iOS Simulator** (macOS only): Press `i` in terminal
 4. **Development Build**: See [Development Builds](#-development-builds) below
-
-## 🏗 Tech Stack
-
-| Category | Technology |
-|----------|------------|
-| Framework | Expo SDK 54, React Native 0.81 |
-| Navigation | Expo Router v6 |
-| State | Zustand |
-| Animations | Reanimated 4 |
-| Camera | expo-camera, vision-camera |
-| Storage | AsyncStorage, expo-secure-store |
-| Lists | @shopify/flash-list |
-| Images | expo-image |
-| Haptics | expo-haptics |
-| **Backend** | **Supabase (Direct)** |
 
 ## 🏛️ Architecture
 
@@ -171,6 +172,19 @@ WHERE timestamp > NOW() - INTERVAL '1 hour'
 ORDER BY timestamp DESC;
 ```
 
+### Log Entry Fields
+
+| Field | Description |
+|-------|-------------|
+| `device_id` | Unique device identifier |
+| `session_id` | Current pairing session (if any) |
+| `level` | Log level (debug/info/warn/error) |
+| `event` | Event name (e.g., `webrtc_connected`) |
+| `data` | JSON payload with event data |
+| `timestamp` | ISO 8601 timestamp |
+| `platform` | Device platform (`android 35`, `ios 17`) |
+| `app_version` | App version from `expo-application` |
+
 ### Log Levels
 
 | Level | Usage |
@@ -228,9 +242,8 @@ npx expo start --dev-client
 
 | Workflow | Trigger | Action |
 |----------|---------|--------|
-| **EAS Build** | Push to `main` | Builds preview APK/IPA |
+| **EAS Build** | GitHub Release / Manual | Builds preview APK/IPA |
 | **EAS Update** | Push to `main` | OTA update to preview channel |
-| **PR Preview** | Pull Request | Creates preview deployment |
 
 ### Build Profiles
 
