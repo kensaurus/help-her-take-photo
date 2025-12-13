@@ -17,6 +17,7 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
+import { sessionLogger } from '../src/services/sessionLogger'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
@@ -51,6 +52,11 @@ export default function RootLayout() {
       const pairingState = usePairingStore.getState()
       if (pairingState.myDeviceId) {
         setStatsDeviceId(pairingState.myDeviceId)
+        // Initialize session logger for Supabase logging
+        sessionLogger.init(pairingState.myDeviceId)
+        sessionLogger.info('app_started', { 
+          hasSeenOnboarding: useOnboardingStore.getState().hasSeenOnboarding 
+        })
       }
       
       // Register for push notifications (non-blocking)

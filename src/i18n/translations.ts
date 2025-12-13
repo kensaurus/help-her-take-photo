@@ -52,6 +52,7 @@ export const translations = {
     // Camera
     camera: {
       title: 'Camera',
+      loading: 'Preparing camera...',
       share: 'Share',
       stop: 'Stop',
       options: 'Options',
@@ -205,6 +206,7 @@ export const translations = {
     
     camera: {
       title: 'กล้อง',
+      loading: 'กำลังเตรียมกล้อง...',
       share: 'แชร์',
       stop: 'หยุด',
       options: 'ตั้งค่า',
@@ -353,6 +355,7 @@ export const translations = {
     
     camera: {
       title: '相机',
+      loading: '正在准备相机...',
       share: '分享',
       stop: '停止',
       options: '设置',
@@ -501,6 +504,7 @@ export const translations = {
     
     camera: {
       title: 'カメラ',
+      loading: 'カメラを準備中...',
       share: '共有',
       stop: '停止',
       options: '設定',

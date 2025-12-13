@@ -225,6 +225,7 @@ export default function CameraScreen() {
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
   const [lastCommand, setLastCommand] = useState<string | null>(null)
+  const [isLoadingPermission, setIsLoadingPermission] = useState(true)
   
   const encouragements = t.camera.encouragements
 
@@ -236,8 +237,16 @@ export default function CameraScreen() {
     }
     return () => {
       sessionLogger.info('camera_screen_closed')
+      sessionLogger.flush()
     }
   }, [myDeviceId, sessionId])
+
+  // Handle permission loading state
+  useEffect(() => {
+    if (permission !== null) {
+      setIsLoadingPermission(false)
+    }
+  }, [permission])
 
   // Initialize WebRTC when paired and sharing
   useEffect(() => {
@@ -331,8 +340,27 @@ export default function CameraScreen() {
     }
   }
 
-  // Show permission denied view
-  if (!permission?.granted) {
+  // Show loading while permission is being checked
+  if (isLoadingPermission || permission === null) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={styles.loadingContainer}>
+          <Animated.View entering={FadeIn.duration(300)}>
+            <Icon name="camera" size={64} color={colors.textMuted} />
+          </Animated.View>
+          <Animated.Text 
+            entering={FadeIn.delay(200).duration(300)}
+            style={[styles.loadingText, { color: colors.textMuted }]}
+          >
+            {t.camera.loading || 'Preparing camera...'}
+          </Animated.Text>
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  // Show permission denied view (only after permission is checked and denied)
+  if (!permission.granted) {
     return (
       <PermissionDenied 
         onRequestPermission={handleRequestPermission}
@@ -548,6 +576,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  // Loading state styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  loadingText: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   // Permission denied styles
   permissionContainer: {

@@ -211,7 +211,14 @@ class SessionLogger {
     this.buffer = []
 
     try {
-      await supabase.from('app_logs').insert(entries)
+      const { error } = await supabase.from('app_logs').insert(entries)
+      if (error) {
+        console.error('[SessionLogger] Insert error:', error.message, error.details, error.hint)
+        // Re-add to buffer on failure (with limit)
+        if (this.buffer.length < this.BUFFER_SIZE * 2) {
+          this.buffer = [...entries, ...this.buffer]
+        }
+      }
     } catch (err) {
       // Re-add to buffer on failure (with limit)
       if (this.buffer.length < this.BUFFER_SIZE * 2) {
