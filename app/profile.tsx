@@ -100,7 +100,7 @@ export default function ProfileScreen() {
   const { colors, mode } = useThemeStore()
   const { myDeviceId, isPaired, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
-  const { stats, getRank } = useStatsStore()
+  const { stats, getRank, loadStats } = useStatsStore()
   const [displayName, setDisplayName] = useState('User')
   const [refreshing, setRefreshing] = useState(false)
 
@@ -111,7 +111,8 @@ export default function ProfileScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 500))
+    // Reload stats from Supabase
+    await loadStats()
     setRefreshing(false)
   }
 

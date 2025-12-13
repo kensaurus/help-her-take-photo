@@ -357,9 +357,10 @@ export default function HomeScreen() {
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await new Promise(r => setTimeout(r, 500))
+    // Reload stats from Supabase
+    await loadStats()
     setRefreshing(false)
-  }, [])
+  }, [loadStats])
 
   const handleCamera = () => {
     setRole('camera')

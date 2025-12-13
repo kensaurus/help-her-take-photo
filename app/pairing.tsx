@@ -39,6 +39,7 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
+import { sessionLogger } from '../src/services/sessionLogger'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 const CODE_LENGTH = 4
@@ -468,9 +469,9 @@ export default function PairingScreen() {
     setError('')
     
     try {
-      console.log('Creating pairing code with deviceId:', deviceId)
+      sessionLogger.info('creating_pairing_code', { deviceId })
       const result = await pairingApi.createPairing(deviceId)
-      console.log('Pairing result:', result)
+      sessionLogger.info('pairing_code_created', { code: result.code, error: result.error })
       
       if (result.code) {
         setCode(result.code)
@@ -482,7 +483,7 @@ export default function PairingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      console.error('Pairing error:', err)
+      sessionLogger.error('pairing_error', err)
       setError('Server unavailable. Please try again.')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     }
@@ -504,9 +505,9 @@ export default function PairingScreen() {
     Keyboard.dismiss()
     
     try {
-      console.log('Joining with code:', inputCode, 'deviceId:', deviceId)
+      sessionLogger.info('joining_pairing', { code: inputCode, deviceId })
       const result = await pairingApi.joinPairing(deviceId, inputCode)
-      console.log('Join result:', result)
+      sessionLogger.info('join_result', { partnerId: result.partnerId, error: result.error })
       
       if (result.partnerId) {
         // Save quick connect mode for auto-disconnect
@@ -525,7 +526,7 @@ export default function PairingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      console.error('Join error:', err)
+      sessionLogger.error('join_error', err)
       setError('Server unavailable. Check your connection.')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     }

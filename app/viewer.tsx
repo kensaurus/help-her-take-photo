@@ -218,10 +218,10 @@ export default function ViewerScreen() {
             await pairingApi.unpair(myDeviceId)
             clearPairing()
             await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
-            console.log('[Quick Connect] Auto-disconnected')
+            sessionLogger.info('quick_connect_auto_disconnected')
           }
         } catch (error) {
-          console.error('[Quick Connect] Error during cleanup:', error)
+          sessionLogger.error('quick_connect_cleanup_error', error)
         }
       })()
     }
