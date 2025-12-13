@@ -9,6 +9,8 @@
  * 5. Rate-limit to prevent spam
  */
 
+import { Platform } from 'react-native'
+import * as Application from 'expo-application'
 import { supabase } from './supabase'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
@@ -183,7 +185,8 @@ class SessionLogger {
       event,
       data,
       timestamp: new Date().toISOString(),
-      platform: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown',
+      platform: `${Platform.OS} ${Platform.Version}`,
+      app_version: Application.nativeApplicationVersion ?? '1.0.0',
     }
 
     // Console output in dev
