@@ -10,14 +10,16 @@ A mobile app that helps couples take better photos by allowing one person to rem
 ## ✨ Features
 
 - 🔗 **Quick Pairing** - Connect devices with a simple 4-digit code
-- 📱 **Real-time Camera View** - See what your partner sees
+- 📱 **Real-time Camera View** - See what your partner sees (WebRTC P2P)
+- 🎬 **Direction Commands** - Tell them to move left, right, up, down
 - 📷 **Remote Capture** - Take the perfect shot from anywhere
-- 🖼️ **Instant Gallery** - Share high-res photos immediately
+- 🖼️ **Instant Gallery** - Photo library with Supabase sync
 - 🌍 **Multi-language** - English, Thai, Chinese, Japanese (selectable in onboarding)
 - 🌙 **Dark Mode** - Easy on the eyes
 - 🎮 **Gamification** - Track your "scoldings saved"
 - 📝 **Feedback** - Submit suggestions directly from the app
 - 🎯 **Onboarding** - First-time user experience with language selection
+- 📊 **Debug Logging** - All events logged to Supabase for debugging
 
 ## 🚀 Quick Start
 
@@ -72,19 +74,21 @@ npx expo start
 │  React Native + Zustand + Reanimated    │
 └─────────────────┬───────────────────────┘
                   │
-                  │ Direct Connection (supabase-js)
-                  ▼
-┌─────────────────────────────────────────┐
-│         SUPABASE BACKEND                │
-├─────────────────────────────────────────┤
-│  • PostgreSQL Database                  │
-│  • Row Level Security (RLS)             │
-│  • Real-time Subscriptions (ready)      │
-│  • Storage (for photos)                 │
-└─────────────────────────────────────────┘
+        ┌─────────┴─────────┐
+        │                   │
+        ▼                   ▼
+┌───────────────┐   ┌───────────────────┐
+│   SUPABASE    │   │     WEBRTC        │
+│   BACKEND     │   │   (P2P Video)     │
+├───────────────┤   ├───────────────────┤
+│ • PostgreSQL  │   │ • Video Stream    │
+│ • RLS Policies│   │ • Commands        │
+│ • Realtime    │◄──│ • Signaling       │
+│ • Logging     │   │   (via Supabase)  │
+└───────────────┘   └───────────────────┘
 ```
 
-**Note:** No separate API server required. The app connects directly to Supabase.
+**Note:** No separate API server required. Video streams peer-to-peer; signaling via Supabase Realtime.
 
 ## 📁 Project Structure
 
@@ -107,7 +111,9 @@ npx expo start
 │   ├── stores/           # Zustand state stores
 │   ├── services/         # Business logic
 │   │   ├── api.ts        # Supabase API client
-│   │   └── supabase.ts   # Supabase configuration
+│   │   ├── supabase.ts   # Supabase configuration
+│   │   ├── sessionLogger.ts  # Supabase logging service
+│   │   └── webrtc.ts     # WebRTC P2P video streaming
 │   ├── hooks/            # Custom React hooks
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── types/            # TypeScript definitions
@@ -130,6 +136,63 @@ npx expo start
 | `feedback` | Bug reports & feature requests |
 | `session_events` | Analytics |
 | `active_connections` | Real-time connections |
+| `app_logs` | **Debug logging** |
+| `webrtc_signals` | **WebRTC signaling** |
+| `commands` | **Direction commands** |
+
+## 📊 Logging & Debugging
+
+All app events are logged to Supabase for debugging. Use these SQL queries:
+
+### Retrieve App Logs
+
+```sql
+-- Recent logs (last 20)
+SELECT * FROM app_logs ORDER BY timestamp DESC LIMIT 20;
+
+-- Filter by device
+SELECT * FROM app_logs 
+WHERE device_id = 'YOUR_DEVICE_ID' 
+ORDER BY timestamp DESC;
+
+-- Filter by error level
+SELECT * FROM app_logs 
+WHERE level = 'error' 
+ORDER BY timestamp DESC;
+
+-- Filter by event type
+SELECT * FROM app_logs 
+WHERE event LIKE 'webrtc_%' 
+ORDER BY timestamp DESC;
+
+-- Filter by time range
+SELECT * FROM app_logs 
+WHERE timestamp > NOW() - INTERVAL '1 hour'
+ORDER BY timestamp DESC;
+```
+
+### Log Levels
+
+| Level | Usage |
+|-------|-------|
+| `debug` | Development only (verbose) |
+| `info` | Normal operations |
+| `warn` | Potential issues |
+| `error` | Failures (includes stack trace) |
+
+### WebRTC Connection Events
+
+```sql
+-- Track WebRTC signaling
+SELECT * FROM webrtc_signals 
+WHERE session_id = 'YOUR_SESSION_ID'
+ORDER BY created_at;
+
+-- Track commands sent
+SELECT * FROM commands 
+WHERE session_id = 'YOUR_SESSION_ID'
+ORDER BY created_at;
+```
 
 ## 🔧 Development
 

@@ -151,7 +151,9 @@ help-her-take-photo/
 │   │   └── onboardingStore.ts
 │   ├── services/         # API & business logic
 │   │   ├── api.ts        # Supabase API methods
-│   │   └── supabase.ts   # Supabase client config
+│   │   ├── supabase.ts   # Supabase client config
+│   │   ├── sessionLogger.ts  # Supabase debug logging
+│   │   └── webrtc.ts     # WebRTC P2P video streaming
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── config/           # Build info, changelog
 │   └── types/            # TypeScript types
@@ -184,6 +186,9 @@ help-her-take-photo/
 | `feedback` | Bug reports | `device_token`, `type`, `message` |
 | `session_events` | Analytics | `device_id`, `event_type`, `event_data` |
 | `active_connections` | Real-time | `camera_device_id`, `viewer_device_id` |
+| **`app_logs`** | Debug logging | `device_id`, `level`, `event`, `data`, `timestamp` |
+| **`webrtc_signals`** | WebRTC signaling | `session_id`, `from_device_id`, `signal_type`, `signal_data` |
+| **`commands`** | Direction commands | `session_id`, `command_type`, `command_data` |
 
 ### Privacy Model
 
@@ -199,6 +204,109 @@ Migrations are in `supabase/migrations/`. Run them in order:
 1. `001_pairing_tables.sql` - Initial pairing & feedback
 2. `004_simple_migration.sql` - All new tables
 3. `006_simple_rls.sql` - RLS policies
+4. `007_logging_tables.sql` - Logging & WebRTC tables
+5. `008_fix_logging_policies.sql` - Fix duplicate policies (if needed)
+
+---
+
+## 📊 Logging & Debugging
+
+### Session Logger Service
+
+The app uses `sessionLogger` (`src/services/sessionLogger.ts`) to log all events to Supabase.
+
+```typescript
+// Usage in components
+import { sessionLogger } from '../src/services/sessionLogger'
+
+// Initialize (done in _layout.tsx)
+sessionLogger.init(deviceId, sessionId)
+
+// Log events
+sessionLogger.info('event_name', { data: 'value' })
+sessionLogger.warn('warning_event', { issue: 'description' })
+sessionLogger.error('error_event', error, { context: 'data' })
+sessionLogger.debug('debug_info', { verbose: true }) // Only in __DEV__
+```
+
+### Retrieve Logs from Supabase
+
+Run these queries in Supabase SQL Editor:
+
+```sql
+-- 1. All recent logs
+SELECT * FROM app_logs ORDER BY timestamp DESC LIMIT 50;
+
+-- 2. Filter by device
+SELECT * FROM app_logs 
+WHERE device_id = 'abc123' 
+ORDER BY timestamp DESC;
+
+-- 3. Filter by log level
+SELECT level, event, data, timestamp 
+FROM app_logs 
+WHERE level = 'error' 
+ORDER BY timestamp DESC;
+
+-- 4. Filter by event type
+SELECT * FROM app_logs 
+WHERE event LIKE 'webrtc_%' 
+ORDER BY timestamp DESC;
+
+-- 5. Filter by session
+SELECT * FROM app_logs 
+WHERE session_id = 'session-uuid' 
+ORDER BY timestamp DESC;
+
+-- 6. Time-based query (last hour)
+SELECT * FROM app_logs 
+WHERE timestamp > NOW() - INTERVAL '1 hour'
+ORDER BY timestamp DESC;
+
+-- 7. Search in data JSON
+SELECT * FROM app_logs 
+WHERE data->>'error_message' IS NOT NULL
+ORDER BY timestamp DESC;
+```
+
+### Log Levels
+
+| Level | When to Use | Stored in Supabase |
+|-------|-------------|-------------------|
+| `debug` | Verbose debugging | **Only in dev** |
+| `info` | Normal operations | ✅ Yes |
+| `warn` | Potential issues | ✅ Yes |
+| `error` | Failures | ✅ Yes (+ stack trace) |
+
+### WebRTC & Command Logs
+
+```sql
+-- Track WebRTC connection attempts
+SELECT * FROM webrtc_signals 
+WHERE session_id = 'your-session' 
+ORDER BY created_at;
+
+-- Track commands sent between devices
+SELECT * FROM commands 
+WHERE session_id = 'your-session' 
+ORDER BY created_at;
+
+-- Connection state changes
+SELECT * FROM session_events 
+WHERE event_type LIKE 'connection_%'
+ORDER BY created_at DESC;
+```
+
+### Automatic Cleanup (Optional)
+
+Add this as a scheduled Supabase function to clean old logs:
+
+```sql
+-- Delete logs older than 7 days
+DELETE FROM app_logs WHERE timestamp < NOW() - INTERVAL '7 days';
+DELETE FROM webrtc_signals WHERE created_at < NOW() - INTERVAL '1 day';
+DELETE FROM commands WHERE created_at < NOW() - INTERVAL '1 day';
+```
 
 ---
 
@@ -290,17 +398,22 @@ EXPO_TOKEN  # Personal access token from expo.dev
    - **Cause:** Apple Developer credentials not set up
    - **Fix:** Run `eas credentials --platform ios`
 
-2. **P2P Streaming**
-   - UDP streaming needs more testing
-   - Consider WebRTC for better reliability
+2. **WebRTC NAT Traversal**
+   - **Issue:** Video may not connect if devices are on different networks
+   - **Cause:** Using only STUN servers (Google's free ones)
+   - **Fix:** Add TURN server for production (Twilio, or self-hosted)
+
+3. **Same WiFi Requirement**
+   - WebRTC works best when both devices are on same WiFi
+   - For different networks, need TURN server
 
 ### Technical Debt
 
 | Item | Priority | Description |
 |------|----------|-------------|
 | Tests | High | No unit/integration tests yet |
+| TURN Server | High | Add TURN for cross-network video |
 | Error Boundaries | Medium | Add crash recovery UI |
-| Analytics | Low | Add event tracking |
 | Offline Mode | Low | Handle offline scenarios |
 
 ---
@@ -309,8 +422,8 @@ EXPO_TOKEN  # Personal access token from expo.dev
 
 ### Completed ✅
 - [x] Device pairing (4-digit code)
-- [x] Camera capture and preview
-- [x] Photo gallery with sharing
+- [x] Camera capture and preview (real expo-camera)
+- [x] Photo gallery with Supabase sync
 - [x] Multi-language (EN, TH, ZH, JA)
 - [x] Language selection in onboarding
 - [x] Dark/Light theme
@@ -319,11 +432,15 @@ EXPO_TOKEN  # Personal access token from expo.dev
 - [x] OTA updates configured
 - [x] CI/CD pipeline
 - [x] Direct Supabase integration
+- [x] **WebRTC P2P video streaming**
+- [x] **Direction commands (left, right, up, down)**
+- [x] **Debug logging to Supabase (app_logs)**
+- [x] **Session tracking & analytics**
 
 ### In Progress 🚧
-- [ ] Real-time P2P streaming
 - [ ] iOS build credentials
 - [ ] Production deployment
+- [ ] TURN server for NAT traversal
 
 ### Planned 📋
 - [ ] Push notifications
