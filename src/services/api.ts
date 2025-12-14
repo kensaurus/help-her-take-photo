@@ -209,6 +209,72 @@ export const pairingApi = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
+// PROFILE API
+// Manage device display names and profiles
+// ─────────────────────────────────────────────────────────────────────────────────
+
+export interface DeviceProfile {
+  id: string
+  device_id: string
+  display_name: string
+  avatar_emoji: string
+  created_at?: string
+  updated_at?: string
+}
+
+export const profileApi = {
+  /**
+   * Get profile for a device
+   */
+  async get(deviceId: string): Promise<{ profile?: DeviceProfile; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('device_profiles')
+        .select('*')
+        .eq('device_id', deviceId)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        return { error: error.message }
+      }
+
+      return { profile: data || undefined }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to fetch profile' }
+    }
+  },
+
+  /**
+   * Create or update profile
+   */
+  async upsert(deviceId: string, displayName: string, avatarEmoji?: string): Promise<{ profile?: DeviceProfile; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('device_profiles')
+        .upsert({
+          device_id: deviceId,
+          display_name: displayName,
+          avatar_emoji: avatarEmoji || '👤',
+        }, { onConflict: 'device_id' })
+        .select()
+        .single()
+
+      if (error) return { error: error.message }
+      return { profile: data }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to save profile' }
+    }
+  },
+
+  /**
+   * Get partner's profile by device ID
+   */
+  async getPartnerProfile(partnerDeviceId: string): Promise<{ profile?: DeviceProfile; error?: string }> {
+    return this.get(partnerDeviceId)
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
 // DEVICE API
 // Register and manage device information
 // ─────────────────────────────────────────────────────────────────────────────────

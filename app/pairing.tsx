@@ -1,7 +1,6 @@
 /**
  * Pairing - Connect with your partner
- * 4-digit code for easier entry
- * Responsive design for all screen sizes
+ * Enhanced UX with profile setup and connection management
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -15,6 +14,7 @@ import {
   ScrollView,
   RefreshControl,
   Keyboard,
+  Alert,
   useWindowDimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -23,7 +23,6 @@ import Animated, {
   FadeIn,
   FadeInUp,
   FadeInDown,
-  FadeOut,
   useAnimatedStyle, 
   useSharedValue, 
   withSpring,
@@ -33,29 +32,27 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import { usePairingStore } from '../src/stores/pairingStore'
-import { useConnectionStore } from '../src/stores/connectionStore'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
-import { pairingApi } from '../src/services/api'
+import { pairingApi, profileApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
 import { sessionLogger } from '../src/services/sessionLogger'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // API timeout helper
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => 
-      setTimeout(() => reject(new Error('Request timed out. Please try again.')), ms)
+      setTimeout(() => reject(new Error('Request timed out')), ms)
     ),
   ])
 }
 
 const CODE_LENGTH = 4
 
-// Quick connect mode - auto-disconnect after session
-const QUICK_CONNECT_KEY = 'quick_connect_mode'
+// Avatar options
+const AVATAR_OPTIONS = ['👤', '😊', '🙂', '😎', '🤓', '🥰', '🦊', '🐱', '🐶', '🦁', '🐼', '🐨']
 
 /**
  * Generate device ID if needed
@@ -69,146 +66,226 @@ function generateDeviceId(): string {
 }
 
 /**
- * Animated action button with press feedback
+ * Profile Setup Component
  */
-function ActionButton({ 
-  label, 
-  subtitle, 
-  onPress,
-  active = false,
-  index = 0,
-  loading = false,
-  accessibilityHint,
+function ProfileSetup({ 
+  onComplete,
+  colors,
 }: { 
-  label: string
-  subtitle: string
-  onPress: () => void
-  active?: boolean
-  index?: number
-  loading?: boolean
-  accessibilityHint?: string
+  onComplete: (name: string, avatar: string) => void
+  colors: any
 }) {
-  const { colors } = useThemeStore()
+  const [name, setName] = useState('')
+  const [avatar, setAvatar] = useState('👤')
   const { width } = useWindowDimensions()
-  const scale = useSharedValue(1)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
+  const isSmall = width < 360
 
-  const handlePressIn = () => {
-    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 })
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 300 })
-  }
-
-  // Responsive font sizes
-  const isSmallScreen = width < 360
-  const labelSize = isSmallScreen ? 15 : 17
-  const subtitleSize = isSmallScreen ? 12 : 14
-  
   return (
-    <Animated.View entering={FadeInUp.delay(index * 80).duration(300)}>
-      <Pressable 
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={styles.actionButtonPressable}
-        disabled={loading}
-        accessibilityLabel={`${label}. ${subtitle}`}
-        accessibilityHint={accessibilityHint}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: loading }}
-      >
-        <Animated.View style={[
-          styles.actionButton, 
+    <Animated.View entering={FadeIn.duration(400)} style={styles.profileSetup}>
+      <Text style={[styles.setupTitle, { color: colors.text }]}>
+        👋 Welcome!
+      </Text>
+      <Text style={[styles.setupSubtitle, { color: colors.textMuted }]}>
+        Set up your profile so your partner knows who you are
+      </Text>
+
+      {/* Avatar selector */}
+      <View style={styles.avatarSection}>
+        <Text style={[styles.labelText, { color: colors.textMuted }]}>Choose your avatar</Text>
+        <View style={styles.avatarGrid}>
+          {AVATAR_OPTIONS.map((emoji) => (
+            <Pressable
+              key={emoji}
+              style={[
+                styles.avatarOption,
+                { 
+                  backgroundColor: avatar === emoji ? colors.primary : colors.surface,
+                  borderColor: avatar === emoji ? colors.primary : colors.border,
+                }
+              ]}
+              onPress={() => {
+                setAvatar(emoji)
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              }}
+            >
+              <Text style={styles.avatarEmoji}>{emoji}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {/* Name input */}
+      <View style={styles.nameSection}>
+        <Text style={[styles.labelText, { color: colors.textMuted }]}>Your display name</Text>
+        <TextInput
+          style={[
+            styles.nameInput,
+            { 
+              backgroundColor: colors.surface,
+              borderColor: name.length > 0 ? colors.primary : colors.border,
+              color: colors.text,
+              fontSize: isSmall ? 16 : 18,
+            }
+          ]}
+          value={name}
+          onChangeText={setName}
+          placeholder="Enter your name..."
+          placeholderTextColor={colors.textMuted}
+          maxLength={20}
+          autoCapitalize="words"
+        />
+      </View>
+
+      {/* Continue button */}
+      <Pressable
+        style={[
+          styles.continueBtn,
           { 
-            backgroundColor: active ? colors.primary : colors.surface,
-            borderColor: active ? colors.primary : colors.border,
-            opacity: loading ? 0.7 : 1,
-          },
-          animatedStyle
-        ]}>
-          {loading ? (
-            <ActivityIndicator size="small" color={colors.text} />
-          ) : (
-            <>
-              <Text 
-                style={[
-                  styles.actionButtonLabel, 
-                  { 
-                    color: active ? colors.primaryText : colors.text,
-                    fontSize: labelSize,
-                  }
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {label}
-              </Text>
-              <Text 
-                style={[
-                  styles.actionButtonSubtitle, 
-                  { 
-                    color: active ? `${colors.primaryText}99` : colors.textMuted,
-                    fontSize: subtitleSize,
-                  }
-                ]}
-                numberOfLines={2}
-                adjustsFontSizeToFit
-              >
-                {subtitle}
-              </Text>
-            </>
-          )}
-        </Animated.View>
+            backgroundColor: name.trim().length > 0 ? colors.primary : colors.textMuted,
+            opacity: name.trim().length > 0 ? 1 : 0.5,
+          }
+        ]}
+        onPress={() => {
+          if (name.trim().length > 0) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+            onComplete(name.trim(), avatar)
+          }
+        }}
+        disabled={name.trim().length === 0}
+      >
+        <Text style={[styles.continueBtnText, { color: colors.primaryText }]}>
+          Continue
+        </Text>
       </Pressable>
     </Animated.View>
   )
 }
 
 /**
- * Code display with staggered animation - 4 digits
- * Responsive sizing based on screen width
+ * Connected Status Component - Shows when already paired
  */
-function CodeDisplay({ code }: { code: string }) {
-  const { colors } = useThemeStore()
+function ConnectedStatus({ 
+  sessionId,
+  partnerName,
+  partnerAvatar,
+  myName,
+  myAvatar,
+  onDisconnect,
+  onNewConnection,
+  colors,
+}: { 
+  sessionId: string
+  partnerName: string | null
+  partnerAvatar: string
+  myName: string | null
+  myAvatar: string
+  onDisconnect: () => void
+  onNewConnection: () => void
+  colors: any
+}) {
+  return (
+    <Animated.View entering={FadeIn.duration(400)} style={styles.connectedContainer}>
+      <View style={[styles.connectedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <View style={styles.connectedHeader}>
+          <View style={[styles.connectedIcon, { backgroundColor: '#22C55E20' }]}>
+            <Text style={styles.connectedIconText}>🔗</Text>
+          </View>
+          <Text style={[styles.connectedTitle, { color: colors.text }]}>
+            Connected
+          </Text>
+        </View>
+
+        {/* Connection info */}
+        <View style={styles.connectionInfo}>
+          {/* My device */}
+          <View style={styles.deviceInfo}>
+            <Text style={styles.deviceAvatar}>{myAvatar}</Text>
+            <View style={styles.deviceDetails}>
+              <Text style={[styles.deviceName, { color: colors.text }]}>
+                {myName || 'You'}
+              </Text>
+              <Text style={[styles.deviceRole, { color: colors.textMuted }]}>This device</Text>
+            </View>
+          </View>
+
+          {/* Connection line */}
+          <View style={styles.connectionLine}>
+            <View style={[styles.connectionDot, { backgroundColor: '#22C55E' }]} />
+            <View style={[styles.connectionDash, { backgroundColor: colors.border }]} />
+            <View style={[styles.connectionDot, { backgroundColor: '#22C55E' }]} />
+          </View>
+
+          {/* Partner device */}
+          <View style={styles.deviceInfo}>
+            <Text style={styles.deviceAvatar}>{partnerAvatar}</Text>
+            <View style={styles.deviceDetails}>
+              <Text style={[styles.deviceName, { color: colors.text }]}>
+                {partnerName || 'Partner'}
+              </Text>
+              <Text style={[styles.deviceRole, { color: colors.textMuted }]}>Connected device</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Session info */}
+        <View style={[styles.sessionInfo, { backgroundColor: colors.surfaceAlt }]}>
+          <Text style={[styles.sessionLabel, { color: colors.textMuted }]}>Session ID</Text>
+          <Text style={[styles.sessionId, { color: colors.text }]}>
+            {sessionId.slice(0, 8)}...{sessionId.slice(-4)}
+          </Text>
+        </View>
+      </View>
+
+      {/* Actions */}
+      <View style={styles.connectedActions}>
+        <Pressable
+          style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          onPress={onNewConnection}
+        >
+          <Icon name="refresh" size={18} color={colors.text} />
+          <Text style={[styles.actionBtnText, { color: colors.text }]}>New Connection</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.actionBtn, styles.disconnectBtn, { borderColor: '#DC262640' }]}
+          onPress={onDisconnect}
+        >
+          <Text style={[styles.actionBtnText, { color: '#DC2626' }]}>Disconnect</Text>
+        </Pressable>
+      </View>
+
+      {/* Back to home */}
+      <Pressable
+        style={styles.backToHome}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        }}
+      >
+        <Text style={[styles.backToHomeText, { color: colors.textMuted }]}>
+          ← Go back and choose a role
+        </Text>
+      </Pressable>
+    </Animated.View>
+  )
+}
+
+/**
+ * Code Display Component
+ */
+function CodeDisplay({ code, colors }: { code: string; colors: any }) {
   const { width } = useWindowDimensions()
   const displayCode = code.split('')
-  
-  // Responsive sizing - use percentage of screen width
-  const maxCharWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
-  const charWidth = Math.max(48, maxCharWidth)
-  const charHeight = charWidth * 1.25
-  const fontSize = charWidth * 0.55
+  const charWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
   
   return (
-    <View style={[styles.codeDisplay, { gap: Math.min(12, (width - 80 - charWidth * CODE_LENGTH) / (CODE_LENGTH - 1)) }]}>
+    <View style={styles.codeDisplay}>
       {displayCode.map((char, i) => (
         <Animated.View 
           key={i} 
           entering={FadeInUp.delay(i * 60).duration(300).springify()} 
-          style={[
-            styles.codeChar, 
-            { 
-              backgroundColor: colors.primary,
-              width: charWidth,
-              height: charHeight,
-            }
-          ]}
+          style={[styles.codeChar, { backgroundColor: colors.primary, width: charWidth, height: charWidth * 1.25 }]}
         >
-          <Text 
-            style={[
-              styles.codeCharText, 
-              { 
-                color: colors.primaryText,
-                fontSize,
-              }
-            ]}
-          >
+          <Text style={[styles.codeCharText, { color: colors.primaryText, fontSize: charWidth * 0.55 }]}>
             {char}
           </Text>
         </Animated.View>
@@ -218,55 +295,17 @@ function CodeDisplay({ code }: { code: string }) {
 }
 
 /**
- * Code input with cursor effect - 4 digits
- * Responsive sizing based on screen width
+ * Code Input Component
  */
-function CodeInput({ 
-  value, 
-  onChange, 
-  onSubmit,
-}: { 
-  value: string
-  onChange: (v: string) => void
-  onSubmit: () => void
-}) {
-  const { colors } = useThemeStore()
+function CodeInput({ value, onChange, onSubmit, colors }: { value: string; onChange: (v: string) => void; onSubmit: () => void; colors: any }) {
   const { width } = useWindowDimensions()
   const inputRef = useRef<TextInput>(null)
   const chars = value.padEnd(CODE_LENGTH, ' ').split('')
-  const cursorOpacity = useSharedValue(1)
-
-  // Responsive sizing
-  const maxCharWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
-  const charWidth = Math.max(48, maxCharWidth)
-  const charHeight = charWidth * 1.25
-  const fontSize = charWidth * 0.55
-
-  useEffect(() => {
-    cursorOpacity.value = withRepeat(
-      withSequence(
-        withTiming(0, { duration: 500 }),
-        withTiming(1, { duration: 500 })
-      ),
-      -1
-    )
-  }, [cursorOpacity])
-
-  const cursorStyle = useAnimatedStyle(() => ({
-    opacity: cursorOpacity.value,
-  }))
+  const charWidth = Math.min(64, (width - 80) / CODE_LENGTH - 12)
   
   return (
-    <Pressable 
-      style={styles.codeInputContainer} 
-      onPress={() => inputRef.current?.focus()}
-      accessibilityLabel={`Enter ${CODE_LENGTH}-digit pairing code. ${value.length} of ${CODE_LENGTH} digits entered`}
-      accessibilityHint="Tap to enter pairing code"
-    >
-      <View 
-        style={[styles.codeDisplay, { gap: Math.min(12, (width - 80 - charWidth * CODE_LENGTH) / (CODE_LENGTH - 1)) }]}
-        accessibilityElementsHidden
-      >
+    <Pressable style={styles.codeInputContainer} onPress={() => inputRef.current?.focus()}>
+      <View style={styles.codeDisplay}>
         {chars.map((char, i) => (
           <Animated.View 
             key={i}
@@ -277,34 +316,14 @@ function CodeInput({
                 backgroundColor: colors.surface,
                 borderColor: i < value.length ? colors.primary : colors.border,
                 width: charWidth,
-                height: charHeight,
+                height: charWidth * 1.25,
               },
               i < value.length && { backgroundColor: colors.surfaceAlt },
             ]}
           >
-            <Text 
-              style={[
-                styles.codeInputCharText, 
-                { 
-                  color: colors.text,
-                  fontSize,
-                }
-              ]}
-            >
+            <Text style={[styles.codeInputCharText, { color: colors.text, fontSize: charWidth * 0.55 }]}>
               {char.trim() || ''}
             </Text>
-            {i === value.length && (
-              <Animated.View 
-                style={[
-                  styles.cursor, 
-                  { 
-                    backgroundColor: colors.primary,
-                    width: charWidth * 0.4,
-                  },
-                  cursorStyle
-                ]} 
-              />
-            )}
           </Animated.View>
         ))}
       </View>
@@ -324,80 +343,7 @@ function CodeInput({
         maxLength={CODE_LENGTH}
         keyboardType="number-pad"
         autoFocus
-        accessibilityLabel="Pairing code input"
       />
-    </Pressable>
-  )
-}
-
-/**
- * Submit button with loading state
- */
-function SubmitButton({ 
-  label, 
-  onPress, 
-  loading, 
-  disabled 
-}: { 
-  label: string
-  onPress: () => void
-  loading: boolean
-  disabled: boolean
-}) {
-  const { colors } = useThemeStore()
-  const { width } = useWindowDimensions()
-  const scale = useSharedValue(1)
-  
-  const isSmallScreen = width < 360
-  const buttonWidth = Math.min(200, width - 80)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-
-  return (
-    <Pressable 
-      style={[
-        styles.submitButton,
-        { 
-          backgroundColor: disabled ? colors.textMuted : colors.primary,
-          opacity: disabled ? 0.5 : 1,
-          minWidth: buttonWidth,
-        },
-      ]}
-      onPress={onPress}
-      onPressIn={() => {
-        if (!disabled) {
-          scale.value = withSpring(0.98, { damping: 15 })
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-        }
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15 })
-      }}
-      disabled={loading || disabled}
-      accessibilityLabel={label}
-      accessibilityHint="Connect with your partner"
-      accessibilityRole="button"
-      accessibilityState={{ disabled: loading || disabled }}
-    >
-      <Animated.View style={animatedStyle}>
-        {loading ? (
-          <ActivityIndicator size="small" color={colors.primaryText} />
-        ) : (
-          <Text 
-            style={[
-              styles.submitButtonText, 
-              { 
-                color: colors.primaryText,
-                fontSize: isSmallScreen ? 14 : 16,
-              }
-            ]}
-          >
-            {label}
-          </Text>
-        )}
-      </Animated.View>
     </Pressable>
   )
 }
@@ -408,12 +354,23 @@ export default function PairingScreen() {
   const { width } = useWindowDimensions()
   const { 
     myDeviceId, 
+    myDisplayName,
+    myAvatar,
+    pairedDeviceId,
+    partnerDisplayName,
+    partnerAvatar,
+    sessionId,
+    isPaired,
+    hasSetupProfile,
     setMyDeviceId,
+    setMyDisplayName,
+    setMyAvatar,
     setPairedDeviceId,
     setSessionId,
-    setRole: setPairingRole 
+    setPartnerInfo,
+    setHasSetupProfile,
+    clearPairing,
   } = usePairingStore()
-  const { myRole: role } = useConnectionStore()
   const { t } = useLanguageStore()
   const { incrementSessions } = useStatsStore()
   
@@ -425,45 +382,38 @@ export default function PairingScreen() {
   const [expiresIn, setExpiresIn] = useState(300)
   const [refreshing, setRefreshing] = useState(false)
   const [deviceReady, setDeviceReady] = useState(false)
-  const [quickConnect, setQuickConnect] = useState(false)
+  const [showProfileSetup, setShowProfileSetup] = useState(false)
 
-  // Responsive sizing
-  const isSmallScreen = width < 360
-  const padding = isSmallScreen ? 16 : 20
-  const titleSize = isSmallScreen ? 24 : 28
+  const isSmall = width < 360
 
-  // Ensure device ID exists
+  // Initialize device
   useEffect(() => {
-    const initDeviceId = async () => {
+    const init = async () => {
       if (!myDeviceId) {
         const newId = generateDeviceId()
         await setMyDeviceId(newId)
       }
       setDeviceReady(true)
+      
+      // Check if profile needs setup
+      if (!hasSetupProfile && !myDisplayName) {
+        setShowProfileSetup(true)
+      }
     }
-    initDeviceId()
-  }, [myDeviceId, setMyDeviceId])
+    init()
+  }, [myDeviceId, setMyDeviceId, hasSetupProfile, myDisplayName])
 
-  // Pulse animation for waiting state
-  const pulse = useSharedValue(1)
-  
+  // Fetch partner profile when paired
   useEffect(() => {
-    if (mode === 'showCode') {
-      pulse.value = withRepeat(
-        withSequence(
-          withTiming(1.02, { duration: 1200 }),
-          withTiming(1, { duration: 1200 })
-        ),
-        -1
-      )
+    if (isPaired && pairedDeviceId && !partnerDisplayName) {
+      profileApi.get(pairedDeviceId).then(({ profile }) => {
+        if (profile) {
+          setPartnerInfo(profile.display_name, profile.avatar_emoji)
+        }
+      })
     }
-  }, [mode, pulse])
+  }, [isPaired, pairedDeviceId, partnerDisplayName, setPartnerInfo])
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
-  }))
-
-  // Get current device ID (either stored or newly generated)
   const getDeviceId = useCallback(async (): Promise<string> => {
     if (myDeviceId) return myDeviceId
     const newId = generateDeviceId()
@@ -471,18 +421,27 @@ export default function PairingScreen() {
     return newId
   }, [myDeviceId, setMyDeviceId])
 
-  // Generate pairing code with timeout
+  // Handle profile setup completion
+  const handleProfileSetup = async (name: string, avatar: string) => {
+    await setMyDisplayName(name)
+    await setMyAvatar(avatar)
+    await setHasSetupProfile(true)
+    setShowProfileSetup(false)
+    
+    // Save to Supabase
+    const deviceId = await getDeviceId()
+    await profileApi.upsert(deviceId, name, avatar)
+  }
+
+  // Generate pairing code
   const generateCode = async () => {
     const deviceId = await getDeviceId()
-    
     setLoading(true)
     setError('')
     
     try {
       sessionLogger.info('creating_pairing_code', { deviceId })
-      // 10 second timeout to prevent hanging
       const result = await withTimeout(pairingApi.createPairing(deviceId), 10000)
-      sessionLogger.info('pairing_code_created', { code: result.code, error: result.error })
       
       if (result.code) {
         setCode(result.code)
@@ -494,55 +453,48 @@ export default function PairingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Server unavailable. Please try again.'
-      sessionLogger.error('pairing_error', err, { errorMessage })
-      setError(errorMessage)
+      setError(err instanceof Error ? err.message : 'Server unavailable')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     } finally {
       setLoading(false)
     }
   }
 
-  // Join with code with timeout
+  // Join with code
   const joinWithCode = async () => {
     if (inputCode.length !== CODE_LENGTH) {
       setError(`Enter all ${CODE_LENGTH} digits`)
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       return
     }
     
     const deviceId = await getDeviceId()
-    
     setLoading(true)
     setError('')
     Keyboard.dismiss()
     
     try {
       sessionLogger.info('joining_pairing', { code: inputCode, deviceId })
-      // 10 second timeout to prevent hanging
       const result = await withTimeout(pairingApi.joinPairing(deviceId, inputCode), 10000)
-      sessionLogger.info('join_result', { partnerId: result.partnerId, error: result.error })
       
       if (result.partnerId) {
-        // Save quick connect mode for auto-disconnect
-        await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
-        // Await state persistence before navigation to prevent race condition
         await setPairedDeviceId(result.partnerId)
-        if (result.sessionId) {
-          await setSessionId(result.sessionId)
+        if (result.sessionId) await setSessionId(result.sessionId)
+        
+        // Fetch partner profile
+        const { profile } = await profileApi.get(result.partnerId)
+        if (profile) {
+          setPartnerInfo(profile.display_name, profile.avatar_emoji)
         }
+        
         incrementSessions()
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-        // Navigate to home so user can choose role
         router.replace('/')
       } else {
         setError(result.error || 'Invalid or expired code')
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Server unavailable. Check your connection.'
-      sessionLogger.error('join_error', err, { errorMessage })
-      setError(errorMessage)
+      setError(err instanceof Error ? err.message : 'Server unavailable')
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
     } finally {
       setLoading(false)
@@ -558,28 +510,28 @@ export default function PairingScreen() {
         const result = await pairingApi.getPartner(myDeviceId, code)
         if (result.partnerId) {
           clearInterval(interval)
-          // Save quick connect mode for auto-disconnect
-          await AsyncStorage.setItem(QUICK_CONNECT_KEY, quickConnect ? 'true' : 'false')
-          // Await state persistence before navigation to prevent race condition
           await setPairedDeviceId(result.partnerId)
-          if (result.sessionId) {
-            await setSessionId(result.sessionId)
+          if (result.sessionId) await setSessionId(result.sessionId)
+          
+          // Fetch partner profile
+          const { profile } = await profileApi.get(result.partnerId)
+          if (profile) {
+            setPartnerInfo(profile.display_name, profile.avatar_emoji)
           }
+          
           incrementSessions()
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-          // Navigate to home so user can choose role
           router.replace('/')
         }
       } catch {}
     }, 2000)
 
     return () => clearInterval(interval)
-  }, [mode, code, myDeviceId, role, setPairedDeviceId, setSessionId, setPairingRole, incrementSessions, router, quickConnect])
+  }, [mode, code, myDeviceId, setPairedDeviceId, setSessionId, setPartnerInfo, incrementSessions, router])
 
   // Countdown
   useEffect(() => {
     if (mode !== 'showCode') return
-    
     const interval = setInterval(() => {
       setExpiresIn(prev => {
         if (prev <= 1) {
@@ -590,39 +542,27 @@ export default function PairingScreen() {
         return prev - 1
       })
     }, 1000)
-
     return () => clearInterval(interval)
   }, [mode])
 
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    if (mode === 'showCode') {
-      await generateCode()
-    }
-    setRefreshing(false)
+  const handleDisconnect = () => {
+    Alert.alert(
+      'Disconnect',
+      'Are you sure you want to disconnect from your partner?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            if (myDeviceId) await pairingApi.unpair(myDeviceId)
+            await clearPairing()
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          },
+        },
+      ]
+    )
   }
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
-  }
-
-  const waitingMessages = [
-    "Waiting for partner to connect...",
-    "Share this code with your partner",
-    "They should enter this on their device",
-  ]
-  const [waitingMsgIndex, setWaitingMsgIndex] = useState(0)
-  
-  useEffect(() => {
-    if (mode !== 'showCode') return
-    const interval = setInterval(() => {
-      setWaitingMsgIndex(i => (i + 1) % waitingMessages.length)
-    }, 3500)
-    return () => clearInterval(interval)
-  }, [mode, waitingMessages.length])
 
   const goBack = () => {
     setMode('select')
@@ -632,7 +572,9 @@ export default function PairingScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
 
-  // Show loading while device ID initializes
+  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
+
+  // Loading state
   if (!deviceReady) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
@@ -643,237 +585,182 @@ export default function PairingScreen() {
     )
   }
 
+  // Profile setup
+  if (showProfileSetup) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <ProfileSetup onComplete={handleProfileSetup} colors={colors} />
+        </ScrollView>
+      </SafeAreaView>
+    )
+  }
+
+  // Already connected - show connection status
+  if (isPaired && sessionId && mode === 'select') {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Header with back */}
+          <View style={styles.header}>
+            <Pressable onPress={() => router.back()} style={styles.backBtn}>
+              <Text style={[styles.backBtnText, { color: colors.text }]}>← Back</Text>
+            </Pressable>
+          </View>
+          
+          <ConnectedStatus
+            sessionId={sessionId}
+            partnerName={partnerDisplayName}
+            partnerAvatar={partnerAvatar}
+            myName={myDisplayName}
+            myAvatar={myAvatar}
+            onDisconnect={handleDisconnect}
+            onNewConnection={() => {
+              Alert.alert(
+                'New Connection',
+                'This will disconnect your current partner. Continue?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Continue',
+                    onPress: async () => {
+                      if (myDeviceId) await pairingApi.unpair(myDeviceId)
+                      await clearPairing()
+                    },
+                  },
+                ]
+              )
+            }}
+            colors={colors}
+          />
+        </ScrollView>
+      </SafeAreaView>
+    )
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: padding }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={colors.textMuted}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); if (mode === 'showCode') await generateCode(); setRefreshing(false) }} tintColor={colors.textMuted} />
         }
       >
         {/* Header */}
         <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-          <Text 
-            style={[styles.title, { color: colors.text, fontSize: titleSize }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Text style={[styles.backBtnText, { color: colors.text }]}>← Back</Text>
+          </Pressable>
+          
+          <Text style={[styles.title, { color: colors.text, fontSize: isSmall ? 24 : 28 }]}>
             {t.pairing.title}
           </Text>
-          <Text 
-            style={[styles.subtitle, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 15 }]}
-            numberOfLines={2}
-          >
-            {role === 'viewer' 
-              ? "Connect to guide the photographer"
-              : "Connect to get real-time guidance"}
-          </Text>
+          
+          {/* My profile card */}
+          {myDisplayName && (
+            <View style={[styles.myProfileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <Text style={styles.myProfileAvatar}>{myAvatar}</Text>
+              <Text style={[styles.myProfileName, { color: colors.text }]}>{myDisplayName}</Text>
+              <Pressable onPress={() => setShowProfileSetup(true)}>
+                <Text style={[styles.editProfile, { color: colors.primary }]}>Edit</Text>
+              </Pressable>
+            </View>
+          )}
         </Animated.View>
 
         {mode === 'select' && (
           <View style={styles.modeSelect}>
-            {/* Quick Connect Toggle */}
-            <Animated.View 
-              entering={FadeInUp.duration(300)}
-              style={[styles.quickConnectCard, { 
-                backgroundColor: quickConnect ? `${colors.primary}15` : colors.surface,
-                borderColor: quickConnect ? colors.primary : colors.border,
-              }]}
-            >
+            <Animated.View entering={FadeInUp.duration(300)}>
               <Pressable
-                style={styles.quickConnectPressable}
-                onPress={() => {
-                  setQuickConnect(!quickConnect)
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-                }}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: quickConnect }}
-                accessibilityLabel="Quick Connect mode"
-                accessibilityHint="When enabled, connection will automatically end when you exit the camera or viewer"
+                style={[styles.optionCard, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                onPress={generateCode}
+                disabled={loading}
               >
-                <View style={styles.quickConnectContent}>
-                  <View style={[styles.quickConnectIcon, { backgroundColor: quickConnect ? colors.primary : colors.surfaceAlt }]}>
-                    <Icon name="flash" size={18} color={quickConnect ? colors.primaryText : colors.textMuted} />
-                  </View>
-                  <View style={styles.quickConnectText}>
-                    <Text style={[styles.quickConnectTitle, { color: colors.text }]}>
-                      Quick Connect
-                    </Text>
-                    <Text style={[styles.quickConnectDesc, { color: colors.textMuted }]}>
-                      {quickConnect ? "Auto-disconnect after session" : "One-time use for helping a friend"}
-                    </Text>
-                  </View>
-                </View>
-                <View style={[
-                  styles.quickConnectToggle,
-                  { backgroundColor: quickConnect ? colors.primary : colors.surfaceAlt }
-                ]}>
-                  <Animated.View 
-                    style={[
-                      styles.quickConnectToggleKnob,
-                      { 
-                        backgroundColor: colors.background,
-                        transform: [{ translateX: quickConnect ? 18 : 0 }],
-                      }
-                    ]}
-                  />
-                </View>
+                {loading ? (
+                  <ActivityIndicator color={colors.primaryText} />
+                ) : (
+                  <>
+                    <Text style={styles.optionEmoji}>📲</Text>
+                    <Text style={[styles.optionTitle, { color: colors.primaryText }]}>{t.pairing.showCode}</Text>
+                    <Text style={[styles.optionDesc, { color: `${colors.primaryText}99` }]}>Generate a code for your partner</Text>
+                  </>
+                )}
               </Pressable>
             </Animated.View>
-            
-            <ActionButton
-              label={t.pairing.showCode}
-              subtitle={quickConnect ? "One-time code for quick session" : "Generate a code for your partner"}
-              onPress={generateCode}
-              index={0}
-              loading={loading}
-              accessibilityHint="Creates a code that your partner can enter on their device"
-            />
-            
-            <View style={styles.orDivider} accessibilityElementsHidden>
+
+            <View style={styles.orDivider}>
               <View style={[styles.orLine, { backgroundColor: colors.border }]} />
-              <Text style={[styles.orText, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 13 }]}>or</Text>
+              <Text style={[styles.orText, { color: colors.textMuted }]}>or</Text>
               <View style={[styles.orLine, { backgroundColor: colors.border }]} />
             </View>
-            
-            <ActionButton
-              label={t.pairing.enterCode}
-              subtitle="Enter partner's 4-digit code"
-              onPress={() => setMode('enterCode')}
-              index={1}
-              accessibilityHint="Opens keyboard to enter your partner's code"
-            />
 
-            {/* Error message */}
-            {error && (
-              <Animated.View 
-                entering={FadeIn.duration(200)}
-                style={[styles.errorContainer, { backgroundColor: colors.error + '20' }]}
+            <Animated.View entering={FadeInUp.delay(80).duration(300)}>
+              <Pressable
+                style={[styles.optionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={() => setMode('enterCode')}
               >
-                <Text style={[styles.errorText, { color: colors.error }]}>
-                  {error}
-                </Text>
+                <Text style={styles.optionEmoji}>🔢</Text>
+                <Text style={[styles.optionTitle, { color: colors.text }]}>{t.pairing.enterCode}</Text>
+                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>Enter partner's 4-digit code</Text>
+              </Pressable>
+            </Animated.View>
+
+            {error && (
+              <Animated.View entering={FadeIn} style={[styles.errorBox, { backgroundColor: '#DC262620' }]}>
+                <Text style={styles.errorText}>{error}</Text>
               </Animated.View>
             )}
-
-            {/* How it works */}
-            <Animated.View 
-              entering={FadeInUp.delay(160).duration(300)}
-              style={[styles.howItWorks, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            >
-              <Text style={[styles.howTitle, { color: colors.text, fontSize: isSmallScreen ? 13 : 14 }]}>
-                {t.pairing.howItWorks}
-              </Text>
-              {[t.pairing.step1, t.pairing.step2, t.pairing.step3].map((step, i) => (
-                <View key={i} style={styles.step}>
-                  <Text style={[styles.stepNum, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 14 }]}>
-                    {i + 1}.
-                  </Text>
-                  <Text 
-                    style={[styles.stepText, { color: colors.textSecondary, fontSize: isSmallScreen ? 13 : 14 }]}
-                    numberOfLines={2}
-                  >
-                    {step}
-                  </Text>
-                </View>
-              ))}
-            </Animated.View>
           </View>
         )}
 
         {mode === 'showCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
-            <Text style={[styles.codeLabel, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 14 }]}>
-              Your pairing code
-            </Text>
+            <Text style={[styles.codeLabel, { color: colors.textMuted }]}>Your pairing code</Text>
+            <CodeDisplay code={code} colors={colors} />
             
-            <Animated.View style={pulseStyle}>
-              <CodeDisplay code={code} />
-            </Animated.View>
-            
-            <Animated.View 
-              entering={FadeInDown.delay(150).duration(300)}
-              style={styles.waitingInfo}
-            >
+            <View style={styles.waitingInfo}>
               <ActivityIndicator size="small" color={colors.textMuted} />
-              <Text 
-                style={[styles.waitingText, { color: colors.textMuted, fontSize: isSmallScreen ? 12 : 14 }]}
-                numberOfLines={2}
-              >
-                {waitingMessages[waitingMsgIndex]}
-              </Text>
-            </Animated.View>
-            
-            <View style={styles.expiry}>
-              <Text style={[styles.expiryLabel, { color: colors.textMuted }]}>
-                Expires in
-              </Text>
-              <Text style={[styles.expiryTime, { color: colors.text, fontSize: isSmallScreen ? 20 : 24 }]}>
-                {formatTime(expiresIn)}
+              <Text style={[styles.waitingText, { color: colors.textMuted }]}>
+                Waiting for partner to connect...
               </Text>
             </View>
             
-            <Pressable 
-              style={[styles.backButton, { borderColor: colors.border }]} 
-              onPress={goBack}
-              accessibilityLabel="Cancel"
-              accessibilityHint="Go back to pairing options"
-              accessibilityRole="button"
-            >
-              <Text style={[styles.backButtonText, { color: colors.textSecondary }]}>
-                Cancel
-              </Text>
+            <View style={styles.expiry}>
+              <Text style={[styles.expiryLabel, { color: colors.textMuted }]}>Expires in</Text>
+              <Text style={[styles.expiryTime, { color: colors.text }]}>{formatTime(expiresIn)}</Text>
+            </View>
+            
+            <Pressable style={[styles.cancelBtn, { borderColor: colors.border }]} onPress={goBack}>
+              <Text style={[styles.cancelBtnText, { color: colors.textSecondary }]}>Cancel</Text>
             </Pressable>
           </Animated.View>
         )}
 
         {mode === 'enterCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
-            <Text style={[styles.enterPrompt, { color: colors.text, fontSize: isSmallScreen ? 18 : 20 }]}>
-              Enter 4-digit code
-            </Text>
-            <Text style={[styles.enterHint, { color: colors.textMuted, fontSize: isSmallScreen ? 13 : 14 }]}>
-              Ask your partner for their code
-            </Text>
+            <Text style={[styles.enterTitle, { color: colors.text }]}>Enter 4-digit code</Text>
+            <Text style={[styles.enterHint, { color: colors.textMuted }]}>Ask your partner for their code</Text>
             
-            <CodeInput
-              value={inputCode}
-              onChange={setInputCode}
-              onSubmit={joinWithCode}
-            />
+            <CodeInput value={inputCode} onChange={setInputCode} onSubmit={joinWithCode} colors={colors} />
             
-            {error && (
-              <Animated.Text 
-                entering={FadeIn.duration(200)}
-                style={[styles.errorText, { color: colors.error }]}
-              >
-                {error}
-              </Animated.Text>
-            )}
+            {error && <Text style={styles.errorText}>{error}</Text>}
             
-            <SubmitButton
-              label={t.pairing.connect}
+            <Pressable
+              style={[styles.submitBtn, { backgroundColor: inputCode.length === CODE_LENGTH ? colors.primary : colors.textMuted, opacity: inputCode.length === CODE_LENGTH ? 1 : 0.5 }]}
               onPress={joinWithCode}
-              loading={loading}
-              disabled={inputCode.length < CODE_LENGTH}
-            />
-            
-            <Pressable 
-              style={[styles.backButton, { borderColor: colors.border }]} 
-              onPress={goBack}
-              accessibilityLabel="Cancel"
-              accessibilityHint="Go back to pairing options"
-              accessibilityRole="button"
+              disabled={loading || inputCode.length < CODE_LENGTH}
             >
-              <Text style={[styles.backButtonText, { color: colors.textSecondary }]}>
-                Cancel
-              </Text>
+              {loading ? (
+                <ActivityIndicator color={colors.primaryText} />
+              ) : (
+                <Text style={[styles.submitBtnText, { color: colors.primaryText }]}>{t.pairing.connect}</Text>
+              )}
+            </Pressable>
+            
+            <Pressable style={[styles.cancelBtn, { borderColor: colors.border }]} onPress={goBack}>
+              <Text style={[styles.cancelBtnText, { color: colors.textSecondary }]}>Cancel</Text>
             </Pressable>
           </Animated.View>
         )}
@@ -883,243 +770,89 @@ export default function PairingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  loadingCenter: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    paddingTop: 8,
-    paddingBottom: 24,
-  },
-  title: {
-    fontWeight: '700',
-    letterSpacing: -0.5,
-    marginBottom: 6,
-  },
-  subtitle: {
-    lineHeight: 22,
-  },
-  modeSelect: {
-    flex: 1,
-  },
-  quickConnectCard: {
-    borderWidth: 1,
-    borderRadius: 8,
-    marginBottom: 16,
-    overflow: 'hidden',
-  },
-  quickConnectPressable: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-  },
-  quickConnectContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  quickConnectIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  quickConnectText: {
-    flex: 1,
-  },
-  quickConnectTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 2,
-  },
-  quickConnectDesc: {
-    fontSize: 12,
-  },
-  quickConnectToggle: {
-    width: 44,
-    height: 26,
-    borderRadius: 13,
-    padding: 2,
-  },
-  quickConnectToggleKnob: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-  },
-  actionButtonPressable: {
-    marginBottom: 10,
-  },
-  actionButton: {
-    paddingVertical: 20,
-    paddingHorizontal: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
-    minHeight: 80,
-    justifyContent: 'center',
-  },
-  actionButtonLabel: {
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  actionButtonSubtitle: {
-    textAlign: 'center',
-  },
-  orDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-  },
-  orText: {
-    paddingHorizontal: 16,
-    fontWeight: '500',
-  },
-  errorContainer: {
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  howItWorks: {
-    marginTop: 24,
-    padding: 16,
-    borderWidth: 1,
-    borderRadius: 8,
-  },
-  howTitle: {
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  step: {
-    flexDirection: 'row',
-    marginBottom: 8,
-  },
-  stepNum: {
-    width: 20,
-    fontWeight: '500',
-  },
-  stepText: {
-    flex: 1,
-    lineHeight: 20,
-  },
-  codeSection: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 24,
-  },
-  codeLabel: {
-    fontWeight: '500',
-    marginBottom: 16,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  codeDisplay: {
-    flexDirection: 'row',
-    marginBottom: 32,
-    justifyContent: 'center',
-  },
-  codeChar: {
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  codeCharText: {
-    fontWeight: '700',
-    fontFamily: 'monospace',
-  },
-  waitingInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 24,
-    paddingHorizontal: 16,
-  },
-  waitingText: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  expiry: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  expiryLabel: {
-    fontSize: 12,
-    marginBottom: 4,
-  },
-  expiryTime: {
-    fontWeight: '600',
-    fontFamily: 'monospace',
-  },
-  enterPrompt: {
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  enterHint: {
-    marginBottom: 24,
-  },
-  codeInputContainer: {
-    marginBottom: 24,
-  },
-  codeInputChar: {
-    borderWidth: 2,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  codeInputCharText: {
-    fontWeight: '700',
-    fontFamily: 'monospace',
-  },
-  cursor: {
-    position: 'absolute',
-    bottom: 14,
-    height: 3,
-    borderRadius: 2,
-  },
-  hiddenInput: {
-    position: 'absolute',
-    opacity: 0,
-    height: 0,
-  },
-  errorText: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  submitButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  submitButtonText: {
-    fontWeight: '600',
-  },
-  backButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderRadius: 6,
-  },
-  backButtonText: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
+  container: { flex: 1 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20 },
+  loadingCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { paddingTop: 8, paddingBottom: 20 },
+  backBtn: { paddingVertical: 8, marginBottom: 12 },
+  backBtnText: { fontSize: 16, fontWeight: '600' },
+  title: { fontWeight: '700', letterSpacing: -0.5, marginBottom: 12 },
+  myProfileCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, gap: 10 },
+  myProfileAvatar: { fontSize: 24 },
+  myProfileName: { flex: 1, fontSize: 15, fontWeight: '600' },
+  editProfile: { fontSize: 14, fontWeight: '600' },
+  
+  // Profile Setup
+  profileSetup: { flex: 1, paddingTop: 40 },
+  setupTitle: { fontSize: 28, fontWeight: '700', marginBottom: 8 },
+  setupSubtitle: { fontSize: 15, lineHeight: 22, marginBottom: 32 },
+  labelText: { fontSize: 13, fontWeight: '600', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  avatarSection: { marginBottom: 28 },
+  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  avatarOption: { width: 52, height: 52, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  avatarEmoji: { fontSize: 26 },
+  nameSection: { marginBottom: 32 },
+  nameInput: { paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, borderWidth: 2, fontWeight: '600' },
+  continueBtn: { paddingVertical: 18, borderRadius: 12, alignItems: 'center' },
+  continueBtnText: { fontSize: 17, fontWeight: '700' },
+
+  // Connected Status
+  connectedContainer: { flex: 1, paddingTop: 20 },
+  connectedCard: { borderRadius: 16, borderWidth: 1, padding: 20, marginBottom: 20 },
+  connectedHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  connectedIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  connectedIconText: { fontSize: 22 },
+  connectedTitle: { fontSize: 20, fontWeight: '700' },
+  connectionInfo: { gap: 16 },
+  deviceInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  deviceAvatar: { fontSize: 32 },
+  deviceDetails: { flex: 1 },
+  deviceName: { fontSize: 16, fontWeight: '600' },
+  deviceRole: { fontSize: 13 },
+  connectionLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
+  connectionDot: { width: 8, height: 8, borderRadius: 4 },
+  connectionDash: { flex: 1, height: 2, maxWidth: 100 },
+  sessionInfo: { marginTop: 20, padding: 12, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  sessionLabel: { fontSize: 12, fontWeight: '600' },
+  sessionId: { fontSize: 12, fontFamily: 'monospace' },
+  connectedActions: { gap: 12 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 10, borderWidth: 1 },
+  actionBtnText: { fontSize: 15, fontWeight: '600' },
+  disconnectBtn: { backgroundColor: '#DC262610' },
+  backToHome: { alignItems: 'center', paddingVertical: 20 },
+  backToHomeText: { fontSize: 14 },
+
+  // Mode Select
+  modeSelect: { flex: 1 },
+  optionCard: { padding: 20, borderRadius: 12, borderWidth: 1, alignItems: 'center', marginBottom: 12 },
+  optionEmoji: { fontSize: 32, marginBottom: 8 },
+  optionTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
+  optionDesc: { fontSize: 14, textAlign: 'center' },
+  orDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
+  orLine: { flex: 1, height: 1 },
+  orText: { paddingHorizontal: 16, fontSize: 13, fontWeight: '500' },
+  errorBox: { padding: 12, borderRadius: 8, marginTop: 16 },
+  errorText: { color: '#DC2626', fontSize: 14, fontWeight: '500', textAlign: 'center' },
+
+  // Code Section
+  codeSection: { flex: 1, alignItems: 'center', paddingTop: 24 },
+  codeLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 16 },
+  codeDisplay: { flexDirection: 'row', gap: 12, marginBottom: 32 },
+  codeChar: { borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  codeCharText: { fontWeight: '700', fontFamily: 'monospace' },
+  codeInputContainer: { marginBottom: 24 },
+  codeInputChar: { borderWidth: 2, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  codeInputCharText: { fontWeight: '700', fontFamily: 'monospace' },
+  hiddenInput: { position: 'absolute', opacity: 0, height: 0 },
+  waitingInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 24 },
+  waitingText: { fontSize: 14 },
+  expiry: { alignItems: 'center', marginBottom: 32 },
+  expiryLabel: { fontSize: 12, marginBottom: 4 },
+  expiryTime: { fontSize: 24, fontWeight: '600', fontFamily: 'monospace' },
+  enterTitle: { fontSize: 20, fontWeight: '600', marginBottom: 4 },
+  enterHint: { fontSize: 14, marginBottom: 24 },
+  submitBtn: { paddingVertical: 16, paddingHorizontal: 40, borderRadius: 10, marginBottom: 16, minWidth: 180, alignItems: 'center' },
+  submitBtnText: { fontSize: 16, fontWeight: '600' },
+  cancelBtn: { paddingVertical: 12, paddingHorizontal: 24, borderWidth: 1, borderRadius: 8 },
+  cancelBtnText: { fontSize: 15, fontWeight: '500' },
 })
