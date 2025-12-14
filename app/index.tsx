@@ -55,7 +55,7 @@ function ActionCard({
 }: { 
   label: string
   subtitle: string
-  icon: 'camera' | 'eye' | 'image'
+  icon: 'camera' | 'eye' | 'image' | 'link'
   onPress: () => void
   highlight?: boolean
   index?: number
@@ -365,13 +365,13 @@ export default function HomeScreen() {
   const handleCamera = () => {
     setRole('camera')
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    router.push(isPaired ? '/camera' : '/pairing')
+    router.push('/camera')
   }
 
   const handleViewer = () => {
     setRole('viewer')
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    router.push(isPaired ? '/viewer' : '/pairing')
+    router.push('/viewer')
   }
 
   const rank = getRank()
@@ -395,11 +395,8 @@ export default function HomeScreen() {
           <ThemeToggle />
 
           <View style={styles.brand}>
-            <Text style={[styles.brandLight, { color: colors.textSecondary }]}>
-              Help Her
-            </Text>
             <Text style={[styles.brandBold, { color: colors.text }]}>
-              Take Photo
+              HelpHer 📸
             </Text>
           </View>
           
@@ -469,31 +466,57 @@ export default function HomeScreen() {
 
         {/* Action cards */}
         <View style={styles.actions}>
-          <Animated.Text 
-            entering={FadeIn.delay(50).duration(350)}
-            style={[styles.sectionLabel, { color: colors.textMuted }]}
-          >
-            {t.home.selectRole}
-          </Animated.Text>
-          
-          <ActionCard
-            label={t.home.photographer}
-            subtitle={t.home.photographerDesc}
-            icon="camera"
-            onPress={handleCamera}
-            highlight
-            index={0}
-            accessibilityHint="Opens camera mode to take photos with real-time guidance"
-          />
-          
-          <ActionCard
-            label={t.home.director}
-            subtitle={t.home.directorDesc}
-            icon="eye"
-            onPress={handleViewer}
-            index={1}
-            accessibilityHint="Opens viewer mode to guide the photographer"
-          />
+          {isPaired ? (
+            <>
+              <Animated.Text 
+                entering={FadeIn.delay(50).duration(350)}
+                style={[styles.sectionLabel, { color: colors.textMuted }]}
+              >
+                {t.home.selectRole}
+              </Animated.Text>
+              
+              <ActionCard
+                label={t.home.photographer}
+                subtitle={t.home.photographerDesc}
+                icon="camera"
+                onPress={handleCamera}
+                highlight
+                index={0}
+                accessibilityHint="Opens camera mode to take photos with real-time guidance"
+              />
+              
+              <ActionCard
+                label={t.home.director}
+                subtitle={t.home.directorDesc}
+                icon="eye"
+                onPress={handleViewer}
+                index={1}
+                accessibilityHint="Opens viewer mode to guide the photographer"
+              />
+            </>
+          ) : (
+            <>
+              <Animated.Text 
+                entering={FadeIn.delay(50).duration(350)}
+                style={[styles.sectionLabel, { color: colors.textMuted }]}
+              >
+                GET STARTED
+              </Animated.Text>
+              
+              <ActionCard
+                label="Connect with Partner"
+                subtitle="Link devices first, then choose your role"
+                icon="link"
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                  router.push('/pairing')
+                }}
+                highlight
+                index={0}
+                accessibilityHint="Connect with your partner's device to start"
+              />
+            </>
+          )}
           
           <View style={styles.spacer} />
           
@@ -572,16 +595,10 @@ const styles = StyleSheet.create({
   brand: {
     marginBottom: 16,
   },
-  brandLight: {
-    fontSize: 28,
-    fontWeight: '300',
-    letterSpacing: -0.5,
-  },
   brandBold: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '800',
-    letterSpacing: -1,
-    marginTop: -2,
+    letterSpacing: -0.5,
   },
   tagline: {
     fontSize: 15,

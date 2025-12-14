@@ -14,11 +14,13 @@ ALTER TABLE app_versions ENABLE ROW LEVEL SECURITY;
 -- Allow read access to everyone (public table for checking updates)
 CREATE POLICY "Allow read app_versions" ON app_versions FOR SELECT USING (true);
 
--- Insert the latest version provided by the user
+-- IMPORTANT: Do NOT seed with a version higher than the deployed app!
+-- Insert the CURRENT deployed version (1.0.0)
+-- Update this row AFTER publishing a new build
 INSERT INTO app_versions (version, download_url, force_update, changelog)
 VALUES (
-    '1.0.1', 
+    '1.0.0', 
     'https://expo.dev/artifacts/eas/8zFbHW3U8cUJV3iNpntVAm.apk', 
     false, 
-    'Latest preview build with WebRTC fixes and performance improvements.'
+    'Initial release with WebRTC streaming, real-time guidance, and photo capture.'
 );

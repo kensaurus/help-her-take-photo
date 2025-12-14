@@ -17,10 +17,10 @@ const minute = String(now.getMinutes()).padStart(2, '0')
 
 const buildNumber = `${year}${month}${day}.${hour}${minute}`
 
-// Read app.json for version
-const appJsonPath = path.join(__dirname, '..', 'app.json')
-const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'))
-const appVersion = appJson.expo.version
+// Read package.json for version
+const packageJsonPath = path.join(__dirname, '..', 'package.json')
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'))
+const appVersion = packageJson.version
 
 // Read current build.ts
 const buildTsPath = path.join(__dirname, '..', 'src', 'config', 'build.ts')

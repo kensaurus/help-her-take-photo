@@ -248,22 +248,18 @@ export default function CameraScreen() {
     }
   }, [permission])
 
-  // Initialize WebRTC when paired and sharing
+  // Initialize WebRTC when paired (auto-start streaming)
   useEffect(() => {
-    if (isPaired && isSharing && myDeviceId && pairedDeviceId && sessionId) {
+    if (isPaired && myDeviceId && pairedDeviceId && sessionId && permission?.granted) {
       // Check if WebRTC is available
       if (!webrtcAvailable) {
         sessionLogger.warn('webrtc_not_available_camera')
-        Alert.alert(
-          'Video Streaming Unavailable',
-          'WebRTC requires a development build. Video streaming is not available in Expo Go, but you can still take photos!',
-          [{ text: 'OK' }]
-        )
-        setIsSharing(false)
+        // Don't show alert - just log it. User can still take photos locally.
         return
       }
 
       sessionLogger.info('starting_webrtc_connection')
+      setIsSharing(true) // Auto-enable sharing when paired
       
       webrtcService.init(
         myDeviceId,
@@ -277,8 +273,8 @@ export default function CameraScreen() {
           },
           onError: (error) => {
             sessionLogger.error('webrtc_error', error)
-            Alert.alert('Connection Error', error.message)
-            setIsSharing(false)
+            // Don't show alert for every error - just update state
+            setIsConnected(false)
           },
         }
       )
@@ -294,9 +290,10 @@ export default function CameraScreen() {
       return () => {
         webrtcService.destroy()
         setIsConnected(false)
+        setIsSharing(false)
       }
     }
-  }, [isPaired, isSharing, myDeviceId, pairedDeviceId, sessionId])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted])
 
   // Handle commands from director
   const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
@@ -439,15 +436,10 @@ export default function CameraScreen() {
   }
 
   const toggleSharing = () => {
-    const newState = !isSharing
-    setIsSharing(newState)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    sessionLogger.info('sharing_toggled', { isSharing: newState })
-    
-    if (!newState) {
-      // Stop WebRTC when sharing is turned off
-      webrtcService.destroy()
-      setIsConnected(false)
+    // Sharing is now automatic when paired - this just shows status
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    if (!isPaired) {
+      router.push('/pairing')
     }
   }
 
@@ -514,7 +506,7 @@ export default function CameraScreen() {
         
         {settings.showGrid && <GridOverlay />}
         
-        {/* Status bar */}
+        {/* Status bar with partner info */}
         <Pressable 
           style={styles.statusBar}
           onLongPress={handleDisconnect}
@@ -526,9 +518,16 @@ export default function CameraScreen() {
             isConnected ? styles.statusDotLive : 
             isPaired ? styles.statusDotOn : styles.statusDotOff
           ]} />
-          <Text style={styles.statusText}>
-            {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
-          </Text>
+          <View style={styles.statusTextContainer}>
+            <Text style={styles.statusText}>
+              {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
+            </Text>
+            {isPaired && pairedDeviceId && (
+              <Text style={styles.partnerText}>
+                👁️ Director watching
+              </Text>
+            )}
+          </View>
         </Pressable>
         
         {/* Photo count */}
@@ -636,6 +635,22 @@ export default function CameraScreen() {
             accessibilityRole="button"
           >
             <Text style={styles.connectPromptText}>{t.camera.connectPrompt}</Text>
+          </Pressable>
+        )}
+
+        {/* Switch role button */}
+        {isPaired && (
+          <Pressable 
+            style={styles.switchRolePrompt}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              router.replace('/viewer')
+            }}
+            accessibilityLabel="Switch to Director mode"
+            accessibilityHint="Change your role to guide the photographer"
+            accessibilityRole="button"
+          >
+            <Text style={styles.switchRoleText}>👁️ Switch to Director</Text>
           </Pressable>
         )}
       </View>
@@ -794,10 +809,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.8,
     shadowRadius: 4,
   },
+  statusTextContainer: {
+    flexDirection: 'column',
+  },
   statusText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#fff',
+  },
+  partnerText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 2,
   },
   photoCount: {
     position: 'absolute',
@@ -929,5 +952,20 @@ const styles = StyleSheet.create({
   connectPromptText: {
     fontSize: 14,
     color: '#888',
+  },
+  switchRolePrompt: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 4,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  switchRoleText: {
+    fontSize: 14,
+    color: '#aaa',
+    fontWeight: '500',
   },
 })

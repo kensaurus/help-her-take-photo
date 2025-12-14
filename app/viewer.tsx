@@ -390,6 +390,17 @@ export default function ViewerScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>{t.viewer.title}</Text>
           <Text style={styles.subtitle}>{t.viewer.subtitle}</Text>
+          {isPaired && (
+            <View style={styles.partnerCard}>
+              <Text style={styles.partnerEmoji}>📸</Text>
+              <View style={styles.partnerInfo}>
+                <Text style={styles.partnerLabel}>Connected to Photographer</Text>
+                <Text style={styles.partnerStatus}>
+                  {isReceiving ? '🟢 Streaming' : connectionState}
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Preview area */}
@@ -510,6 +521,25 @@ export default function ViewerScreen() {
           </Animated.View>
         )}
 
+        {/* Switch role button */}
+        {isPaired && (
+          <View style={styles.switchRoleSection}>
+            <Pressable 
+              style={styles.switchRoleBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+                webrtcService.destroy()
+                router.replace('/camera')
+              }}
+              accessibilityLabel="Switch to Photographer mode"
+              accessibilityHint="Change your role to take photos"
+              accessibilityRole="button"
+            >
+              <Text style={styles.switchRoleText}>📸 Switch to Photographer</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* Stats */}
         <View style={styles.statsSection}>
           <Text style={styles.statsText}>
@@ -573,6 +603,32 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     color: '#666',
+  },
+  partnerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  partnerEmoji: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  partnerInfo: {
+    flex: 1,
+  },
+  partnerLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+  },
+  partnerStatus: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
   previewSection: {
     paddingHorizontal: 20,
@@ -741,6 +797,23 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
+  },
+  switchRoleSection: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  switchRoleBtn: {
+    backgroundColor: '#f5f5f5',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+  },
+  switchRoleText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   statsSection: {
     alignItems: 'center',

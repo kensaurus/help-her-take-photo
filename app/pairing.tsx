@@ -531,10 +531,10 @@ export default function PairingScreen() {
         if (result.sessionId) {
           await setSessionId(result.sessionId)
         }
-        await setPairingRole(role || 'camera')
         incrementSessions()
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-        router.replace(role === 'viewer' ? '/viewer' : '/camera')
+        // Navigate to home so user can choose role
+        router.replace('/')
       } else {
         setError(result.error || 'Invalid or expired code')
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
@@ -565,10 +565,10 @@ export default function PairingScreen() {
           if (result.sessionId) {
             await setSessionId(result.sessionId)
           }
-          await setPairingRole(role || 'camera')
           incrementSessions()
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-          router.replace(role === 'viewer' ? '/viewer' : '/camera')
+          // Navigate to home so user can choose role
+          router.replace('/')
         }
       } catch {}
     }, 2000)

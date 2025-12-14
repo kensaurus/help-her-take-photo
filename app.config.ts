@@ -21,11 +21,24 @@ const BUILD_TIMESTAMP = generateBuildTimestamp()
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'Help Her Take Photo',
+  name: 'HelpHer',
   slug: 'help-her-take-photo',
   description:
-    "Your relationship's photography insurance. Save your relationship one photo at a time! Connect devices so your partner can guide your camera framing in real-time. Features multi-language support, gamification with 'scoldings saved' stats, and a shared photo gallery.",
+    "Stop the bad photos! Real-time camera guidance app for couples. Connect devices so your partner can see and direct your camera framing live. Features: live video streaming, direction controls, photo capture, multi-language support (EN/TH/ZH/JA), gamification stats, shared gallery. Save your relationship one photo at a time!",
   version: '1.0.0',
+  keywords: [
+    'camera',
+    'photo',
+    'couples',
+    'relationship',
+    'photography',
+    'real-time',
+    'streaming',
+    'guidance',
+    'partner',
+    'help',
+  ],
+  primaryColor: '#000000',
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
@@ -102,14 +115,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       'expo-camera',
       {
-        cameraPermission: 'Allow Help Her Take Photo to access your camera',
+        cameraPermission: 'Allow HelpHer to access your camera',
       },
     ],
     [
       'expo-media-library',
       {
-        photosPermission: 'Allow Help Her Take Photo to access your photos',
-        savePhotosPermission: 'Allow Help Her Take Photo to save photos',
+        photosPermission: 'Allow HelpHer to access your photos',
+        savePhotosPermission: 'Allow HelpHer to save photos',
       },
     ],
     [

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase, AppVersion } from '../services/supabase'
-import Constants from 'expo-constants'
-import { Platform } from 'react-native'
+import { getBuildInfo } from '../config/build'
 
 export function useAppUpdate() {
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false)
@@ -27,22 +26,37 @@ export function useAppUpdate() {
       }
 
       if (data) {
-        const currentVersion = Constants.expoConfig?.version || '1.0.0'
-        const currentBuildNumber = Constants.expoConfig?.extra?.buildTimestamp
+        const buildInfo = getBuildInfo()
+        const currentVersion = buildInfo.version
+        const currentBuildNumber = buildInfo.build
 
-        // Priority 1: Check build number (timestamp) if available
+        console.log('[AppUpdate] Current:', currentVersion, currentBuildNumber)
+        console.log('[AppUpdate] Latest:', data.version, data.build_number)
+
+        // Priority 1: Check build number (timestamp) if both are available
         if (data.build_number && currentBuildNumber) {
-           if (data.build_number > currentBuildNumber) {
-             setIsUpdateAvailable(true)
-             setLatestVersion(data)
-             return
-           }
+          // Timestamp format: YYYYMMDD.HHMM - simple string comparison works
+          if (data.build_number > currentBuildNumber) {
+            console.log('[AppUpdate] Update available via build_number')
+            setIsUpdateAvailable(true)
+            setLatestVersion(data)
+            return
+          } else {
+            // Build numbers are equal or current is newer
+            console.log('[AppUpdate] No update needed (build_number check)')
+            setIsUpdateAvailable(false)
+            return
+          }
         }
 
         // Priority 2: Fallback to semantic versioning
         if (compareVersions(currentVersion, data.version) < 0) {
+          console.log('[AppUpdate] Update available via semver')
           setIsUpdateAvailable(true)
           setLatestVersion(data)
+        } else {
+          console.log('[AppUpdate] No update needed (semver check)')
+          setIsUpdateAvailable(false)
         }
       }
     } catch (e) {

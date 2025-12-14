@@ -1,12 +1,14 @@
 import React from 'react'
-import { View, Text, StyleSheet, Modal, Linking, Platform } from 'react-native'
+import { View, Text, StyleSheet, Modal, Linking } from 'react-native'
 import { useAppUpdate } from '../../hooks/useAppUpdate'
 import { PressableScale } from './PressableScale'
 import { Icon } from './Icon'
+import { getBuildInfo } from '../../config/build'
 
 export function AppUpdatePrompt() {
   const { isUpdateAvailable, latestVersion, loading } = useAppUpdate()
   const [isVisible, setIsVisible] = React.useState(true)
+  const buildInfo = getBuildInfo()
 
   if (loading || !isUpdateAvailable || !latestVersion) {
     return null
@@ -41,7 +43,10 @@ export function AppUpdatePrompt() {
           </View>
 
           <Text style={styles.versionText}>
-            Version {latestVersion.version} is now available.
+            New: v{latestVersion.version} ({latestVersion.build_number || 'latest'})
+          </Text>
+          <Text style={styles.currentVersion}>
+            Current: {buildInfo.fullVersion}
           </Text>
           
           {latestVersion.changelog && (
@@ -116,9 +121,16 @@ const styles = StyleSheet.create({
   },
   versionText: {
     fontSize: 16,
+    marginBottom: 4,
+    textAlign: 'center',
+    color: '#000',
+    fontWeight: '600',
+  },
+  currentVersion: {
+    fontSize: 14,
     marginBottom: 12,
     textAlign: 'center',
-    color: '#666',
+    color: '#888',
   },
   changelog: {
     fontSize: 14,
