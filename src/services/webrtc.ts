@@ -106,7 +106,12 @@ class WebRTCService {
     this.role = role
     this.callbacks = callbacks
 
-    sessionLogger.logWebRTC('init', { deviceId, peerDeviceId, sessionId, role })
+    sessionLogger.logWebRTC('init', { 
+      role,
+      deviceId,
+      sessionId,
+      peerDeviceId,
+    })
 
     // Create peer connection
     this.peerConnection = new RTCPeerConnection(ICE_SERVERS)
@@ -160,7 +165,16 @@ class WebRTCService {
    * Create and send offer (camera side)
    */
   private async createOffer() {
-    if (!this.peerConnection) return
+    if (!this.peerConnection) {
+      sessionLogger.error('webrtc_create_offer_no_peer_connection', new Error('No peer connection'))
+      return
+    }
+
+    sessionLogger.logWebRTC('creating_offer', { 
+      role: this.role,
+      hasLocalStream: !!this.localStream,
+      localTrackCount: this.localStream?.getTracks().length ?? 0,
+    })
 
     try {
       const offer = await this.peerConnection.createOffer({
@@ -176,9 +190,13 @@ class WebRTCService {
         data: offer,
       })
 
-      sessionLogger.logWebRTC('offer_created')
+      sessionLogger.logWebRTC('offer_created', { 
+        role: this.role,
+        offerType: offer.type,
+        hasSdp: !!offer.sdp,
+      })
     } catch (error) {
-      sessionLogger.error('webrtc_offer_failed', error)
+      sessionLogger.error('webrtc_offer_failed', error, { role: this.role })
       this.callbacks.onError?.(error as Error)
     }
   }
@@ -187,12 +205,22 @@ class WebRTCService {
    * Handle received offer (director side)
    */
   private async handleOffer(offer: RTCSessionDescriptionInit) {
-    if (!this.peerConnection) return
+    if (!this.peerConnection) {
+      sessionLogger.error('webrtc_handle_offer_no_peer_connection', new Error('No peer connection'))
+      return
+    }
+
+    sessionLogger.logWebRTC('handling_offer', { 
+      role: this.role,
+      offerType: offer.type,
+      hasSdp: !!offer.sdp,
+    })
 
     try {
       await this.peerConnection.setRemoteDescription(
         new RTCSessionDescription(offer)
       )
+      sessionLogger.logWebRTC('remote_description_set', { role: this.role })
 
       const answer = await this.peerConnection.createAnswer()
       await this.peerConnection.setLocalDescription(answer)
@@ -202,9 +230,12 @@ class WebRTCService {
         data: answer,
       })
 
-      sessionLogger.logWebRTC('answer_created')
+      sessionLogger.logWebRTC('answer_created', { 
+        role: this.role,
+        answerType: answer.type,
+      })
     } catch (error) {
-      sessionLogger.error('webrtc_answer_failed', error)
+      sessionLogger.error('webrtc_answer_failed', error, { role: this.role })
       this.callbacks.onError?.(error as Error)
     }
   }
@@ -258,7 +289,13 @@ class WebRTCService {
     // Connection state change
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState
-      sessionLogger.logWebRTC('connection_state_change', { state })
+      const signalingState = this.peerConnection?.signalingState
+      sessionLogger.logWebRTC('connection_state_change', { 
+        connectionState: state ?? 'unknown',
+        signalingState: signalingState ?? 'unknown',
+        role: this.role,
+        peerDeviceId: this.peerDeviceId,
+      })
       
       if (state) {
         this.callbacks.onConnectionStateChange?.(state)
@@ -266,15 +303,22 @@ class WebRTCService {
         if (state === 'connected') {
           sessionLogger.logConnectionState('connected', this.peerDeviceId ?? undefined)
         } else if (state === 'failed' || state === 'disconnected') {
-          sessionLogger.logConnectionState('failed', this.peerDeviceId ?? undefined, { state })
+          sessionLogger.logConnectionState('failed', this.peerDeviceId ?? undefined, { 
+            connectionState: state,
+            signalingState,
+          })
         }
       }
     }
 
     // ICE connection state change
     this.peerConnection.oniceconnectionstatechange = () => {
+      const iceState = this.peerConnection?.iceConnectionState
+      const iceGatheringState = this.peerConnection?.iceGatheringState
       sessionLogger.logWebRTC('ice_state_change', {
-        state: this.peerConnection?.iceConnectionState,
+        iceConnectionState: iceState ?? 'unknown',
+        iceGatheringState: iceGatheringState ?? 'unknown',
+        role: this.role,
       })
     }
 
@@ -310,7 +354,12 @@ class WebRTCService {
         // Only process messages for us
         if (to !== this.deviceId) return
 
-        sessionLogger.logWebRTC('signal_received', { type: signal.type, from })
+        sessionLogger.logWebRTC('signal_received', { 
+          type: signal.type, 
+          from,
+          myRole: this.role,
+          myDeviceId: this.deviceId,
+        })
 
         switch (signal.type) {
           case 'offer':

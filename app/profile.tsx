@@ -9,9 +9,7 @@ import {
   Text, 
   StyleSheet, 
   Pressable, 
-  TextInput, 
   ScrollView,
-  Alert,
   RefreshControl,
   Linking,
 } from 'react-native'
@@ -97,11 +95,10 @@ const rankDescriptions: Record<string, string> = {
 
 export default function ProfileScreen() {
   const router = useRouter()
-  const { colors, mode } = useThemeStore()
-  const { myDeviceId, isPaired, clearPairing } = usePairingStore()
+  const { colors } = useThemeStore()
+  const { isPaired } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats, getRank, loadStats } = useStatsStore()
-  const [displayName, setDisplayName] = useState('User')
   const [refreshing, setRefreshing] = useState(false)
 
   const rank = getRank()
@@ -111,27 +108,8 @@ export default function ProfileScreen() {
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    // Reload stats from Supabase
     await loadStats()
     setRefreshing(false)
-  }
-
-  const handleDisconnect = () => {
-    Alert.alert(
-      t.profile.disconnect,
-      'Disconnect from your partner?',
-      [
-        { text: t.common.cancel, style: 'cancel' },
-        { 
-          text: t.profile.disconnect, 
-          style: 'destructive',
-          onPress: () => {
-            clearPairing()
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-          }
-        },
-      ]
-    )
   }
 
   // Calculate progress to next rank
@@ -213,82 +191,50 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Profile Info */}
+        {/* Quick Actions */}
         <Animated.View 
           entering={FadeInUp.delay(200).duration(300)} 
           style={styles.section}
         >
-          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>PROFILE</Text>
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.cardRow}>
-              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
-                {t.profile.displayName}
-              </Text>
-              <TextInput
-                style={[styles.textInput, { color: colors.text, backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder="Your name"
-                placeholderTextColor={colors.textMuted}
-              />
-            </View>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>QUICK ACTIONS</Text>
+          <View style={styles.quickActionsGrid}>
+            <Pressable 
+              style={[styles.quickActionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              onPress={() => router.push('/gallery')}
+            >
+              <Icon name="image" size={24} color={colors.text} />
+              <Text style={[styles.quickActionLabel, { color: colors.text }]}>Gallery</Text>
+            </Pressable>
             
-            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
-            
-            <View style={styles.cardRow}>
-              <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
-                {t.profile.deviceId}
-              </Text>
-              <Text style={[styles.cardValue, { color: colors.text }]}>
-                {myDeviceId?.slice(0, 8) || '—'}
-              </Text>
-            </View>
+            <Pressable 
+              style={[styles.quickActionCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+              onPress={() => router.push('/settings')}
+            >
+              <Icon name="settings" size={24} color={colors.text} />
+              <Text style={[styles.quickActionLabel, { color: colors.text }]}>Settings</Text>
+            </Pressable>
           </View>
         </Animated.View>
 
-        {/* Connection Status */}
+        {/* Connection Status - Simplified, view-only */}
         <Animated.View 
           entering={FadeInUp.delay(250).duration(300)} 
           style={styles.section}
         >
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>CONNECTION</Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.connectionRow}>
-              <View style={styles.connectionInfo}>
-                <Text style={[styles.cardLabel, { color: colors.textMuted }]}>
-                  {t.profile.status}
-                </Text>
-                <View style={styles.statusRow}>
-                  <View style={[
-                    styles.statusDot,
-                    { backgroundColor: isPaired ? colors.success : colors.textMuted }
-                  ]} />
-                  <Text style={[styles.statusText, { color: colors.text }]}>
-                    {isPaired ? t.profile.connected : t.profile.notConnected}
-                  </Text>
-                </View>
-              </View>
-              
-              {isPaired ? (
-                <Pressable 
-                  style={[styles.actionButton, styles.actionButtonDanger, { borderColor: colors.error }]} 
-                  onPress={handleDisconnect}
-                >
-                  <Text style={[styles.actionButtonText, { color: colors.error }]}>
-                    {t.profile.disconnect}
-                  </Text>
-                </Pressable>
-              ) : (
-                <Pressable 
-                  style={[styles.actionButton, { backgroundColor: colors.primary }]} 
-                  onPress={() => router.push('/pairing')}
-                >
-                  <Text style={[styles.actionButtonText, { color: colors.primaryText }]}>
-                    {t.profile.connect}
-                  </Text>
-                </Pressable>
-              )}
+            <View style={styles.connectionStatusRow}>
+              <View style={[
+                styles.statusDot,
+                { backgroundColor: isPaired ? colors.success : colors.textMuted }
+              ]} />
+              <Text style={[styles.statusText, { color: colors.text }]}>
+                {isPaired ? t.profile.connected : t.profile.notConnected}
+              </Text>
             </View>
+            <Text style={[styles.connectionHint, { color: colors.textMuted }]}>
+              {isPaired ? 'Manage connection in Settings' : 'Go to Settings to connect'}
+            </Text>
           </View>
         </Animated.View>
 
@@ -403,76 +349,43 @@ const styles = StyleSheet.create({
   },
   card: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
+    padding: 16,
   },
-  cardRow: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  cardLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  cardValue: {
-    fontSize: 15,
-    fontWeight: '600',
-    fontFamily: 'monospace',
-  },
-  textInput: {
-    fontSize: 15,
-    fontWeight: '500',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  divider: {
-    height: 1,
-    marginHorizontal: 16,
-  },
-  connectionRow: {
+  quickActionsGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
     gap: 12,
   },
-  connectionInfo: {
+  quickActionCard: {
     flex: 1,
-  },
-  statusRow: {
-    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 20,
     alignItems: 'center',
     gap: 8,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  actionButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  actionButtonDanger: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-  },
-  actionButtonText: {
+  quickActionLabel: {
     fontSize: 13,
     fontWeight: '600',
-    letterSpacing: -0.2,
+  },
+  connectionStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  statusDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  statusText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  connectionHint: {
+    fontSize: 13,
   },
   credit: {
     alignItems: 'center',

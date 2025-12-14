@@ -315,47 +315,68 @@ export default function SettingsScreen() {
           </Pressable>
         </Animated.View>
 
-        {/* Connection */}
+        {/* Connection - Primary location for managing pairing */}
         <Animated.View entering={FadeIn.delay(170).duration(200)} style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
             {t.settings.connection.toUpperCase()}
           </Text>
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={styles.infoRow}>
-              <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
-                {t.profile.status}
-              </Text>
-              <View style={styles.statusValue}>
-                <View style={[
-                  styles.statusDot,
-                  { backgroundColor: isPaired ? colors.success : colors.error }
-                ]} />
-                <Text style={[styles.infoValue, { color: colors.text }]}>
-                  {isPaired ? t.profile.connected : t.profile.notConnected}
-                </Text>
-              </View>
-            </View>
-            
-            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
-            
             {isPaired ? (
-              <Pressable 
-                style={styles.actionRow} 
-                onPress={handleUnpair}
-              >
-                <Text style={[styles.actionTextDanger, { color: colors.error }]}>
-                  {t.profile.disconnect}
-                </Text>
-              </Pressable>
+              <>
+                {/* Connected state */}
+                <View style={styles.connectionStatusRow}>
+                  <View style={[styles.connectionStatusIcon, { backgroundColor: '#22C55E20' }]}>
+                    <Text style={styles.connectionStatusEmoji}>🔗</Text>
+                  </View>
+                  <View style={styles.connectionStatusInfo}>
+                    <Text style={[styles.connectionStatusTitle, { color: colors.text }]}>
+                      Connected
+                    </Text>
+                    <Text style={[styles.connectionStatusDesc, { color: colors.textMuted }]}>
+                      Paired with partner device
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+                
+                <Pressable 
+                  style={styles.actionRow} 
+                  onPress={handleUnpair}
+                >
+                  <Text style={[styles.actionTextDanger, { color: colors.error }]}>
+                    Disconnect from Partner
+                  </Text>
+                </Pressable>
+              </>
             ) : (
-              <Pressable 
-                style={styles.actionRow} 
-                onPress={() => router.replace('/pairing')}
-              >
-                <Text style={[styles.actionText, { color: colors.accent }]}>
-                  {t.profile.connect}
-                </Text>
-              </Pressable>
+              <>
+                {/* Disconnected state */}
+                <View style={styles.connectionStatusRow}>
+                  <View style={[styles.connectionStatusIcon, { backgroundColor: colors.surfaceAlt }]}>
+                    <Text style={styles.connectionStatusEmoji}>📱</Text>
+                  </View>
+                  <View style={styles.connectionStatusInfo}>
+                    <Text style={[styles.connectionStatusTitle, { color: colors.text }]}>
+                      Not Connected
+                    </Text>
+                    <Text style={[styles.connectionStatusDesc, { color: colors.textMuted }]}>
+                      Pair with partner to start
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+                
+                <Pressable 
+                  style={[styles.connectButton, { backgroundColor: colors.primary }]} 
+                  onPress={() => router.replace('/pairing')}
+                >
+                  <Text style={[styles.connectButtonText, { color: colors.primaryText }]}>
+                    Connect with Partner
+                  </Text>
+                </Pressable>
+              </>
             )}
           </View>
         </Animated.View>
@@ -532,30 +553,33 @@ const styles = StyleSheet.create({
   languageValueText: {
     fontSize: 15,
   },
-  infoRow: {
+  connectionStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: 14,
     paddingHorizontal: 16,
-    minHeight: 56,
+    gap: 14,
   },
-  infoLabel: {
-    fontSize: 15,
-  },
-  infoValue: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  statusValue: {
-    flexDirection: 'row',
+  connectionStatusIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  connectionStatusEmoji: {
+    fontSize: 24,
+  },
+  connectionStatusInfo: {
+    flex: 1,
+  },
+  connectionStatusTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  connectionStatusDesc: {
+    fontSize: 13,
+    marginTop: 2,
   },
   actionRow: {
     paddingVertical: 14,
@@ -563,12 +587,20 @@ const styles = StyleSheet.create({
     minHeight: 48,
     justifyContent: 'center',
   },
-  actionText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
   actionTextDanger: {
     fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  connectButton: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  connectButtonText: {
+    fontSize: 16,
     fontWeight: '600',
   },
   footer: {

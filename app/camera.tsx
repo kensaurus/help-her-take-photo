@@ -11,7 +11,6 @@ import {
   StyleSheet, 
   Pressable, 
   Alert,
-  Share,
   Linking,
   useWindowDimensions,
 } from 'react-native'
@@ -33,9 +32,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useSettingsStore } from '../src/stores/settingsStore'
 import { useLanguageStore } from '../src/stores/languageStore'
-import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
+import { useStatsStore } from '../src/stores/statsStore'
 import { Icon } from '../src/components/ui/Icon'
+import { CaptureButton } from '../src/components/CaptureButton'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
@@ -63,6 +63,51 @@ function GridOverlay() {
   )
 }
 
+// Quick action button with animated press feedback
+function QuickActionButton({ 
+  icon, 
+  label, 
+  active = false,
+  onPress 
+}: { 
+  icon: string
+  label: string
+  active?: boolean
+  onPress: () => void
+}) {
+  const scale = useSharedValue(1)
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
+  
+  const handlePressIn = () => {
+    scale.value = withSpring(0.85, { damping: 15, stiffness: 400 })
+  }
+  
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 12, stiffness: 300 })
+  }
+
+  return (
+    <Pressable
+      style={styles.quickAction}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)
+        onPress()
+      }}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      accessibilityLabel={label}
+    >
+      <Animated.View style={animatedStyle}>
+        <Text style={[styles.quickActionText, active && styles.quickActionActive]}>{icon}</Text>
+        <Text style={styles.quickActionLabel}>{label}</Text>
+      </Animated.View>
+    </Pressable>
+  )
+}
+
 // Encouragement toast
 function EncouragementToast({ message, visible }: { message: string; visible: boolean }) {
   if (!visible) return null
@@ -78,49 +123,6 @@ function EncouragementToast({ message, visible }: { message: string; visible: bo
   )
 }
 
-// Capture button with animation
-function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing: boolean }) {
-  const scale = useSharedValue(1)
-  const innerScale = useSharedValue(1)
-  
-  const handlePress = () => {
-    scale.value = withSequence(
-      withSpring(0.9, { damping: 15 }),
-      withSpring(1, { damping: 15 })
-    )
-    innerScale.value = withSequence(
-      withTiming(0.6, { duration: 100 }),
-      withTiming(1, { duration: 200 })
-    )
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    onPress()
-  }
-  
-  const outerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-  
-  const innerStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: innerScale.value }],
-  }))
-
-  return (
-    <Pressable 
-      onPress={handlePress}
-      accessibilityLabel="Take photo"
-      accessibilityHint="Captures a photo"
-      accessibilityRole="button"
-    >
-      <Animated.View style={[styles.captureOuter, outerStyle]}>
-        <Animated.View style={[
-          styles.captureInner,
-          isSharing && styles.captureInnerSharing,
-          innerStyle
-        ]} />
-      </Animated.View>
-    </Pressable>
-  )
-}
 
 // Action button
 function ActionButton({ 
@@ -220,7 +222,7 @@ export default function CameraScreen() {
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
-  const { incrementPhotos, stats } = useStatsStore()
+  const { incrementPhotos } = useStatsStore()
   
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
@@ -241,13 +243,18 @@ export default function CameraScreen() {
   useEffect(() => {
     if (myDeviceId) {
       sessionLogger.init(myDeviceId, sessionId ?? undefined)
-      sessionLogger.info('camera_screen_opened')
+      sessionLogger.info('camera_screen_opened', { 
+        role: 'photographer',
+        isPaired,
+        pairedDeviceId,
+        webrtcAvailable,
+      })
     }
     return () => {
       sessionLogger.info('camera_screen_closed')
       sessionLogger.flush()
     }
-  }, [myDeviceId, sessionId])
+  }, [myDeviceId, sessionId, isPaired, pairedDeviceId])
 
   // Handle permission loading state
   useEffect(() => {
@@ -266,11 +273,18 @@ export default function CameraScreen() {
     
     // Check if WebRTC is available
     if (!webrtcAvailable) {
-      sessionLogger.warn('webrtc_not_available_camera')
+      sessionLogger.warn('webrtc_not_available_camera', { 
+        isPaired, 
+        hasPermission: permission?.granted 
+      })
       return
     }
 
-    sessionLogger.info('starting_webrtc_connection')
+    sessionLogger.info('starting_webrtc_as_photographer', {
+      myDeviceId,
+      pairedDeviceId,
+      sessionId,
+    })
     setWebrtcInitialized(true)
     setIsSharing(true)
     
@@ -281,11 +295,18 @@ export default function CameraScreen() {
       'camera',
       {
         onConnectionStateChange: (state) => {
-          sessionLogger.info('webrtc_state', { state })
+          sessionLogger.info('photographer_webrtc_state', { 
+            connectionState: state,
+            role: 'camera',
+          })
           setIsConnected(state === 'connected')
         },
         onError: (error) => {
-          sessionLogger.error('webrtc_error', error)
+          sessionLogger.error('photographer_webrtc_error', error, {
+            role: 'camera',
+            myDeviceId,
+            pairedDeviceId,
+          })
           setIsConnected(false)
         },
       }
@@ -294,8 +315,15 @@ export default function CameraScreen() {
       const stream = webrtcService.getLocalStream()
       if (stream) {
         setLocalStream(stream)
-        sessionLogger.info('local_stream_ready')
+        sessionLogger.info('photographer_local_stream_ready', {
+          trackCount: stream.getTracks().length,
+          videoTracks: stream.getVideoTracks().length,
+        })
+      } else {
+        sessionLogger.warn('photographer_no_local_stream')
       }
+    }).catch((error) => {
+      sessionLogger.error('photographer_webrtc_init_failed', error)
     })
 
     // Listen for commands from director
@@ -424,24 +452,9 @@ export default function CameraScreen() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
   }
 
-  const toggleSharing = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    if (!isPaired) {
-      router.push('/pairing')
-    }
-  }
-
   const toggleCameraFacing = () => {
     setFacing(f => f === 'back' ? 'front' : 'back')
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-  }
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `📸 ${t.appName} - I've avoided ${stats.scoldingsSaved} scoldings so far! ${t.tagline}`,
-      })
-    } catch {}
   }
 
   const handleDisconnect = async () => {
@@ -474,9 +487,9 @@ export default function CameraScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Close button */}
+      {/* Back button - consistent navigation */}
       <Pressable 
-        style={styles.closeButton}
+        style={styles.backButton}
         onPress={() => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
           router.back()
@@ -484,7 +497,7 @@ export default function CameraScreen() {
         accessibilityLabel="Go back"
         accessibilityRole="button"
       >
-        <Text style={styles.closeButtonText}>✕</Text>
+        <Text style={styles.backButtonTextCamera}>← Back</Text>
       </Pressable>
 
       {/* Camera preview */}
@@ -545,71 +558,42 @@ export default function CameraScreen() {
         <EncouragementToast message={encouragement} visible={showEncouragement} />
       </View>
 
-      {/* Controls */}
+      {/* Controls - Simplified for focus */}
       <View style={styles.controls}>
-        <View style={styles.topControls}>
-          <ActionButton
-            label={isPaired ? (isConnected ? '🔴 Live' : 'Connecting') : t.camera.share}
-            onPress={toggleSharing}
-            active={isSharing}
-            accessibilityHint={isPaired ? 'Connection status' : 'Connect with partner'}
-          />
-          
-          <ActionButton
-            label={t.camera.options}
-            onPress={() => router.push('/settings')}
-            accessibilityHint="Open camera settings"
-          />
-        </View>
+        {/* Connection status indicator */}
+        {isPaired && (
+          <View style={styles.connectionIndicator}>
+            <View style={[styles.liveIndicator, isConnected && styles.liveIndicatorActive]}>
+              <Text style={styles.liveIndicatorText}>
+                {isConnected ? '🔴 LIVE' : '⏳ Connecting...'}
+              </Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.captureRow}>
           <CaptureButton onPress={handleCapture} isSharing={isSharing} />
         </View>
 
+        {/* Minimal quick actions - only essential controls */}
         <View style={styles.bottomControls} accessibilityRole="toolbar">
-          <Pressable 
-            style={styles.quickAction}
+          <QuickActionButton
+            icon="⊞"
+            label="Grid"
+            active={settings.showGrid}
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
               updateSettings({ showGrid: !settings.showGrid })
             }}
-            accessibilityLabel={`Grid overlay ${settings.showGrid ? 'on' : 'off'}`}
-          >
-            <Text style={styles.quickActionText}>⊞</Text>
-            <Text style={styles.quickActionLabel}>Grid</Text>
-          </Pressable>
+          />
           
-          <Pressable 
-            style={styles.quickAction}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              router.push('/gallery')
-            }}
-            accessibilityLabel="Gallery"
-          >
-            <Text style={styles.quickActionText}>◫</Text>
-            <Text style={styles.quickActionLabel}>Gallery</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={styles.quickAction}
+          <QuickActionButton
+            icon="🔄"
+            label="Flip"
             onPress={toggleCameraFacing}
-            accessibilityLabel="Flip camera"
-          >
-            <Text style={styles.quickActionText}>🔄</Text>
-            <Text style={styles.quickActionLabel}>Flip</Text>
-          </Pressable>
-
-          <Pressable 
-            style={styles.quickAction}
-            onPress={handleShare}
-            accessibilityLabel="Share"
-          >
-            <Text style={styles.quickActionText}>↗</Text>
-            <Text style={styles.quickActionLabel}>Share</Text>
-          </Pressable>
+          />
         </View>
 
+        {/* Clear call-to-action when not paired */}
         {!isPaired && (
           <Pressable 
             style={styles.connectPrompt}
@@ -619,10 +603,12 @@ export default function CameraScreen() {
             }}
             accessibilityLabel={t.camera.connectPrompt}
           >
-            <Text style={styles.connectPromptText}>{t.camera.connectPrompt}</Text>
+            <Text style={styles.connectPromptIcon}>🔗</Text>
+            <Text style={styles.connectPromptText}>Connect with Partner</Text>
           </Pressable>
         )}
 
+        {/* Switch role - more prominent when paired */}
         {isPaired && (
           <Pressable 
             style={styles.switchRolePrompt}
@@ -633,7 +619,8 @@ export default function CameraScreen() {
             }}
             accessibilityLabel="Switch to Director mode"
           >
-            <Text style={styles.switchRoleText}>👁️ Switch to Director</Text>
+            <Text style={styles.switchRoleIcon}>👁️</Text>
+            <Text style={styles.switchRoleText}>Switch to Director</Text>
           </Pressable>
         )}
       </View>
@@ -674,20 +661,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
-  closeButton: {
+  backButton: {
     position: 'absolute',
     top: 50,
-    right: 16,
+    left: 16,
     zIndex: 100,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     backgroundColor: 'rgba(0,0,0,0.6)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  closeButtonText: {
-    fontSize: 18,
+  backButtonTextCamera: {
+    fontSize: 15,
     fontWeight: '600',
     color: '#fff',
   },
@@ -853,100 +838,92 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     paddingBottom: 32,
   },
-  topControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  actionBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 4,
-    minWidth: 100,
+  connectionIndicator: {
     alignItems: 'center',
+    paddingVertical: 8,
   },
-  actionBtnActive: {
-    backgroundColor: '#DC2626',
+  liveIndicator: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  actionBtnText: {
-    fontSize: 15,
+  liveIndicatorActive: {
+    backgroundColor: 'rgba(220, 38, 38, 0.3)',
+  },
+  liveIndicatorText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
-  },
-  actionBtnTextActive: {
     color: '#fff',
   },
   captureRow: {
     alignItems: 'center',
-    paddingVertical: 20,
-  },
-  captureOuter: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 4,
-    borderColor: '#fff',
-    padding: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  captureInner: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 36,
-    backgroundColor: '#fff',
-  },
-  captureInnerSharing: {
-    backgroundColor: '#DC2626',
+    paddingVertical: 24,
   },
   bottomControls: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 40,
+    justifyContent: 'center',
+    gap: 48,
     paddingTop: 8,
   },
   quickAction: {
     alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   quickActionText: {
-    fontSize: 24,
+    fontSize: 28,
     color: '#fff',
     marginBottom: 4,
+    textAlign: 'center',
+  },
+  quickActionActive: {
+    color: '#22C55E',
   },
   quickActionLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#888',
     fontWeight: '500',
   },
   connectPrompt: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 4,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    marginHorizontal: 20,
+    marginTop: 16,
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  connectPromptIcon: {
+    fontSize: 20,
   },
   connectPromptText: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 16,
+    color: '#22C55E',
+    fontWeight: '600',
   },
   switchRolePrompt: {
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    marginHorizontal: 20,
-    marginTop: 12,
-    paddingVertical: 12,
-    borderRadius: 4,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: 20,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  switchRoleIcon: {
+    fontSize: 18,
   },
   switchRoleText: {
-    fontSize: 14,
-    color: '#aaa',
+    fontSize: 15,
+    color: '#fff',
     fontWeight: '500',
   },
 })

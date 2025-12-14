@@ -20,6 +20,7 @@ A mobile app that helps couples take better photos by allowing one person to rem
 - 📝 **Feedback** - Submit suggestions directly from the app
 - 🎯 **Onboarding** - First-time user experience with language selection
 - 📊 **Debug Logging** - All events logged to Supabase for debugging
+- ✨ **Micro-interactions** - Physics-based animations, haptic feedback, visual polish
 
 ## 🏗 Tech Stack
 
@@ -108,14 +109,18 @@ npx expo start
 │   └── changelog.tsx      # Version history
 ├── src/
 │   ├── components/        # Reusable UI components
-│   │   └── ui/           # Base UI (Icon, Skeleton, PressableScale)
+│   │   ├── CaptureButton.tsx  # Enhanced capture with animations
+│   │   └── ui/           # Base UI (Icon, Skeleton, AnimatedPressable)
 │   ├── stores/           # Zustand state stores
 │   ├── services/         # Business logic
 │   │   ├── api.ts        # Supabase API client
 │   │   ├── supabase.ts   # Supabase configuration
 │   │   ├── sessionLogger.ts  # Supabase logging service
+│   │   ├── soundService.ts   # Sound + haptic feedback
 │   │   └── webrtc.ts     # WebRTC P2P video streaming
 │   ├── hooks/            # Custom React hooks
+│   ├── lib/              # Utility libraries
+│   │   └── microInteractions.ts  # Animation configs & haptics
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── types/            # TypeScript definitions
 │   └── config/           # Build configuration
@@ -304,11 +309,65 @@ Get these from **Supabase Dashboard → Settings → API**
 | `Skeleton` | Loading placeholder with shimmer |
 | `PressableScale` | Pressable with scale animation & haptics |
 | `AnimatedButton` | Button with spring animation |
+| `AnimatedPressable` | Physics-based pressable with configurable presets |
 | `FadeView` | View with fade-in animation |
+
+### Enhanced Components (`src/components/`)
+
+| Component | Description |
+|-----------|-------------|
+| `CaptureButton` | Photo capture with ring pulse, flash effect, spring physics |
 
 ### Icon Names
 
 Available icons: `camera`, `eye`, `image`, `user`, `settings`, `check`, `close`, `arrow-right`, `arrow-left`, `chevron-right`, `chevron-left`, `chevron-down`, `sun`, `moon`, `link`, `unlink`, `send`, `star`, `heart`, `flash`, `grid`, `share`, `trash`, `refresh`, `plus`, `minus`, `dot`, `loading`
+
+## ✨ Micro-interactions & Animations
+
+The app uses physics-based animations for a premium feel. Configuration is centralized in `src/lib/microInteractions.ts`.
+
+### Spring Configurations
+
+| Preset | Use Case | Properties |
+|--------|----------|------------|
+| `button` | Snappy button presses | damping: 15, stiffness: 400 |
+| `bouncy` | Celebratory moments | damping: 8, stiffness: 180 |
+| `gentle` | Subtle transitions | damping: 20, stiffness: 200 |
+| `stiff` | Precision interactions | damping: 25, stiffness: 500 |
+| `wobbly` | Playful elements | damping: 6, stiffness: 120 |
+
+### Haptic Patterns
+
+| Pattern | When to Use |
+|---------|-------------|
+| `tap` | Light button press |
+| `select` | Selection/medium impact |
+| `heavy` | Important actions (capture) |
+| `rigid` | Toggle switches |
+| `success` | Completed actions |
+| `error` | Error feedback |
+
+### Interaction Presets
+
+```typescript
+import { InteractionPresets } from '@/lib/microInteractions'
+
+// Use presets for consistent feel:
+InteractionPresets.button      // Standard buttons
+InteractionPresets.captureButton  // Photo capture
+InteractionPresets.card        // Card selection
+InteractionPresets.toggle      // Switches
+InteractionPresets.destructive // Danger actions
+```
+
+### CaptureButton Effects
+
+The capture button (`src/components/CaptureButton.tsx`) includes:
+- **Press Animation** - Scale 0.92 with spring physics
+- **Ring Pulse** - Expanding ring (1.0 → 1.8) on capture
+- **Flash Effect** - White overlay flash
+- **Heavy Haptic** - Tactile feedback on capture
+- **3D Shadows** - Depth appearance
 
 ## 🤝 Contributing
 

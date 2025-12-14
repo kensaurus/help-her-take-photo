@@ -162,109 +162,125 @@ function ProfileSetup({
 }
 
 /**
- * Connected Status Component - Shows when already paired
+ * Connected Status Component - Clean, simple connected state with celebration
  */
 function ConnectedStatus({ 
-  sessionId,
   partnerName,
   partnerAvatar,
   myName,
   myAvatar,
-  onDisconnect,
-  onNewConnection,
+  onGoBack,
   colors,
 }: { 
-  sessionId: string
   partnerName: string | null
   partnerAvatar: string
   myName: string | null
   myAvatar: string
-  onDisconnect: () => void
-  onNewConnection: () => void
+  onGoBack: () => void
   colors: any
 }) {
+  const router = useRouter()
+  const celebrationScale = useSharedValue(0)
+  const buttonScale = useSharedValue(1)
+  
+  // Play celebration animation on mount
+  useEffect(() => {
+    celebrationScale.value = withSequence(
+      withTiming(1.15, { duration: 200 }),
+      withSpring(1, { damping: 8, stiffness: 200 })
+    )
+    // Haptic celebration
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  }, [])
+  
+  const celebrationStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: celebrationScale.value }],
+  }))
+  
+  const buttonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }))
+  
+  const handlePressIn = () => {
+    buttonScale.value = withSpring(0.95, { damping: 15, stiffness: 400 })
+  }
+  
+  const handlePressOut = () => {
+    buttonScale.value = withSpring(1, { damping: 12, stiffness: 300 })
+  }
+  
   return (
     <Animated.View entering={FadeIn.duration(400)} style={styles.connectedContainer}>
-      <View style={[styles.connectedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <View style={styles.connectedHeader}>
-          <View style={[styles.connectedIcon, { backgroundColor: '#22C55E20' }]}>
-            <Text style={styles.connectedIconText}>🔗</Text>
-          </View>
-          <Text style={[styles.connectedTitle, { color: colors.text }]}>
-            Connected
-          </Text>
-        </View>
+      {/* Success banner with celebration */}
+      <Animated.View style={[styles.successBanner, { backgroundColor: '#22C55E15' }, celebrationStyle]}>
+        <Text style={styles.successIcon}>✓</Text>
+        <Text style={[styles.successText, { color: '#22C55E' }]}>
+          Paired Successfully
+        </Text>
+      </Animated.View>
 
-        {/* Connection info */}
-        <View style={styles.connectionInfo}>
+      <View style={[styles.connectedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        {/* Connection visualization */}
+        <View style={styles.connectionVisual}>
           {/* My device */}
-          <View style={styles.deviceInfo}>
+          <Animated.View 
+            entering={FadeInUp.delay(100).duration(300)}
+            style={styles.deviceInfo}
+          >
             <Text style={styles.deviceAvatar}>{myAvatar}</Text>
-            <View style={styles.deviceDetails}>
-              <Text style={[styles.deviceName, { color: colors.text }]}>
-                {myName || 'You'}
-              </Text>
-              <Text style={[styles.deviceRole, { color: colors.textMuted }]}>This device</Text>
-            </View>
-          </View>
+            <Text style={[styles.deviceName, { color: colors.text }]}>
+              {myName || 'You'}
+            </Text>
+          </Animated.View>
 
           {/* Connection line */}
           <View style={styles.connectionLine}>
             <View style={[styles.connectionDot, { backgroundColor: '#22C55E' }]} />
-            <View style={[styles.connectionDash, { backgroundColor: colors.border }]} />
+            <Animated.View 
+              entering={FadeIn.delay(200).duration(400)}
+              style={[styles.connectionDash, { backgroundColor: '#22C55E' }]} 
+            />
             <View style={[styles.connectionDot, { backgroundColor: '#22C55E' }]} />
           </View>
 
           {/* Partner device */}
-          <View style={styles.deviceInfo}>
+          <Animated.View 
+            entering={FadeInUp.delay(150).duration(300)}
+            style={styles.deviceInfo}
+          >
             <Text style={styles.deviceAvatar}>{partnerAvatar}</Text>
-            <View style={styles.deviceDetails}>
-              <Text style={[styles.deviceName, { color: colors.text }]}>
-                {partnerName || 'Partner'}
-              </Text>
-              <Text style={[styles.deviceRole, { color: colors.textMuted }]}>Connected device</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Session info */}
-        <View style={[styles.sessionInfo, { backgroundColor: colors.surfaceAlt }]}>
-          <Text style={[styles.sessionLabel, { color: colors.textMuted }]}>Session ID</Text>
-          <Text style={[styles.sessionId, { color: colors.text }]}>
-            {sessionId.slice(0, 8)}...{sessionId.slice(-4)}
-          </Text>
+            <Text style={[styles.deviceName, { color: colors.text }]}>
+              {partnerName || 'Partner'}
+            </Text>
+          </Animated.View>
         </View>
       </View>
 
-      {/* Actions */}
-      <View style={styles.connectedActions}>
+      {/* Primary action - Go choose role with press feedback */}
+      <Animated.View entering={FadeInUp.delay(250).duration(350)}>
         <Pressable
-          style={[styles.actionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
-          onPress={onNewConnection}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            onGoBack()
+          }}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
         >
-          <Icon name="refresh" size={18} color={colors.text} />
-          <Text style={[styles.actionBtnText, { color: colors.text }]}>New Connection</Text>
+          <Animated.View style={[styles.primaryBtn, { backgroundColor: colors.primary }, buttonStyle]}>
+            <Text style={[styles.primaryBtnText, { color: colors.primaryText }]}>
+              Choose Your Role →
+            </Text>
+          </Animated.View>
         </Pressable>
+      </Animated.View>
 
-        <Pressable
-          style={[styles.actionBtn, styles.disconnectBtn, { borderColor: '#DC262640' }]}
-          onPress={onDisconnect}
-        >
-          <Text style={[styles.actionBtnText, { color: '#DC2626' }]}>Disconnect</Text>
-        </Pressable>
-      </View>
-
-      {/* Back to home */}
-      <Pressable
-        style={styles.backToHome}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        }}
+      {/* Subtle hint */}
+      <Animated.Text 
+        entering={FadeIn.delay(350).duration(300)}
+        style={[styles.hintText, { color: colors.textMuted }]}
       >
-        <Text style={[styles.backToHomeText, { color: colors.textMuted }]}>
-          ← Go back and choose a role
-        </Text>
-      </Pressable>
+        One person takes photos, one gives directions
+      </Animated.Text>
     </Animated.View>
   )
 }
@@ -596,7 +612,7 @@ export default function PairingScreen() {
     )
   }
 
-  // Already connected - show connection status
+  // Already connected - show clean connected state
   if (isPaired && sessionId && mode === 'select') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
@@ -609,28 +625,11 @@ export default function PairingScreen() {
           </View>
           
           <ConnectedStatus
-            sessionId={sessionId}
             partnerName={partnerDisplayName}
             partnerAvatar={partnerAvatar}
             myName={myDisplayName}
             myAvatar={myAvatar}
-            onDisconnect={handleDisconnect}
-            onNewConnection={() => {
-              Alert.alert(
-                'New Connection',
-                'This will disconnect your current partner. Continue?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Continue',
-                    onPress: async () => {
-                      if (myDeviceId) await pairingApi.unpair(myDeviceId)
-                      await clearPairing()
-                    },
-                  },
-                ]
-              )
-            }}
+            onGoBack={() => router.replace('/')}
             colors={colors}
           />
         </ScrollView>
@@ -796,31 +795,22 @@ const styles = StyleSheet.create({
   continueBtn: { paddingVertical: 18, borderRadius: 12, alignItems: 'center' },
   continueBtnText: { fontSize: 17, fontWeight: '700' },
 
-  // Connected Status
-  connectedContainer: { flex: 1, paddingTop: 20 },
-  connectedCard: { borderRadius: 16, borderWidth: 1, padding: 20, marginBottom: 20 },
-  connectedHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
-  connectedIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  connectedIconText: { fontSize: 22 },
-  connectedTitle: { fontSize: 20, fontWeight: '700' },
-  connectionInfo: { gap: 16 },
-  deviceInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  deviceAvatar: { fontSize: 32 },
-  deviceDetails: { flex: 1 },
-  deviceName: { fontSize: 16, fontWeight: '600' },
-  deviceRole: { fontSize: 13 },
-  connectionLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
-  connectionDot: { width: 8, height: 8, borderRadius: 4 },
-  connectionDash: { flex: 1, height: 2, maxWidth: 100 },
-  sessionInfo: { marginTop: 20, padding: 12, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sessionLabel: { fontSize: 12, fontWeight: '600' },
-  sessionId: { fontSize: 12, fontFamily: 'monospace' },
-  connectedActions: { gap: 12 },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 10, borderWidth: 1 },
-  actionBtnText: { fontSize: 15, fontWeight: '600' },
-  disconnectBtn: { backgroundColor: '#DC262610' },
-  backToHome: { alignItems: 'center', paddingVertical: 20 },
-  backToHomeText: { fontSize: 14 },
+  // Connected Status - Clean design
+  connectedContainer: { flex: 1, paddingTop: 32, alignItems: 'center' },
+  successBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 20, borderRadius: 24, marginBottom: 32 },
+  successIcon: { fontSize: 18 },
+  successText: { fontSize: 15, fontWeight: '600' },
+  connectedCard: { borderRadius: 16, borderWidth: 1, padding: 28, marginBottom: 28, width: '100%' },
+  connectionVisual: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  deviceInfo: { alignItems: 'center', gap: 8 },
+  deviceAvatar: { fontSize: 40 },
+  deviceName: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  connectionLine: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, paddingHorizontal: 16 },
+  connectionDot: { width: 10, height: 10, borderRadius: 5 },
+  connectionDash: { flex: 1, height: 3, borderRadius: 2 },
+  primaryBtn: { paddingVertical: 18, paddingHorizontal: 48, borderRadius: 12, marginBottom: 16 },
+  primaryBtnText: { fontSize: 17, fontWeight: '700' },
+  hintText: { fontSize: 14, textAlign: 'center' },
 
   // Mode Select
   modeSelect: { flex: 1 },

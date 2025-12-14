@@ -21,10 +21,6 @@ CREATE POLICY "Allow update own profile" ON device_profiles FOR UPDATE USING (tr
 -- Create index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_device_profiles_device_id ON device_profiles(device_id);
 
--- Add device names to pairings table for quick access
-ALTER TABLE pairings ADD COLUMN IF NOT EXISTS device_a_name TEXT DEFAULT 'User';
-ALTER TABLE pairings ADD COLUMN IF NOT EXISTS device_b_name TEXT DEFAULT 'User';
-
 -- Function to auto-update timestamp
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$

@@ -142,7 +142,8 @@ help-her-take-photo/
 │   └── changelog.tsx      # Version changelog
 ├── src/
 │   ├── components/        # Reusable components
-│   │   └── ui/           # AnimatedButton, FadeView, Icon
+│   │   ├── CaptureButton.tsx  # Enhanced capture with animations
+│   │   └── ui/           # AnimatedButton, AnimatedPressable, FadeView, Icon
 │   ├── stores/           # Zustand stores
 │   │   ├── pairingStore.ts
 │   │   ├── connectionStore.ts
@@ -155,7 +156,10 @@ help-her-take-photo/
 │   │   ├── api.ts        # Supabase API methods
 │   │   ├── supabase.ts   # Supabase client config
 │   │   ├── sessionLogger.ts  # Supabase debug logging
+│   │   ├── soundService.ts   # Sound + haptic feedback
 │   │   └── webrtc.ts     # WebRTC P2P video streaming
+│   ├── lib/              # Utility libraries
+│   │   └── microInteractions.ts  # Animation & haptic configs
 │   ├── i18n/             # Translations (EN, TH, ZH, JA)
 │   ├── config/           # Build info, changelog
 │   └── types/            # TypeScript types
@@ -411,6 +415,58 @@ eas update --branch preview --message "Bug fixes"
 
 ```
 EXPO_TOKEN  # Personal access token from expo.dev
+```
+
+---
+
+## ✨ Micro-interactions & UI Polish
+
+### Animation System (`src/lib/microInteractions.ts`)
+
+Centralized configuration for consistent, physics-based animations:
+
+| Preset | Properties | Use Case |
+|--------|------------|----------|
+| `SpringConfigs.button` | damping: 15, stiffness: 400 | Button press feedback |
+| `SpringConfigs.bouncy` | damping: 8, stiffness: 180 | Celebration moments |
+| `SpringConfigs.gentle` | damping: 20, stiffness: 200 | Subtle transitions |
+
+### Haptic Patterns
+
+| Pattern | Type | Usage |
+|---------|------|-------|
+| `tap` | Light | Button tap |
+| `select` | Medium | Selection |
+| `heavy` | Heavy | Photo capture |
+| `rigid` | Rigid | Toggle switch |
+| `success` | Notification | Task completed |
+
+### Reusable Components
+
+**AnimatedPressable** (`src/components/ui/AnimatedPressable.tsx`)
+- Physics-based scale + opacity on press
+- Configurable interaction presets
+- Built-in haptic feedback
+
+**CaptureButton** (`src/components/CaptureButton.tsx`)
+- Ring pulse effect on capture
+- Flash overlay animation
+- Spring physics (scale 0.92 → 1.0)
+- Heavy haptic on capture
+
+### Usage Example
+
+```tsx
+import { AnimatedPressable } from '@/components/ui/AnimatedPressable'
+import { HapticPatterns, SpringConfigs } from '@/lib/microInteractions'
+
+// Use preset
+<AnimatedPressable interaction="button" onPress={handlePress}>
+  <Text>Press Me</Text>
+</AnimatedPressable>
+
+// Manual haptic
+HapticPatterns.success()
 ```
 
 ---

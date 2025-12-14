@@ -11,7 +11,6 @@ import {
   Pressable, 
   ScrollView, 
   RefreshControl,
-  Linking,
   Dimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -38,7 +37,6 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
-import { getBuildInfo } from '../src/config/build'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -172,51 +170,46 @@ function ActionCard({
   )
 }
 
+
 /**
- * Minimal nav button with scale animation
+ * Animated nav item with press feedback
  */
-function NavButton({ 
+function NavItem({ 
+  icon, 
   label, 
-  icon,
+  active = false,
   onPress,
-  accessibilityHint,
 }: { 
-  label: string
   icon: 'user' | 'settings'
+  label: string
+  active?: boolean
   onPress: () => void
-  accessibilityHint?: string
 }) {
   const { colors } = useThemeStore()
   const scale = useSharedValue(1)
-  const opacity = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    opacity: opacity.value,
   }))
+  
+  const handlePressIn = () => {
+    scale.value = withSpring(0.9, { damping: 15, stiffness: 400 })
+  }
+  
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 12, stiffness: 300 })
+  }
 
   return (
     <Pressable 
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        onPress()
-      }}
-      onPressIn={() => {
-        scale.value = withSpring(0.92, { damping: 15, stiffness: 400 })
-        opacity.value = withTiming(0.7, { duration: 80 })
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15, stiffness: 300 })
-        opacity.value = withTiming(1, { duration: 150 })
-      }}
-      hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
-      accessibilityLabel={label}
-      accessibilityHint={accessibilityHint}
-      accessibilityRole="button"
+      style={styles.navItem}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
-      <Animated.View style={[styles.navButton, animatedStyle]}>
-        <Icon name={icon} size={18} color={colors.textSecondary} />
-        <Text style={[styles.navButtonText, { color: colors.textSecondary }]}>
+      <Animated.View style={[styles.navItemInner, animatedStyle]}>
+        <Icon name={icon} size={20} color={active ? colors.text : colors.textMuted} />
+        <Text style={[styles.navLabel, { color: active ? colors.text : colors.textMuted }]}>
           {label}
         </Text>
       </Animated.View>
@@ -534,42 +527,29 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Footer nav */}
+        {/* Bottom nav bar - minimal with animated feedback */}
         <Animated.View 
           entering={FadeIn.delay(350).duration(400)}
-          style={styles.footer}
+          style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border }]}
         >
-          <NavButton 
+          <NavItem 
+            icon="user" 
             label={t.profile.title} 
-            icon="user"
-            onPress={() => router.push('/profile')}
-            accessibilityHint="View your profile and statistics"
+            active
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              router.push('/profile')
+            }}
           />
-          <View style={[styles.footerDot, { backgroundColor: colors.border }]} accessibilityElementsHidden />
-          <NavButton 
-            label={t.settings.title} 
-            icon="settings"
-            onPress={() => router.push('/settings')}
-            accessibilityHint="Open app settings"
+          
+          <NavItem 
+            icon="settings" 
+            label={t.settings.title}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              router.push('/settings')
+            }}
           />
-        </Animated.View>
-
-        {/* Credit */}
-        <Animated.View 
-          entering={FadeIn.delay(500).duration(400)}
-          style={styles.credit}
-        >
-          <Pressable 
-            onPress={() => Linking.openURL('https://kensaur.us')}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Text style={[styles.creditText, { color: colors.textMuted }]}>
-              kensaur.us  /  2025
-            </Text>
-          </Pressable>
-          <Text style={[styles.versionText, { color: colors.textMuted }]}>
-            v{getBuildInfo().fullVersion}
-          </Text>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -728,42 +708,26 @@ const styles = StyleSheet.create({
   spacer: {
     height: 16,
   },
-  footer: {
+  bottomNav: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 24,
-    gap: 20,
-  },
-  navButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-  },
-  navButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  footerDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 1.5,
-  },
-  credit: {
-    alignItems: 'center',
+    borderTopWidth: 1,
+    marginHorizontal: -24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
     paddingBottom: 8,
+    marginTop: 16,
   },
-  creditText: {
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  navItemInner: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  navLabel: {
     fontSize: 11,
     fontWeight: '500',
-    letterSpacing: 1,
-  },
-  versionText: {
-    fontSize: 10,
-    fontWeight: '400',
-    marginTop: 4,
-    opacity: 0.6,
   },
 })

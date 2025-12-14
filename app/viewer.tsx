@@ -29,6 +29,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
+import { profileApi } from '../src/services/api'
 
 // Dynamically import RTCView to handle Expo Go gracefully
 let RTCView: any = null
@@ -41,7 +42,6 @@ try {
   // WebRTC not available (Expo Go)
 }
 import { useLanguageStore } from '../src/stores/languageStore'
-import { useStatsStore } from '../src/stores/statsStore'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
@@ -152,9 +152,8 @@ function SentIndicator({ message }: { message: string }) {
 
 export default function ViewerScreen() {
   const router = useRouter()
-  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo } = usePairingStore()
   const { t } = useLanguageStore()
-  const { stats } = useStatsStore()
   
   // Handle disconnect
   const handleDisconnect = async () => {
@@ -193,12 +192,29 @@ export default function ViewerScreen() {
   useEffect(() => {
     if (myDeviceId) {
       sessionLogger.init(myDeviceId, sessionId ?? undefined)
-      sessionLogger.info('viewer_screen_opened')
+      sessionLogger.info('viewer_screen_opened', { role: 'director', pairedDeviceId })
     }
     return () => {
       sessionLogger.info('viewer_screen_closed')
     }
-  }, [myDeviceId, sessionId])
+  }, [myDeviceId, sessionId, pairedDeviceId])
+
+  // Fetch partner profile if not available
+  useEffect(() => {
+    if (isPaired && pairedDeviceId && !partnerDisplayName) {
+      profileApi.get(pairedDeviceId).then(({ profile }) => {
+        if (profile) {
+          setPartnerInfo(profile.display_name, profile.avatar_emoji)
+          sessionLogger.info('partner_profile_loaded', { 
+            partnerName: profile.display_name,
+            partnerDeviceId: pairedDeviceId 
+          })
+        }
+      }).catch((err) => {
+        sessionLogger.warn('partner_profile_fetch_failed', { error: err?.message })
+      })
+    }
+  }, [isPaired, pairedDeviceId, partnerDisplayName, setPartnerInfo])
 
   // Initialize WebRTC when paired
   useEffect(() => {
@@ -211,7 +227,11 @@ export default function ViewerScreen() {
         return
       }
 
-      sessionLogger.info('starting_webrtc_as_director')
+      sessionLogger.info('starting_webrtc_as_director', {
+        myDeviceId,
+        pairedDeviceId,
+        sessionId,
+      })
       setIsConnected(true)
       
       webrtcService.init(
@@ -221,12 +241,17 @@ export default function ViewerScreen() {
         'director',
         {
           onRemoteStream: (stream) => {
-            sessionLogger.info('remote_stream_received')
+            sessionLogger.info('director_remote_stream_received', {
+              trackCount: stream?.getTracks?.()?.length ?? 0,
+            })
             setRemoteStream(stream)
             setIsReceiving(true)
           },
           onConnectionStateChange: (state) => {
-            sessionLogger.info('webrtc_state', { state })
+            sessionLogger.info('director_webrtc_state', { 
+              connectionState: state,
+              role: 'director',
+            })
             setConnectionState(state)
             if (state === 'failed' || state === 'disconnected') {
               setIsReceiving(false)
@@ -234,7 +259,11 @@ export default function ViewerScreen() {
             }
           },
           onError: (error) => {
-            sessionLogger.error('webrtc_error', error)
+            sessionLogger.error('director_webrtc_error', error, {
+              role: 'director',
+              myDeviceId,
+              pairedDeviceId,
+            })
             setWebrtcError(error.message)
           },
         }
@@ -311,16 +340,23 @@ export default function ViewerScreen() {
         'director',
         {
           onRemoteStream: (stream) => {
-            sessionLogger.info('remote_stream_received')
+            sessionLogger.info('director_remote_stream_received_refresh', {
+              trackCount: stream?.getTracks?.()?.length ?? 0,
+            })
             setRemoteStream(stream)
             setIsReceiving(true)
           },
           onConnectionStateChange: (state) => {
-            sessionLogger.info('webrtc_state', { state })
+            sessionLogger.info('director_webrtc_state_refresh', { 
+              connectionState: state,
+              role: 'director',
+            })
             setConnectionState(state)
           },
           onError: (error) => {
-            sessionLogger.error('webrtc_error', error)
+            sessionLogger.error('director_webrtc_error_refresh', error, {
+              role: 'director',
+            })
           },
         }
       )
@@ -349,8 +385,8 @@ export default function ViewerScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Close button */}
-      <View style={styles.headerButtons}>
+      {/* Simple back navigation */}
+      <View style={styles.headerNav}>
         <Pressable 
           style={styles.backButton}
           onPress={() => {
@@ -362,17 +398,6 @@ export default function ViewerScreen() {
         >
           <Text style={styles.backButtonText}>← Back</Text>
         </Pressable>
-        
-        {isPaired && (
-          <Pressable 
-            style={styles.disconnectButton}
-            onPress={handleDisconnect}
-            accessibilityLabel="Disconnect"
-            accessibilityRole="button"
-          >
-            <Text style={styles.disconnectButtonText}>Disconnect</Text>
-          </Pressable>
-        )}
       </View>
 
       <ScrollView
@@ -392,9 +417,11 @@ export default function ViewerScreen() {
           <Text style={styles.subtitle}>{t.viewer.subtitle}</Text>
           {isPaired && (
             <View style={styles.partnerCard}>
-              <Text style={styles.partnerEmoji}>📸</Text>
+              <Text style={styles.partnerEmoji}>{partnerAvatar || '📸'}</Text>
               <View style={styles.partnerInfo}>
-                <Text style={styles.partnerLabel}>Connected to Photographer</Text>
+                <Text style={styles.partnerLabel}>
+                  Connected to {partnerDisplayName || 'Photographer'}
+                </Text>
                 <Text style={styles.partnerStatus}>
                   {isReceiving ? '🟢 Streaming' : connectionState}
                 </Text>
@@ -521,7 +548,7 @@ export default function ViewerScreen() {
           </Animated.View>
         )}
 
-        {/* Switch role button */}
+        {/* Switch role button - prominent action */}
         {isPaired && (
           <View style={styles.switchRoleSection}>
             <Pressable 
@@ -535,17 +562,11 @@ export default function ViewerScreen() {
               accessibilityHint="Change your role to take photos"
               accessibilityRole="button"
             >
-              <Text style={styles.switchRoleText}>📸 Switch to Photographer</Text>
+              <Text style={styles.switchRoleIcon}>📸</Text>
+              <Text style={styles.switchRoleText}>Switch to Photographer</Text>
             </Pressable>
           </View>
         )}
-
-        {/* Stats */}
-        <View style={styles.statsSection}>
-          <Text style={styles.statsText}>
-            🛡️ {stats.scoldingsSaved} {t.profile.scoldingsSaved}
-          </Text>
-        </View>
       </ScrollView>
     </SafeAreaView>
   )
@@ -556,9 +577,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FAFAFA',
   },
-  headerButtons: {
+  headerNav: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -568,23 +588,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     backgroundColor: '#f0f0f0',
-    borderRadius: 6,
+    borderRadius: 8,
   },
   backButtonText: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '600',
     color: '#1a1a1a',
-  },
-  disconnectButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#fee2e2',
-    borderRadius: 6,
-  },
-  disconnectButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#dc2626',
   },
   scrollContent: {
     flexGrow: 1,
@@ -800,27 +809,24 @@ const styles = StyleSheet.create({
   },
   switchRoleSection: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
   switchRoleBtn: {
-    backgroundColor: '#f5f5f5',
-    paddingVertical: 14,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
+    justifyContent: 'center',
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 10,
+  },
+  switchRoleIcon: {
+    fontSize: 20,
   },
   switchRoleText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  statsSection: {
-    alignItems: 'center',
-    paddingVertical: 16,
-  },
-  statsText: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
   },
 })
