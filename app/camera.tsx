@@ -382,9 +382,13 @@ export default function CameraScreen() {
     
     // Initialize WebRTC and handle errors properly
     const initWebRTC = async () => {
+      sessionLogger.info('photographer_calling_webrtc_init', {
+        myDeviceId: myDeviceId?.substring(0, 8),
+        pairedDeviceId: pairedDeviceId?.substring(0, 8),
+        isMounted,
+      })
+      
       try {
-        sessionLogger.info('photographer_calling_webrtc_init')
-        
         await webrtcService.init(
           myDeviceId,
           pairedDeviceId,
@@ -421,6 +425,8 @@ export default function CameraScreen() {
           }
         )
         
+        sessionLogger.info('photographer_webrtc_init_returned', { isMounted })
+        
         // Check if still mounted after async init
         if (!isMounted) {
           sessionLogger.warn('photographer_unmounted_after_init', {
@@ -428,8 +434,6 @@ export default function CameraScreen() {
           })
           return
         }
-        
-        sessionLogger.info('photographer_webrtc_init_returned')
         
         // Get local stream for preview AFTER init completes
         const stream = webrtcService.getLocalStream()
@@ -447,10 +451,15 @@ export default function CameraScreen() {
           })
         }
       } catch (error) {
-        if (!isMounted) return
+        // Log ANY error from init, even if unmounted
         sessionLogger.error('photographer_webrtc_init_failed', error, {
           errorMessage: (error as Error)?.message,
+          errorName: (error as Error)?.name,
+          errorStack: (error as Error)?.stack?.substring(0, 300),
+          isMounted,
         })
+        
+        if (!isMounted) return
         setIsConnected(false)
         setIsSharing(false)
       }
@@ -702,8 +711,10 @@ export default function CameraScreen() {
 
   // Determine which camera view to show
   // If paired + WebRTC available + has local stream → show RTCView
+  // If paired but WebRTC is initializing (no stream yet) → show loading placeholder
   // Otherwise → show expo-camera CameraView
   const useWebRTCPreview = isPaired && webrtcAvailable && localStream && RTCView
+  const webrtcIsInitializing = isPaired && webrtcAvailable && !localStream && (isSharing || webrtcInitialized)
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -723,7 +734,7 @@ export default function CameraScreen() {
       {/* Camera preview */}
       <View style={styles.cameraPreview}>
         {useWebRTCPreview ? (
-          // WebRTC local stream preview (when paired)
+          // WebRTC local stream preview (when paired and stream ready)
           // Key prop forces re-render when stream changes - fixes blank screen
           <RTCView
             key={localStream?.id || 'local-stream'}
@@ -733,8 +744,15 @@ export default function CameraScreen() {
             mirror={facing === 'front'}
             zOrder={0}
           />
+        ) : webrtcIsInitializing ? (
+          // WebRTC is initializing - show placeholder to avoid camera conflict
+          // Do NOT render CameraView here or it will fight with getUserMedia()
+          <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
+            <Text style={styles.initializingEmoji}>📷</Text>
+            <Text style={styles.initializingText}>Connecting camera...</Text>
+          </View>
         ) : (
-          // expo-camera preview (when not paired)
+          // expo-camera preview (when not paired OR after WebRTC gives up camera)
           <CameraView
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
@@ -949,6 +967,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#1a1a1a',
     position: 'relative',
+  },
+  initializingContainer: {
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initializingEmoji: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  initializingText: {
+    fontSize: 16,
+    color: '#888',
+    fontWeight: '500',
   },
   gridOverlay: {
     position: 'absolute',

@@ -153,6 +153,9 @@ class WebRTCService {
   // Lock to prevent race conditions between init and destroy
   private isInitializing = false
   private initializationId = 0
+  
+  // Mutex for cleanup operations - prevents concurrent init/destroy race conditions
+  private cleanupPromise: Promise<void> | null = null
 
   /**
    * Check if WebRTC is available
@@ -177,6 +180,7 @@ class WebRTCService {
       role,
       deviceId: deviceId?.substring(0, 8),
       isWebRTCAvailable,
+      hasPendingCleanup: !!this.cleanupPromise,
     })
 
     // Check if WebRTC is available (requires development build)
@@ -188,6 +192,18 @@ class WebRTCService {
     }
 
     try {
+      // CRITICAL: Wait for any pending destroy() to complete before starting init
+      // This prevents race conditions when switching between camera/viewer screens
+      if (this.cleanupPromise) {
+        sessionLogger.logWebRTC('init_waiting_for_cleanup', { role })
+        try {
+          await this.cleanupPromise
+        } catch {
+          // Ignore cleanup errors, proceed with init
+        }
+        sessionLogger.logWebRTC('init_cleanup_wait_complete', { role })
+      }
+
       // Clean up any existing connection first
       if (this.peerConnection || this.channel) {
         sessionLogger.logWebRTC('init_cleanup_existing', { 
@@ -880,22 +896,46 @@ class WebRTCService {
 
   /**
    * Internal cleanup (doesn't reset initialization state)
+   * Made defensive to handle concurrent calls safely
    */
   private async cleanupInternal() {
     // Stop local tracks
-    this.localStream?.getTracks().forEach((track) => track.stop())
+    try {
+      this.localStream?.getTracks().forEach((track) => {
+        try {
+          track.stop()
+        } catch {
+          // Track may already be stopped
+        }
+      })
+    } catch {
+      // Ignore errors stopping tracks
+    }
     this.localStream = null
 
     // Close peer connection
     if (this.peerConnection) {
-      this.peerConnection.close()
+      try {
+        this.peerConnection.close()
+      } catch {
+        // Connection may already be closed
+      }
       this.peerConnection = null
     }
 
-    // Unsubscribe from channel
-    if (this.channel) {
-      await supabase.removeChannel(this.channel)
-      this.channel = null
+    // Unsubscribe from channel - wrap in try-catch to handle race conditions
+    const channelToRemove = this.channel
+    this.channel = null // Clear immediately to prevent double-removal
+    
+    if (channelToRemove) {
+      try {
+        await supabase.removeChannel(channelToRemove)
+      } catch (error) {
+        // Channel may already be removed or invalid
+        sessionLogger.warn('cleanup_channel_error', { 
+          error: (error as Error)?.message 
+        })
+      }
     }
 
     this.remoteStream = null
@@ -919,7 +959,16 @@ class WebRTCService {
       this.isInitializing = false
     }
 
-    await this.cleanupInternal()
+    // Track cleanup as a promise so init() can wait for it
+    this.cleanupPromise = this.cleanupInternal().finally(() => {
+      this.cleanupPromise = null
+    })
+    
+    try {
+      await this.cleanupPromise
+    } catch (error) {
+      sessionLogger.error('destroy_cleanup_error', error)
+    }
 
     this.deviceId = null
     this.peerDeviceId = null
