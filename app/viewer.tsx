@@ -50,54 +50,42 @@ const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
-// Direction button with big touch target
-function DirectionButton({ 
+// Compact direction chip button
+function DirectionChip({ 
   label, 
-  direction,
+  icon,
   onPress 
 }: { 
   label: string
-  direction: 'left' | 'right' | 'up' | 'down' | 'closer' | 'back'
+  icon: string
   onPress: () => void 
 }) {
   const scale = useSharedValue(1)
-  const [pressed, setPressed] = useState(false)
-  
-  const handlePress = () => {
-    scale.value = withSequence(
-      withSpring(0.9, { damping: 15 }),
-      withSpring(1, { damping: 15 })
-    )
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    setPressed(true)
-    setTimeout(() => setPressed(false), 300)
-    onPress()
-  }
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
 
-  const arrows: Record<string, string> = {
-    left: '←',
-    right: '→',
-    up: '↑',
-    down: '↓',
-    closer: '⊕',
-    back: '⊖',
-  }
-
   return (
-    <Pressable onPress={handlePress}>
-      <Animated.View style={[
-        styles.directionBtn,
-        pressed && styles.directionBtnPressed,
-        animatedStyle
-      ]}>
-        <Text style={styles.directionArrow}>{arrows[direction]}</Text>
-        <Text style={[styles.directionLabel, pressed && styles.directionLabelPressed]}>
-          {label}
-        </Text>
+    <Pressable 
+      onPress={() => {
+        scale.value = withSequence(
+          withSpring(0.9, { damping: 15 }),
+          withSpring(1, { damping: 15 })
+        )
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+        onPress()
+      }}
+      onPressIn={() => {
+        scale.value = withSpring(0.95, { damping: 15, stiffness: 400 })
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15 })
+      }}
+    >
+      <Animated.View style={[styles.directionChip, animatedStyle]}>
+        <Text style={styles.directionChipIcon}>{icon}</Text>
+        <Text style={styles.directionChipLabel}>{label}</Text>
       </Animated.View>
     </Pressable>
   )
@@ -485,66 +473,51 @@ export default function ViewerScreen() {
           {showSent && <SentIndicator message={lastCommand} />}
         </View>
 
-        {/* Direction controls */}
+        {/* Direction controls - Compact chip-style */}
         {isConnected && (
           <Animated.View entering={FadeIn} style={styles.controlsSection}>
-            <Text style={styles.sectionLabel}>{t.viewer.giveDirections}</Text>
+            <Text style={styles.sectionLabel}>Quick Commands</Text>
             
-            {/* Directional pad */}
-            <View style={styles.directionGrid}>
-              <View style={styles.directionRow}>
-                <View style={styles.directionSpacer} />
-                <DirectionButton 
-                  label={t.viewer.directions.up} 
-                  direction="up"
-                  onPress={() => sendDirection('up')} 
-                />
-                <View style={styles.directionSpacer} />
-              </View>
-              
-              <View style={styles.directionRow}>
-                <DirectionButton 
-                  label={t.viewer.directions.left} 
-                  direction="left"
-                  onPress={() => sendDirection('left')} 
-                />
-                <View style={styles.directionCenter} />
-                <DirectionButton 
-                  label={t.viewer.directions.right} 
-                  direction="right"
-                  onPress={() => sendDirection('right')} 
-                />
-              </View>
-              
-              <View style={styles.directionRow}>
-                <View style={styles.directionSpacer} />
-                <DirectionButton 
-                  label={t.viewer.directions.down} 
-                  direction="down"
-                  onPress={() => sendDirection('down')} 
-                />
-                <View style={styles.directionSpacer} />
-              </View>
+            {/* Direction chips - horizontal scroll */}
+            <View style={styles.directionChipsRow}>
+              <DirectionChip 
+                label="Left" 
+                icon="←"
+                onPress={() => sendDirection('left')} 
+              />
+              <DirectionChip 
+                label="Right" 
+                icon="→"
+                onPress={() => sendDirection('right')} 
+              />
+              <DirectionChip 
+                label="Up" 
+                icon="↑"
+                onPress={() => sendDirection('up')} 
+              />
+              <DirectionChip 
+                label="Down" 
+                icon="↓"
+                onPress={() => sendDirection('down')} 
+              />
             </View>
 
-            {/* Zoom controls */}
-            <View style={styles.zoomRow}>
-              <DirectionButton 
-                label={t.viewer.directions.closer} 
-                direction="closer"
+            {/* Zoom chips */}
+            <View style={styles.directionChipsRow}>
+              <DirectionChip 
+                label="Closer" 
+                icon="🔍"
                 onPress={() => sendDirection('closer')} 
               />
-              <DirectionButton 
-                label={t.viewer.directions.back} 
-                direction="back"
+              <DirectionChip 
+                label="Back" 
+                icon="🔎"
                 onPress={() => sendDirection('back')} 
               />
             </View>
 
-            {/* Take photo button */}
-            <View style={styles.takePhotoSection}>
-              <TakePhotoButton onPress={handleTakePhoto} />
-            </View>
+            {/* Take photo - prominent floating button */}
+            <TakePhotoButton onPress={handleTakePhoto} />
           </Animated.View>
         )}
 
@@ -736,75 +709,60 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
-  directionGrid: {
-    alignItems: 'center',
+  directionChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 10,
     marginBottom: 16,
   },
-  directionRow: {
+  directionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  directionSpacer: {
-    width: 80,
-    height: 70,
-  },
-  directionCenter: {
-    width: 20,
-    height: 70,
-  },
-  directionBtn: {
-    width: 80,
-    height: 70,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#E5E5E5',
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    margin: 4,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  directionBtnPressed: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#1a1a1a',
-  },
-  directionArrow: {
-    fontSize: 24,
+  directionChipIcon: {
+    fontSize: 16,
     color: '#1a1a1a',
   },
-  directionLabel: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 2,
-  },
-  directionLabelPressed: {
-    color: '#fff',
-  },
-  zoomRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginBottom: 24,
-  },
-  takePhotoSection: {
-    alignItems: 'center',
-    marginBottom: 24,
+  directionChipLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
   takePhotoBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    borderRadius: 4,
+    justifyContent: 'center',
+    backgroundColor: '#22C55E',
+    paddingVertical: 18,
+    paddingHorizontal: 40,
+    borderRadius: 50,
     gap: 12,
+    marginTop: 8,
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   takePhotoBtnIcon: {
-    fontSize: 24,
+    fontSize: 22,
   },
   takePhotoBtnText: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#fff',
   },
   switchRoleSection: {

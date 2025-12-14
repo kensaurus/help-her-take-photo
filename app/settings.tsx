@@ -154,7 +154,7 @@ export default function SettingsScreen() {
   const router = useRouter()
   const { colors, mode, toggleMode } = useThemeStore()
   const { settings, updateSettings } = useSettingsStore()
-  const { isPaired, clearPairing } = usePairingStore()
+  const { isPaired, clearPairing, partnerDisplayName, partnerAvatar, sessionId } = usePairingStore()
   const { language, setLanguage, t } = useLanguageStore()
   const [showLanguageModal, setShowLanguageModal] = useState(false)
 
@@ -323,20 +323,34 @@ export default function SettingsScreen() {
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             {isPaired ? (
               <>
-                {/* Connected state */}
+                {/* Connected state - Partner Info */}
                 <View style={styles.connectionStatusRow}>
-                  <View style={[styles.connectionStatusIcon, { backgroundColor: '#22C55E20' }]}>
-                    <Text style={styles.connectionStatusEmoji}>🔗</Text>
+                  <View style={[styles.partnerAvatarLarge, { backgroundColor: `${colors.primary}15` }]}>
+                    <Text style={styles.partnerAvatarEmoji}>{partnerAvatar || '📸'}</Text>
                   </View>
                   <View style={styles.connectionStatusInfo}>
                     <Text style={[styles.connectionStatusTitle, { color: colors.text }]}>
-                      Connected
+                      {partnerDisplayName || 'Partner'}
                     </Text>
-                    <Text style={[styles.connectionStatusDesc, { color: colors.textMuted }]}>
-                      Paired with partner device
-                    </Text>
+                    <View style={styles.statusBadge}>
+                      <View style={[styles.statusDotGreen]} />
+                      <Text style={styles.statusBadgeText}>Connected</Text>
+                    </View>
                   </View>
                 </View>
+                
+                {/* Session Info */}
+                {sessionId && (
+                  <>
+                    <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+                    <View style={styles.sessionInfoRow}>
+                      <Text style={[styles.sessionLabel, { color: colors.textMuted }]}>Session ID</Text>
+                      <Text style={[styles.sessionValue, { color: colors.text }]}>
+                        {sessionId.substring(0, 8)}...
+                      </Text>
+                    </View>
+                  </>
+                )}
                 
                 <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
                 
@@ -560,6 +574,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 14,
   },
+  partnerAvatarLarge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  partnerAvatarEmoji: {
+    fontSize: 28,
+  },
   connectionStatusIcon: {
     width: 48,
     height: 48,
@@ -574,8 +598,40 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   connectionStatusTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  statusDotGreen: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#22C55E',
+  },
+  statusBadgeText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#22C55E',
+  },
+  sessionInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  sessionLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  sessionValue: {
+    fontSize: 13,
+    fontFamily: 'monospace',
   },
   connectionStatusDesc: {
     fontSize: 13,

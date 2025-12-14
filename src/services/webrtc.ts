@@ -73,6 +73,10 @@ class WebRTCService {
   private sessionId: string | null = null
   private role: WebRTCRole | null = null
   private callbacks: WebRTCCallbacks = {}
+  
+  // Lock to prevent race conditions between init and destroy
+  private isInitializing = false
+  private initializationId = 0
 
   /**
    * Check if WebRTC is available
@@ -100,6 +104,20 @@ class WebRTCService {
       return
     }
 
+    // Clean up any existing connection first
+    if (this.peerConnection || this.channel) {
+      sessionLogger.logWebRTC('init_cleanup_existing', { 
+        hadPeerConnection: !!this.peerConnection,
+        hadChannel: !!this.channel,
+      })
+      await this.cleanupInternal()
+    }
+
+    // Set initialization lock and ID
+    this.isInitializing = true
+    this.initializationId++
+    const currentInitId = this.initializationId
+
     this.deviceId = deviceId
     this.peerDeviceId = peerDeviceId
     this.sessionId = sessionId
@@ -111,6 +129,7 @@ class WebRTCService {
       deviceId,
       sessionId,
       peerDeviceId,
+      initId: currentInitId,
     })
 
     // Create peer connection
@@ -120,11 +139,26 @@ class WebRTCService {
     // Subscribe to signaling channel
     await this.subscribeToSignaling()
 
+    // Check if init was cancelled during async operations
+    if (this.initializationId !== currentInitId) {
+      sessionLogger.logWebRTC('init_cancelled', { reason: 'new_init_started', initId: currentInitId })
+      return
+    }
+
     // Camera starts the connection
     if (role === 'camera') {
       await this.startLocalStream()
+      
+      // Check again after async operation
+      if (this.initializationId !== currentInitId || !this.peerConnection) {
+        sessionLogger.logWebRTC('init_cancelled_before_offer', { initId: currentInitId })
+        return
+      }
+      
       await this.createOffer()
     }
+    
+    this.isInitializing = false
   }
 
   /**
@@ -462,18 +496,18 @@ class WebRTCService {
   }
 
   /**
-   * Cleanup and disconnect
+   * Internal cleanup (doesn't reset initialization state)
    */
-  async destroy() {
-    sessionLogger.logWebRTC('destroying')
-
+  private async cleanupInternal() {
     // Stop local tracks
     this.localStream?.getTracks().forEach((track) => track.stop())
     this.localStream = null
 
     // Close peer connection
-    this.peerConnection?.close()
-    this.peerConnection = null
+    if (this.peerConnection) {
+      this.peerConnection.close()
+      this.peerConnection = null
+    }
 
     // Unsubscribe from channel
     if (this.channel) {
@@ -482,6 +516,28 @@ class WebRTCService {
     }
 
     this.remoteStream = null
+  }
+
+  /**
+   * Cleanup and disconnect
+   */
+  async destroy() {
+    sessionLogger.logWebRTC('destroying', { 
+      isInitializing: this.isInitializing,
+      role: this.role,
+    })
+
+    // If init is in progress, just increment the ID to cancel it
+    if (this.isInitializing) {
+      sessionLogger.logWebRTC('destroy_during_init', { 
+        message: 'Cancelling initialization',
+      })
+      this.initializationId++
+      this.isInitializing = false
+    }
+
+    await this.cleanupInternal()
+
     this.deviceId = null
     this.peerDeviceId = null
     this.sessionId = null

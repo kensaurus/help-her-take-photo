@@ -217,63 +217,22 @@ function NavItem({
   )
 }
 
-/**
- * Theme toggle button
- */
-function ThemeToggle() {
-  const { colors, mode, toggleMode } = useThemeStore()
-  const rotation = useSharedValue(0)
-  const scale = useSharedValue(1)
-
-  const handlePress = () => {
-    rotation.value = withSpring(rotation.value + 180, { damping: 15 })
-    scale.value = withSequence(
-      withTiming(0.8, { duration: 100 }),
-      withSpring(1, { damping: 10, stiffness: 200 })
-    )
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    toggleMode()
-  }
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      { rotate: `${rotation.value}deg` },
-      { scale: scale.value },
-    ],
-  }))
-
-  return (
-    <Pressable
-      style={styles.themeToggle}
-      onPress={handlePress}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      accessibilityLabel={mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      accessibilityRole="button"
-      accessibilityHint="Toggles between dark and light theme"
-    >
-      <Animated.View style={animatedStyle}>
-        <Icon 
-          name={mode === 'dark' ? 'sun' : 'moon'} 
-          size={22} 
-          color={colors.textMuted} 
-        />
-      </Animated.View>
-    </Pressable>
-  )
-}
 
 /**
- * Status pill component
+ * Status pill component - Tappable to navigate to Settings
  */
-function StatusPill({ 
-  connected, 
-  label 
-}: { 
+function StatusPill({
+  connected,
+  label,
+  onPress,
+}: {
   connected?: boolean
-  label: string 
+  label: string
+  onPress?: () => void
 }) {
   const { colors } = useThemeStore()
   const pulse = useSharedValue(1)
+  const scale = useSharedValue(1)
 
   useEffect(() => {
     if (connected) {
@@ -291,18 +250,36 @@ function StatusPill({
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scale: connected ? pulse.value : 1 }],
   }))
+  
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }))
 
   return (
-    <View style={[styles.statusPill, { backgroundColor: `${colors.success}12` }]}>
-      <Animated.View style={[
-        styles.statusDot, 
-        { backgroundColor: colors.success },
-        dotStyle
-      ]} />
-      <Text style={[styles.statusText, { color: colors.success }]}>
-        {label}
-      </Text>
-    </View>
+    <Pressable
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        onPress?.()
+      }}
+      onPressIn={() => {
+        scale.value = withSpring(0.95, { damping: 15, stiffness: 400 })
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15, stiffness: 300 })
+      }}
+    >
+      <Animated.View style={[styles.statusPill, { backgroundColor: `${colors.success}12` }, pressStyle]}>
+        <Animated.View style={[
+          styles.statusDot, 
+          { backgroundColor: colors.success },
+          dotStyle
+        ]} />
+        <Text style={[styles.statusText, { color: colors.success }]}>
+          {label}
+        </Text>
+        <Icon name="chevron-right" size={12} color={colors.success} />
+      </Animated.View>
+    </Pressable>
   )
 }
 
@@ -384,37 +361,47 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* Header */}
+{/* Header */}
         <Animated.View entering={FadeIn.duration(500)} style={styles.header}>
-          <ThemeToggle />
-
           <View style={styles.brand}>
             <Text style={[styles.brandBold, { color: colors.text }]}>
               HelpHer 📸
             </Text>
           </View>
-          
+
           <Animated.Text style={[styles.tagline, { color: colors.textMuted }, taglineStyle]}>
             {taglines[taglineIndex]}
           </Animated.Text>
-          
-          {/* Status pills */}
+
+          {/* Status pills - tappable for navigation */}
           {(isPaired || stats.scoldingsSaved > 0) && (
-            <Animated.View 
+            <Animated.View
               entering={FadeInDown.delay(150).duration(350)}
               style={styles.statusRow}
             >
               {isPaired && (
-                <StatusPill connected label={t.home.paired} />
+                <StatusPill 
+                  connected 
+                  label={t.home.paired} 
+                  onPress={() => router.push('/settings')}
+                />
               )}
-              
+
               {stats.scoldingsSaved > 0 && (
-                <View style={[styles.rankPill, { backgroundColor: colors.surfaceAlt }]}>
-                  <Icon name="star" size={12} color={colors.accent} />
-                  <Text style={[styles.rankText, { color: colors.accent }]}>
-                    {rankText}
-                  </Text>
-                </View>
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                    router.push('/profile')
+                  }}
+                >
+                  <View style={[styles.rankPill, { backgroundColor: colors.surfaceAlt }]}>
+                    <Icon name="star" size={12} color={colors.accent} />
+                    <Text style={[styles.rankText, { color: colors.accent }]}>
+                      {rankText}
+                    </Text>
+                    <Icon name="chevron-right" size={12} color={colors.accent} />
+                  </View>
+                </Pressable>
               )}
             </Animated.View>
           )}
@@ -568,13 +555,6 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 16,
     paddingBottom: 32,
-  },
-  themeToggle: {
-    position: 'absolute',
-    top: 16,
-    right: 0,
-    padding: 8,
-    zIndex: 1,
   },
   brand: {
     marginBottom: 16,

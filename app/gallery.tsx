@@ -291,55 +291,6 @@ function PhotoViewer({
   )
 }
 
-function FilterTab({ 
-  label, 
-  active, 
-  onPress 
-}: { 
-  label: string
-  active: boolean
-  onPress: () => void
-}) {
-  const { colors } = useThemeStore()
-  const scale = useSharedValue(1)
-  const opacity = useSharedValue(1)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }))
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={() => {
-        scale.value = withSpring(0.96, { damping: 15, stiffness: 400 })
-        opacity.value = withTiming(0.8, { duration: 50 })
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15 })
-        opacity.value = withTiming(1, { duration: 100 })
-      }}
-      accessibilityLabel={`Filter: ${label}`}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-    >
-      <Animated.View style={[
-        styles.filterTab, 
-        { backgroundColor: active ? colors.primary : colors.surfaceAlt },
-        animatedStyle
-      ]}>
-        <Text style={[
-          styles.filterText, 
-          { color: active ? colors.primaryText : colors.textSecondary }
-        ]}>
-          {label}
-        </Text>
-      </Animated.View>
-    </Pressable>
-  )
-}
 
 export default function GalleryScreen() {
   const { colors } = useThemeStore()
@@ -349,7 +300,6 @@ export default function GalleryScreen() {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const [filter, setFilter] = useState<'all' | 'byMe' | 'byPartner'>('all')
 
   const [photos, setPhotos] = useState<Photo[]>([])
   const { myDeviceId } = usePairingStore()
@@ -396,11 +346,8 @@ export default function GalleryScreen() {
     loadPhotos()
   }, [loadPhotos])
 
-  const filteredPhotos = photos.filter(p => {
-    if (filter === 'all') return true
-    if (filter === 'byMe') return p.byMe
-    return !p.byMe
-  })
+  // Show all photos
+  const filteredPhotos = photos
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -511,48 +458,6 @@ export default function GalleryScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
-      {/* Filter tabs */}
-      <View style={[styles.filterRow, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-        <FilterTab
-          label={t.gallery.photos}
-          active={filter === 'all'}
-          onPress={() => setFilter('all')}
-        />
-        <FilterTab
-          label={t.gallery.byYou}
-          active={filter === 'byMe'}
-          onPress={() => setFilter('byMe')}
-        />
-        <FilterTab
-          label={t.gallery.byPartner}
-          active={filter === 'byPartner'}
-          onPress={() => setFilter('byPartner')}
-        />
-      </View>
-
-      {/* Stats banner */}
-      {stats.photosTaken > 0 && (
-        <Animated.View 
-          entering={FadeIn.duration(350)} 
-          style={[styles.statsBanner, { backgroundColor: colors.surfaceAlt }]}
-        >
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Icon name="camera" size={14} color={colors.accent} />
-              <Text style={[styles.statsText, { color: colors.accent }]}>
-                {stats.photosTaken} {t.gallery.photos}
-              </Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Icon name="star" size={14} color={colors.accent} />
-              <Text style={[styles.statsText, { color: colors.accent }]}>
-                {stats.scoldingsSaved} saved
-              </Text>
-            </View>
-          </View>
-        </Animated.View>
-      )}
 
       {isLoading ? (
         <PhotoGridSkeleton count={12} />
@@ -575,11 +480,7 @@ export default function GalleryScreen() {
               {t.gallery.noPhotosDesc}
             </Text>
             <Text style={[styles.emptyHint, { color: colors.textMuted }]}>
-              {filter === 'all' 
-                ? "Start a session and the magic happens"
-                : filter === 'byMe'
-                ? "You haven't taken any yet"
-                : "Waiting for partner's photos"}
+              Start a session and the magic happens ✨
             </Text>
           </Animated.View>
         </View>
@@ -623,48 +524,6 @@ export default function GalleryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    gap: 8,
-    borderBottomWidth: 1,
-  },
-  filterTab: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 6,
-    alignItems: 'center',
-  },
-  filterText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  statsBanner: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-  },
-  statItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statDivider: {
-    width: 1,
-    height: 14,
-    backgroundColor: 'rgba(128,128,128,0.3)',
-  },
-  statsText: {
-    fontSize: 13,
-    fontWeight: '600',
   },
   grid: {
     padding: GAP,
