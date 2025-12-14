@@ -229,9 +229,29 @@ export default function ViewerScreen() {
         'director',
         {
           onRemoteStream: (stream) => {
+            // Detailed logging for debugging blank screen issues
+            const videoTracks = stream?.getVideoTracks?.() ?? []
+            const audioTracks = stream?.getAudioTracks?.() ?? []
+            
             sessionLogger.info('director_remote_stream_received', {
               trackCount: stream?.getTracks?.()?.length ?? 0,
+              videoTrackCount: videoTracks.length,
+              audioTrackCount: audioTracks.length,
+              streamId: stream?.id?.substring(0, 8),
+              streamActive: stream?.active,
+              // Log first video track details if present
+              videoTrackEnabled: videoTracks[0]?.enabled,
+              videoTrackMuted: videoTracks[0]?.muted,
+              videoTrackReadyState: videoTracks[0]?.readyState,
             })
+            
+            // Validate stream has video tracks before setting
+            if (videoTracks.length === 0) {
+              sessionLogger.warn('director_no_video_tracks_in_stream', {
+                message: 'Remote stream has no video tracks - will show blank screen',
+              })
+            }
+            
             setRemoteStream(stream)
             setIsReceiving(true)
           },
@@ -328,8 +348,12 @@ export default function ViewerScreen() {
         'director',
         {
           onRemoteStream: (stream) => {
+            const videoTracks = stream?.getVideoTracks?.() ?? []
             sessionLogger.info('director_remote_stream_received_refresh', {
               trackCount: stream?.getTracks?.()?.length ?? 0,
+              videoTrackCount: videoTracks.length,
+              streamId: stream?.id?.substring(0, 8),
+              videoTrackEnabled: videoTracks[0]?.enabled,
             })
             setRemoteStream(stream)
             setIsReceiving(true)
@@ -435,11 +459,17 @@ export default function ViewerScreen() {
                   </View>
                 ) : isReceiving && remoteStream && RTCView ? (
                   <View style={styles.livePreview}>
+                    {/* 
+                      RTCView key prop forces re-render when stream changes
+                      This fixes blank screen issues where RTCView doesn't update
+                    */}
                     <RTCView
+                      key={remoteStream?.id || 'remote-stream'}
                       streamURL={remoteStream.toURL()}
                       style={StyleSheet.absoluteFill}
                       objectFit="cover"
                       mirror={false}
+                      zOrder={0}
                     />
                     <View style={styles.liveOverlay}>
                       <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>

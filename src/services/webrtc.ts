@@ -41,12 +41,40 @@ try {
 export const webrtcAvailable = isWebRTCAvailable
 
 // STUN/TURN servers for NAT traversal
+// IMPORTANT: STUN-only often fails on mobile networks (symmetric NAT)
+// For production, add TURN servers (e.g., from Twilio, Metered, or self-hosted coturn)
 const ICE_SERVERS = {
   iceServers: [
+    // Free STUN servers (unreliable on mobile networks behind symmetric NAT)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
+    // Free TURN server from Metered (for testing - get your own for production)
+    // Sign up at https://www.metered.ca/stun-turn for free tier
+    {
+      urls: 'stun:stun.relay.metered.ca:80',
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:80',
+      username: 'free', // Replace with your credentials
+      credential: 'free', // Replace with your credentials
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
+      username: 'free',
+      credential: 'free',
+    },
+    {
+      urls: 'turn:standard.relay.metered.ca:443',
+      username: 'free',
+      credential: 'free',
+    },
+    {
+      urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
+      username: 'free',
+      credential: 'free',
+    },
   ],
+  iceCandidatePoolSize: 10,
 }
 
 export type WebRTCRole = 'camera' | 'director'
@@ -163,33 +191,92 @@ class WebRTCService {
 
   /**
    * Start local camera stream
+   * Best practices for mobile:
+   * - Use lower resolution for better performance and battery
+   * - Avoid mandatory constraints that can fail
+   * - Use 'ideal' constraints to let the device choose optimal settings
    */
   async startLocalStream(): Promise<MediaStream | null> {
     try {
-      const stream = await mediaDevices.getUserMedia({
+      // First enumerate devices to find the back camera
+      const devices = await mediaDevices.enumerateDevices()
+      const videoDevices = devices.filter((d: { kind: string }) => d.kind === 'videoinput')
+      const backCamera = videoDevices.find((d: { facing?: string }) => d.facing === 'environment')
+      
+      sessionLogger.logWebRTC('available_video_devices', {
+        count: videoDevices.length,
+        devices: videoDevices.map((d: { deviceId: string; label: string; facing?: string }) => ({
+          id: d.deviceId?.substring(0, 8),
+          label: d.label,
+          facing: d.facing,
+        })),
+      })
+
+      // Video constraints optimized for mobile
+      // Using 'ideal' allows fallback if exact values aren't supported
+      const constraints = {
         video: {
-          facingMode: 'back',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
+          facingMode: { ideal: 'environment' }, // 'environment' = back camera
+          width: { ideal: 1280, min: 640 },
+          height: { ideal: 720, min: 480 },
+          frameRate: { ideal: 30, min: 15 },
+          // Optional: specify device if found
+          ...(backCamera?.deviceId && { deviceId: { ideal: backCamera.deviceId } }),
         },
         audio: false, // No audio needed
+      }
+
+      sessionLogger.logWebRTC('requesting_user_media', { constraints })
+
+      const stream = await mediaDevices.getUserMedia(constraints)
+
+      if (!stream) {
+        throw new Error('getUserMedia returned null stream')
+      }
+
+      // Verify we got video tracks
+      const videoTracks = stream.getVideoTracks()
+      if (videoTracks.length === 0) {
+        throw new Error('No video tracks in stream')
+      }
+
+      // Log track settings for debugging
+      const trackSettings = videoTracks[0].getSettings?.() || {}
+      sessionLogger.logWebRTC('local_stream_track_settings', {
+        width: trackSettings.width,
+        height: trackSettings.height,
+        frameRate: trackSettings.frameRate,
+        facingMode: trackSettings.facingMode,
+        deviceId: trackSettings.deviceId?.substring(0, 8),
       })
 
       this.localStream = stream
 
       // Add tracks to peer connection
+      // IMPORTANT: Must add tracks BEFORE creating offer
       stream.getTracks().forEach((track) => {
-        this.peerConnection?.addTrack(track, stream)
+        if (this.peerConnection) {
+          this.peerConnection.addTrack(track, stream)
+          sessionLogger.logWebRTC('track_added_to_peer_connection', {
+            kind: track.kind,
+            enabled: track.enabled,
+            readyState: track.readyState,
+          })
+        }
       })
 
       sessionLogger.logWebRTC('local_stream_started', {
         tracks: stream.getTracks().length,
+        videoTracks: videoTracks.length,
+        streamId: stream.id?.substring(0, 8),
       })
 
       return stream
     } catch (error) {
-      sessionLogger.error('webrtc_local_stream_failed', error)
+      sessionLogger.error('webrtc_local_stream_failed', error, {
+        errorName: (error as Error)?.name,
+        errorMessage: (error as Error)?.message,
+      })
       this.callbacks.onError?.(error as Error)
       return null
     }
@@ -306,21 +393,33 @@ class WebRTCService {
 
   /**
    * Setup peer connection event handlers
+   * Key handlers for debugging blank screen issues:
+   * - onicecandidate: Sends ICE candidates to peer
+   * - oniceconnectionstatechange: Monitor ICE state (stuck at 'checking' = STUN/TURN issue)
+   * - ontrack: Receive remote media stream
    */
   private setupPeerConnectionHandlers() {
     if (!this.peerConnection) return
 
-    // ICE candidate generated
+    // ICE candidate generated - send to peer
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
+        sessionLogger.logWebRTC('ice_candidate_generated', {
+          type: event.candidate.type, // 'host', 'srflx' (STUN), 'relay' (TURN)
+          protocol: event.candidate.protocol,
+          address: event.candidate.address?.substring(0, 10) + '...',
+        })
         this.sendSignal({
           type: 'ice-candidate',
           data: event.candidate.toJSON(),
         })
+      } else {
+        // Null candidate means ICE gathering is complete
+        sessionLogger.logWebRTC('ice_gathering_complete', { role: this.role })
       }
     }
 
-    // Connection state change
+    // Connection state change (overall connection health)
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState
       const signalingState = this.peerConnection?.signalingState
@@ -336,8 +435,16 @@ class WebRTCService {
         
         if (state === 'connected') {
           sessionLogger.logConnectionState('connected', this.peerDeviceId ?? undefined)
-        } else if (state === 'failed' || state === 'disconnected') {
+        } else if (state === 'failed') {
+          // Connection failed - try ICE restart
           sessionLogger.logConnectionState('failed', this.peerDeviceId ?? undefined, { 
+            connectionState: state,
+            signalingState,
+            action: 'attempting_ice_restart',
+          })
+          this.attemptIceRestart()
+        } else if (state === 'disconnected') {
+          sessionLogger.logConnectionState('disconnected', this.peerDeviceId ?? undefined, { 
             connectionState: state,
             signalingState,
           })
@@ -345,27 +452,131 @@ class WebRTCService {
       }
     }
 
-    // ICE connection state change
+    // ICE connection state change - CRITICAL for debugging blank screens
+    // States: new -> checking -> connected/completed OR failed
+    // Stuck at 'checking' = STUN/TURN servers not working
     this.peerConnection.oniceconnectionstatechange = () => {
       const iceState = this.peerConnection?.iceConnectionState
       const iceGatheringState = this.peerConnection?.iceGatheringState
+      
       sessionLogger.logWebRTC('ice_state_change', {
         iceConnectionState: iceState ?? 'unknown',
         iceGatheringState: iceGatheringState ?? 'unknown',
         role: this.role,
       })
+
+      // Log warning if stuck at checking (common cause of blank screen)
+      if (iceState === 'checking') {
+        sessionLogger.warn('ice_checking', {
+          message: 'ICE is checking - if stuck here, STUN/TURN servers may not be working',
+          role: this.role,
+        })
+      }
+
+      // Attempt ICE restart on failure
+      if (iceState === 'failed') {
+        sessionLogger.error('ice_failed', new Error('ICE connection failed'), {
+          message: 'ICE failed - likely need TURN servers for this network',
+          role: this.role,
+        })
+        this.attemptIceRestart()
+      }
     }
 
-    // Remote stream received
+    // ICE gathering state change
+    this.peerConnection.onicegatheringstatechange = () => {
+      sessionLogger.logWebRTC('ice_gathering_state_change', {
+        iceGatheringState: this.peerConnection?.iceGatheringState ?? 'unknown',
+        role: this.role,
+      })
+    }
+
+    // Remote stream received - CRITICAL for displaying remote video
+    // This event fires when remote peer adds tracks
     this.peerConnection.ontrack = (event) => {
       sessionLogger.logWebRTC('remote_track_received', {
         kind: event.track.kind,
+        trackId: event.track.id?.substring(0, 8),
+        enabled: event.track.enabled,
+        muted: event.track.muted,
+        readyState: event.track.readyState,
+        streamsCount: event.streams?.length ?? 0,
       })
 
-      if (event.streams[0]) {
-        this.remoteStream = event.streams[0]
-        this.callbacks.onRemoteStream?.(event.streams[0])
+      // IMPORTANT: Use event.streams[0] directly, don't create new MediaStream
+      // Creating new MediaStream can cause blank video issues
+      if (event.streams && event.streams.length > 0) {
+        const stream = event.streams[0]
+        
+        sessionLogger.logWebRTC('setting_remote_stream', {
+          streamId: stream.id?.substring(0, 8),
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length,
+        })
+
+        // Verify video tracks are present and enabled
+        const videoTracks = stream.getVideoTracks()
+        if (videoTracks.length === 0) {
+          sessionLogger.warn('remote_stream_no_video', {
+            message: 'Remote stream has no video tracks - camera may not be started on sender',
+          })
+        } else {
+          videoTracks.forEach((track, idx) => {
+            sessionLogger.logWebRTC('remote_video_track_details', {
+              index: idx,
+              enabled: track.enabled,
+              muted: track.muted,
+              readyState: track.readyState,
+            })
+          })
+        }
+
+        this.remoteStream = stream
+        this.callbacks.onRemoteStream?.(stream)
+      } else {
+        // Fallback: create MediaStream from track (less reliable)
+        sessionLogger.warn('no_streams_in_track_event', {
+          message: 'ontrack event has no streams, creating from track (may cause issues)',
+        })
+        
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream()
+        }
+        this.remoteStream.addTrack(event.track)
+        this.callbacks.onRemoteStream?.(this.remoteStream)
       }
+    }
+
+    // Negotiation needed (for renegotiation scenarios)
+    this.peerConnection.onnegotiationneeded = () => {
+      sessionLogger.logWebRTC('negotiation_needed', {
+        role: this.role,
+        signalingState: this.peerConnection?.signalingState,
+      })
+    }
+  }
+
+  /**
+   * Attempt ICE restart when connection fails
+   */
+  private async attemptIceRestart() {
+    if (!this.peerConnection || this.role !== 'camera') return
+
+    sessionLogger.logWebRTC('attempting_ice_restart', { role: this.role })
+
+    try {
+      // Only camera (offerer) should initiate ICE restart
+      const offer = await this.peerConnection.createOffer({ iceRestart: true })
+      await this.peerConnection.setLocalDescription(offer)
+      
+      await this.sendSignal({
+        type: 'offer',
+        data: offer,
+      })
+
+      sessionLogger.logWebRTC('ice_restart_offer_sent', { role: this.role })
+    } catch (error) {
+      sessionLogger.error('ice_restart_failed', error)
     }
   }
 

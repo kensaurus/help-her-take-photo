@@ -504,11 +504,14 @@ export default function CameraScreen() {
       <View style={styles.cameraPreview}>
         {useWebRTCPreview ? (
           // WebRTC local stream preview (when paired)
+          // Key prop forces re-render when stream changes - fixes blank screen
           <RTCView
+            key={localStream?.id || 'local-stream'}
             streamURL={localStream.toURL()}
             style={StyleSheet.absoluteFill}
             objectFit="cover"
             mirror={facing === 'front'}
+            zOrder={0}
           />
         ) : (
           // expo-camera preview (when not paired)
