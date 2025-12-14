@@ -2,7 +2,7 @@
  * Settings - Clean, minimal design with icons
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { 
   View, 
   Text, 
@@ -32,6 +32,7 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
 import { getBuildInfo } from '../src/config/build'
 import { Icon } from '../src/components/ui/Icon'
+import { profileApi } from '../src/services/api'
 
 function SettingRow({ 
   label, 
@@ -186,10 +187,51 @@ export default function SettingsScreen() {
     partnerAvatar, 
     sessionId,
     connectionHistory,
+    setConnectionHistory,
   } = usePairingStore()
   const { language, setLanguage, t } = useLanguageStore()
   const [showLanguageModal, setShowLanguageModal] = useState(false)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+
+  // Hydrate missing connection history display names/avatars (improves UX)
+  useEffect(() => {
+    let cancelled = false
+    const hydrate = async () => {
+      const missing = connectionHistory.filter((c) => !c.partnerDisplayName)
+      if (missing.length === 0) return
+
+      const updates = await Promise.all(
+        missing.map(async (c) => {
+          const { profile } = await profileApi.get(c.partnerDeviceId)
+          return profile
+            ? { partnerDeviceId: c.partnerDeviceId, display_name: profile.display_name, avatar_emoji: profile.avatar_emoji }
+            : null
+        })
+      )
+
+      if (cancelled) return
+
+      const map = new Map(updates.filter(Boolean).map((u: any) => [u.partnerDeviceId, u]))
+      if (map.size === 0) return
+
+      const hydrated = connectionHistory.map((c) => {
+        const u = map.get(c.partnerDeviceId)
+        if (!u) return c
+        return {
+          ...c,
+          partnerDisplayName: c.partnerDisplayName ?? u.display_name ?? null,
+          partnerAvatar: c.partnerAvatar || u.avatar_emoji || '👤',
+        }
+      })
+
+      setConnectionHistory(hydrated)
+    }
+
+    hydrate().catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [connectionHistory, setConnectionHistory])
 
   const toggleSetting = (key: keyof typeof settings) => {
     updateSettings({ [key]: !settings[key] })

@@ -45,7 +45,6 @@ export const useStatsStore = create<StatsState>((set, get) => ({
     const newStats = { 
       ...get().stats, 
       photosTaken: get().stats.photosTaken + 1,
-      scoldingsSaved: get().stats.scoldingsSaved + 1,
     }
     await AsyncStorage.setItem('stats', JSON.stringify(newStats))
     set({ stats: newStats })
@@ -62,7 +61,6 @@ export const useStatsStore = create<StatsState>((set, get) => ({
       ...get().stats, 
       sessionsCompleted: get().stats.sessionsCompleted + 1,
       lastSessionDate: new Date().toISOString(),
-      scoldingsSaved: get().stats.scoldingsSaved + 3,
     }
     await AsyncStorage.setItem('stats', JSON.stringify(newStats))
     set({ stats: newStats })
@@ -112,7 +110,8 @@ export const useStatsStore = create<StatsState>((set, get) => ({
           const mergedStats = {
             photosTaken: Math.max(localStats.photosTaken, cloudStats.photos_taken),
             sessionsCompleted: Math.max(localStats.sessionsCompleted, cloudStats.total_sessions),
-            scoldingsSaved: Math.max(localStats.scoldingsSaved, cloudStats.photos_helped),
+            // "Scoldings avoided" should reflect successful photos (not sessions/other events)
+            scoldingsSaved: Math.max(localStats.scoldingsSaved, cloudStats.photos_taken),
             lastSessionDate: localStats.lastSessionDate,
           }
           set({ stats: mergedStats })

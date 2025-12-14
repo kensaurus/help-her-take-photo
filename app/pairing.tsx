@@ -617,11 +617,9 @@ export default function PairingScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Header with back */}
+          {/* Header */}
           <View style={styles.header}>
-            <Pressable onPress={() => router.back()} style={styles.backBtn}>
-              <Text style={[styles.backBtnText, { color: colors.text }]}>← Back</Text>
-            </Pressable>
+            {/* Intentionally no in-screen back button (avoids duplicate back buttons with Stack header). */}
           </View>
           
           <ConnectedStatus
@@ -649,9 +647,7 @@ export default function PairingScreen() {
       >
         {/* Header */}
         <Animated.View entering={FadeIn.duration(300)} style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={[styles.backBtnText, { color: colors.text }]}>← Back</Text>
-          </Pressable>
+          {/* Intentionally no in-screen back button (avoids duplicate back buttons with Stack header). */}
           
           <Text style={[styles.title, { color: colors.text, fontSize: isSmall ? 24 : 28 }]}>
             {t.pairing.title}
@@ -702,7 +698,9 @@ export default function PairingScreen() {
               >
                 <Text style={styles.optionEmoji}>🔢</Text>
                 <Text style={[styles.optionTitle, { color: colors.text }]}>{t.pairing.enterCode}</Text>
-                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>Enter partner's 4-digit code</Text>
+                <Text style={[styles.optionDesc, { color: colors.textMuted }]}>
+                  Enter your partner’s 4-digit pairing code (not a username)
+                </Text>
               </Pressable>
             </Animated.View>
 
@@ -716,7 +714,9 @@ export default function PairingScreen() {
 
         {mode === 'showCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
-            <Text style={[styles.codeLabel, { color: colors.textMuted }]}>Your pairing code</Text>
+            <Text style={[styles.codeLabel, { color: colors.textMuted }]}>
+              Your pairing code (this is NOT your username)
+            </Text>
             <CodeDisplay code={code} colors={colors} />
             
             <View style={styles.waitingInfo}>
@@ -740,7 +740,9 @@ export default function PairingScreen() {
         {mode === 'enterCode' && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.codeSection}>
             <Text style={[styles.enterTitle, { color: colors.text }]}>Enter 4-digit code</Text>
-            <Text style={[styles.enterHint, { color: colors.textMuted }]}>Ask your partner for their code</Text>
+            <Text style={[styles.enterHint, { color: colors.textMuted }]}>
+              Enter the 4-digit pairing code shown on your partner’s screen (not a username)
+            </Text>
             
             <CodeInput value={inputCode} onChange={setInputCode} onSubmit={joinWithCode} colors={colors} />
             

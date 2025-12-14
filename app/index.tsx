@@ -37,6 +37,8 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
+import { connectionHistoryApi } from '../src/services/api'
+import { sessionLogger } from '../src/services/sessionLogger'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -286,7 +288,7 @@ function StatusPill({
 export default function HomeScreen() {
   const router = useRouter()
   const { colors, mode } = useThemeStore()
-  const { isPaired } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId } = usePairingStore()
   const { setRole } = useConnectionStore()
   const { t, loadLanguage } = useLanguageStore()
   const { stats, getRank, loadStats } = useStatsStore()
@@ -301,6 +303,33 @@ export default function HomeScreen() {
     loadLanguage()
     loadStats()
   }, [loadLanguage, loadStats])
+
+  // Presence should be tracked whenever we're paired (even on Home screen),
+  // otherwise the director can auto-disconnect before photographer opens Camera.
+  useEffect(() => {
+    if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) return
+
+    sessionLogger.init(myDeviceId, sessionId)
+    sessionLogger.info('presence_join_requested', {
+      role: 'home',
+      sessionId: sessionId.substring(0, 8),
+      partnerDeviceId: pairedDeviceId.substring(0, 8),
+    })
+
+    const presenceSub = connectionHistoryApi.subscribeToSessionPresence({
+      sessionId,
+      myDeviceId,
+      partnerDeviceId: pairedDeviceId,
+      onPartnerOnlineChange: (isOnline) => {
+        sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
+      },
+      onError: (message) => sessionLogger.warn('presence_error', { message }),
+    })
+
+    return () => {
+      void presenceSub.unsubscribe()
+    }
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
 
   // Smooth tagline rotation with slide + fade
   useEffect(() => {

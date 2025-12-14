@@ -222,7 +222,7 @@ export default function CameraScreen() {
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar } = usePairingStore()
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
-  const { incrementPhotos } = useStatsStore()
+  const { incrementPhotos, incrementScoldingsSaved } = useStatsStore()
   const autoDisconnectingRef = useRef(false)
 
   const disconnectAndUnpair = useCallback(async (reason: string, extra?: Record<string, unknown>) => {
@@ -252,6 +252,39 @@ export default function CameraScreen() {
       router.replace('/')
     }
   }, [clearPairing, myDeviceId, pairedDeviceId, router, sessionId])
+
+  // Presence should be tracked as soon as the device is paired (NOT gated by camera permissions),
+  // otherwise the director will see partner_presence_offline and auto-disconnect.
+  useEffect(() => {
+    if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) return
+
+    sessionLogger.info('presence_join_requested', {
+      role: 'camera',
+      sessionId: sessionId.substring(0, 8),
+      partnerDeviceId: pairedDeviceId.substring(0, 8),
+    })
+
+    const presenceSub = connectionHistoryApi.subscribeToSessionPresence({
+      sessionId,
+      myDeviceId,
+      partnerDeviceId: pairedDeviceId,
+      onPartnerOnlineChange: (isOnline) => {
+        sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
+        if (!isOnline) {
+          Alert.alert(
+            'Director Disconnected',
+            `${partnerDisplayName || 'Your director'} has disconnected.`,
+            [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
+          )
+        }
+      },
+      onError: (message) => sessionLogger.warn('presence_error', { message }),
+    })
+
+    return () => {
+      void presenceSub.unsubscribe()
+    }
+  }, [disconnectAndUnpair, isPaired, myDeviceId, pairedDeviceId, partnerDisplayName, sessionId])
   
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
@@ -312,7 +345,6 @@ export default function CameraScreen() {
 
     // Track if component is still mounted
     let isMounted = true
-    let partnerStatusSubscription: { unsubscribe: () => void } | null = null
 
     sessionLogger.info('starting_webrtc_as_photographer', {
       myDeviceId,
@@ -335,24 +367,6 @@ export default function CameraScreen() {
       }
     }).catch(() => {
       // Silent fail for history
-    })
-    
-    // Presence-based partner disconnect detection (works even on abrupt disconnects)
-    partnerStatusSubscription = connectionHistoryApi.subscribeToSessionPresence({
-      sessionId,
-      myDeviceId,
-      partnerDeviceId: pairedDeviceId,
-      onPartnerOnlineChange: (isOnline) => {
-        sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
-        if (!isOnline && isMounted) {
-          Alert.alert(
-            'Director Disconnected',
-            `${partnerDisplayName || 'Your director'} has disconnected.`,
-            [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
-          )
-        }
-      },
-      onError: (message) => sessionLogger.warn('presence_error', { message }),
     })
     
     // Initialize WebRTC and handle errors properly
@@ -380,7 +394,7 @@ export default function CameraScreen() {
               // If connection failed or disconnected, notify user
               if (state === 'failed' || state === 'disconnected') {
                 sessionLogger.warn('photographer_connection_lost', { state })
-                disconnectAndUnpair(`webrtc_${state}`)
+                // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
               }
             },
             onError: (error) => {
@@ -391,7 +405,7 @@ export default function CameraScreen() {
                 pairedDeviceId,
               })
               setIsConnected(false)
-              disconnectAndUnpair('webrtc_error', { message: error?.message })
+              // Do NOT unpair on transient WebRTC errors; Presence handles real disconnects.
             },
           }
         )
@@ -458,10 +472,6 @@ export default function CameraScreen() {
       setIsSharing(false)
       setLocalStream(null)
       setWebrtcInitialized(false)
-      // Unsubscribe from partner status
-      if (partnerStatusSubscription) {
-        void partnerStatusSubscription.unsubscribe()
-      }
     }
   }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized, partnerDisplayName, partnerAvatar])
 
@@ -564,13 +574,72 @@ export default function CameraScreen() {
   }, [encouragements])
 
   const handleCapture = async () => {
-    // For now, just increment counter and show encouragement
-    // Photo capture from WebRTC stream requires additional implementation
-    setPhotoCount(prev => prev + 1)
-    incrementPhotos()
-    showRandomEncouragement()
-    sessionLogger.info('capture_triggered')
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    sessionLogger.info('capture_requested', {
+      isPaired,
+      isConnected,
+      hasCameraRef: !!cameraRef.current,
+      hasLocalStream: !!localStream,
+      webrtcPreview: useWebRTCPreview,
+    })
+
+    // If we're showing RTCView (WebRTC preview), we can't take a native still photo from that stream yet.
+    // Fall back to a clear message instead of silently incrementing stats.
+    if (useWebRTCPreview) {
+      sessionLogger.warn('capture_not_supported_in_webrtc_preview', {
+        message: 'Photo capture is not implemented for RTCView preview yet',
+      })
+      Alert.alert(
+        'Photo capture not ready',
+        'Live preview is on, but taking a high-quality photo from the stream is not supported yet. Turn off LIVE / reconnect, then try again.',
+        [{ text: 'OK' }]
+      )
+      return
+    }
+
+    try {
+      if (!cameraRef.current) {
+        sessionLogger.error('capture_failed_no_camera_ref', new Error('cameraRef is null'))
+        Alert.alert('Camera not ready', 'Please wait a second and try again.')
+        return
+      }
+
+      sessionLogger.info('capture_taking_photo')
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+        exif: false,
+        skipProcessing: false,
+      })
+
+      sessionLogger.info('capture_photo_taken', {
+        uri: photo?.uri,
+        width: (photo as any)?.width,
+        height: (photo as any)?.height,
+      })
+
+      // Save if enabled
+      if (settings.autoSave && photo?.uri) {
+        const permission = await MediaLibrary.requestPermissionsAsync()
+        if (permission.status === 'granted') {
+          const asset = await MediaLibrary.createAssetAsync(photo.uri)
+          sessionLogger.info('capture_saved_to_library', { assetUri: asset?.uri })
+        } else {
+          sessionLogger.warn('capture_media_permission_denied')
+        }
+      }
+
+      // Update UI + stats ONLY on success
+      setPhotoCount(prev => prev + 1)
+      await incrementPhotos()
+      await incrementScoldingsSaved(1)
+      showRandomEncouragement()
+      sessionLogger.info('capture_success')
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    } catch (error) {
+      sessionLogger.error('capture_failed', error, {
+        message: (error as Error)?.message,
+      })
+      Alert.alert('Capture failed', 'Please try again.')
+    }
   }
 
   const toggleCameraFacing = () => {
@@ -1009,6 +1078,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     fontWeight: '500',
+  },
+  // Small pill buttons (used by ActionButton component)
+  actionBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionBtnActive: {
+    backgroundColor: 'rgba(34, 197, 94, 0.25)',
+    borderColor: 'rgba(34, 197, 94, 0.55)',
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  actionBtnTextActive: {
+    color: '#22C55E',
   },
   connectPrompt: {
     flexDirection: 'row',

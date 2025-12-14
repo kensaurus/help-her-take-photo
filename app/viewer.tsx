@@ -329,8 +329,7 @@ export default function ViewerScreen() {
             if (state === 'failed' || state === 'disconnected') {
               setIsReceiving(false)
               setRemoteStream(null)
-              // Keep both devices consistent: drop pairing if the call dies
-              disconnectAndUnpair(`webrtc_${state}`)
+              // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
             }
           },
           onError: (error) => {
