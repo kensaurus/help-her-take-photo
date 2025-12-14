@@ -893,6 +893,7 @@ export const connectionHistoryApi = {
   /**
    * Presence-based disconnect detection (recommended).
    * Unlike `is_online` column updates, Realtime Presence detects abrupt disconnects.
+   * Includes grace period to handle race conditions where one user joins before the other.
    */
   subscribeToSessionPresence(params: {
     sessionId: string
@@ -900,6 +901,7 @@ export const connectionHistoryApi = {
     partnerDeviceId: string
     onPartnerOnlineChange: (isOnline: boolean) => void
     onError?: (message: string) => void
+    gracePeriodMs?: number
   }) {
     const channel = supabase.channel(`presence:${params.sessionId}`, {
       config: {
@@ -908,14 +910,42 @@ export const connectionHistoryApi = {
     })
 
     let lastPartnerOnline: boolean | null = null
+    let hasSeenPartner = false
+    let connectTimeout: NodeJS.Timeout | null = null
+    const gracePeriodMs = params.gracePeriodMs || 10000 // 10s default
+
+    // Start connection timeout - if partner doesn't appear within grace period, report offline
+    connectTimeout = setTimeout(() => {
+      if (!hasSeenPartner) {
+        params.onPartnerOnlineChange(false)
+      }
+    }, gracePeriodMs)
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState() as Record<string, unknown>
       const isOnline = Object.prototype.hasOwnProperty.call(state, params.partnerDeviceId)
 
-      if (lastPartnerOnline === null || lastPartnerOnline !== isOnline) {
-        lastPartnerOnline = isOnline
-        params.onPartnerOnlineChange(isOnline)
+      if (isOnline) {
+        hasSeenPartner = true
+        if (connectTimeout) {
+          clearTimeout(connectTimeout)
+          connectTimeout = null
+        }
+      }
+
+      // Only report status changes if:
+      // 1. We have seen them online at least once (real disconnect)
+      // 2. OR they are currently online (connection established)
+      // 3. We ignore initial "offline" state until timeout fires (race condition protection)
+      if (hasSeenPartner) {
+        if (lastPartnerOnline !== isOnline) {
+          lastPartnerOnline = isOnline
+          params.onPartnerOnlineChange(isOnline)
+        }
+      } else if (isOnline) {
+        // First time seeing them
+        lastPartnerOnline = true
+        params.onPartnerOnlineChange(true)
       }
     })
 
@@ -930,6 +960,7 @@ export const connectionHistoryApi = {
     return {
       channel,
       unsubscribe: async () => {
+        if (connectTimeout) clearTimeout(connectTimeout)
         await supabase.removeChannel(channel)
       },
     }

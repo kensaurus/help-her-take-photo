@@ -220,6 +220,15 @@ export default function CameraScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar } = usePairingStore()
+  const partnerNameRef = useRef(partnerDisplayName)
+  const partnerAvatarRef = useRef(partnerAvatar)
+
+  // Update refs when store values change
+  useEffect(() => {
+    partnerNameRef.current = partnerDisplayName
+    partnerAvatarRef.current = partnerAvatar
+  }, [partnerDisplayName, partnerAvatar])
+
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
   const { incrementPhotos, incrementScoldingsSaved } = useStatsStore()
@@ -273,7 +282,7 @@ export default function CameraScreen() {
         if (!isOnline) {
           Alert.alert(
             'Director Disconnected',
-            `${partnerDisplayName || 'Your director'} has disconnected.`,
+            `${partnerNameRef.current || 'Your director'} has disconnected.`,
             [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
           )
         }
@@ -284,7 +293,7 @@ export default function CameraScreen() {
     return () => {
       void presenceSub.unsubscribe()
     }
-  }, [disconnectAndUnpair, isPaired, myDeviceId, pairedDeviceId, partnerDisplayName, sessionId])
+  }, [disconnectAndUnpair, isPaired, myDeviceId, pairedDeviceId, sessionId])
   
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
@@ -473,7 +482,7 @@ export default function CameraScreen() {
       setLocalStream(null)
       setWebrtcInitialized(false)
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized, partnerDisplayName, partnerAvatar])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized])
 
   // Handle commands from director
   const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {

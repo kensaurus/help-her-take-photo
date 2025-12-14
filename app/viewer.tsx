@@ -143,6 +143,12 @@ export default function ViewerScreen() {
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo } = usePairingStore()
   const { t } = useLanguageStore()
   const autoDisconnectingRef = useRef(false)
+  const partnerNameRef = useRef(partnerDisplayName)
+
+  // Update ref when store value changes
+  useEffect(() => {
+    partnerNameRef.current = partnerDisplayName
+  }, [partnerDisplayName])
 
   const disconnectAndUnpair = useCallback(async (reason: string, extra?: Record<string, unknown>) => {
     if (autoDisconnectingRef.current) return
@@ -279,7 +285,7 @@ export default function ViewerScreen() {
           if (!isOnline) {
             Alert.alert(
               'Partner Disconnected',
-              `${partnerDisplayName || 'Your partner'} has disconnected.`,
+              `${partnerNameRef.current || 'Your partner'} has disconnected.`,
               [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
             )
           }
@@ -351,7 +357,7 @@ export default function ViewerScreen() {
         void presenceSub.unsubscribe()
       }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
 
   // Quick Connect: Auto-disconnect when leaving viewer
   useEffect(() => {
