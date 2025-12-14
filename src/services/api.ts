@@ -660,6 +660,238 @@ export const eventsApi = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
+// CONNECTION HISTORY API
+// Track and display connection history for multi-session support
+// ─────────────────────────────────────────────────────────────────────────────────
+
+export interface ConnectionRecord {
+  id: string
+  device_id: string
+  partner_device_id: string
+  partner_display_name: string | null
+  partner_avatar: string
+  session_id: string | null
+  role: 'camera' | 'director' | null
+  status: 'connected' | 'disconnected'
+  connected_at: string
+  disconnected_at: string | null
+  duration_seconds: number
+  initiated_by: 'self' | 'partner' | null
+  created_at: string
+  updated_at: string
+}
+
+export const connectionHistoryApi = {
+  /**
+   * Record a new connection
+   */
+  async recordConnection(params: {
+    deviceId: string
+    partnerDeviceId: string
+    partnerDisplayName?: string
+    partnerAvatar?: string
+    sessionId?: string
+    role?: 'camera' | 'director'
+    initiatedBy?: 'self' | 'partner'
+  }): Promise<{ connection?: ConnectionRecord; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('connection_history')
+        .insert({
+          device_id: params.deviceId,
+          partner_device_id: params.partnerDeviceId,
+          partner_display_name: params.partnerDisplayName,
+          partner_avatar: params.partnerAvatar || '👤',
+          session_id: params.sessionId,
+          role: params.role,
+          status: 'connected',
+          initiated_by: params.initiatedBy,
+          connected_at: new Date().toISOString(),
+        })
+        .select()
+        .single()
+
+      if (error) return { error: error.message }
+      return { connection: data }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to record connection' }
+    }
+  },
+
+  /**
+   * Update connection status (e.g., when disconnecting)
+   */
+  async updateConnection(connectionId: string, params: {
+    status?: 'connected' | 'disconnected'
+    disconnectedAt?: string
+    durationSeconds?: number
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { error } = await supabase
+        .from('connection_history')
+        .update({
+          status: params.status,
+          disconnected_at: params.disconnectedAt,
+          duration_seconds: params.durationSeconds,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', connectionId)
+
+      if (error) return { success: false, error: error.message }
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to update connection' }
+    }
+  },
+
+  /**
+   * Get connection history for a device
+   */
+  async getHistory(deviceId: string, limit = 10): Promise<{ connections: ConnectionRecord[]; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('connection_history')
+        .select('*')
+        .eq('device_id', deviceId)
+        .order('connected_at', { ascending: false })
+        .limit(limit)
+
+      if (error) return { connections: [], error: error.message }
+      return { connections: data || [] }
+    } catch (error) {
+      return { connections: [], error: error instanceof Error ? error.message : 'Failed to fetch history' }
+    }
+  },
+
+  /**
+   * Get last connection with a specific partner
+   */
+  async getLastConnectionWith(deviceId: string, partnerDeviceId: string): Promise<{ connection?: ConnectionRecord; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('connection_history')
+        .select('*')
+        .eq('device_id', deviceId)
+        .eq('partner_device_id', partnerDeviceId)
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        return { error: error.message }
+      }
+
+      return { connection: data || undefined }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to fetch last connection' }
+    }
+  },
+
+  /**
+   * Get active connection (currently connected)
+   */
+  async getActiveConnection(deviceId: string): Promise<{ connection?: ConnectionRecord; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('connection_history')
+        .select('*')
+        .eq('device_id', deviceId)
+        .eq('status', 'connected')
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        return { error: error.message }
+      }
+
+      return { connection: data || undefined }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Failed to fetch active connection' }
+    }
+  },
+
+  /**
+   * Disconnect all active connections for a device
+   */
+  async disconnectAll(deviceId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const now = new Date().toISOString()
+      
+      // Get all active connections to calculate duration
+      const { data: activeConnections } = await supabase
+        .from('connection_history')
+        .select('*')
+        .eq('device_id', deviceId)
+        .eq('status', 'connected')
+
+      // Update each with calculated duration
+      for (const conn of activeConnections || []) {
+        const connectedAt = new Date(conn.connected_at).getTime()
+        const duration = Math.floor((Date.now() - connectedAt) / 1000)
+        
+        await supabase
+          .from('connection_history')
+          .update({
+            status: 'disconnected',
+            disconnected_at: now,
+            duration_seconds: duration,
+          })
+          .eq('id', conn.id)
+      }
+
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Failed to disconnect' }
+    }
+  },
+
+  /**
+   * Update device online status (for disconnect sync)
+   */
+  async updateOnlineStatus(deviceId: string, isOnline: boolean): Promise<{ success: boolean }> {
+    try {
+      await supabase
+        .from('device_profiles')
+        .update({ 
+          is_online: isOnline, 
+          last_seen_at: new Date().toISOString() 
+        })
+        .eq('device_id', deviceId)
+
+      return { success: true }
+    } catch {
+      return { success: false }
+    }
+  },
+
+  /**
+   * Subscribe to partner's online status changes
+   */
+  subscribeToPartnerStatus(
+    partnerDeviceId: string,
+    callback: (isOnline: boolean) => void
+  ) {
+    return supabase
+      .channel(`partner-status-${partnerDeviceId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'device_profiles',
+          filter: `device_id=eq.${partnerDeviceId}`,
+        },
+        (payload) => {
+          const newData = payload.new as { is_online?: boolean }
+          callback(newData?.is_online ?? false)
+        }
+      )
+      .subscribe()
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
 // FEEDBACK API
 // ─────────────────────────────────────────────────────────────────────────────────
 

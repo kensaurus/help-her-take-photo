@@ -29,7 +29,7 @@ import Animated, {
 import * as Haptics from 'expo-haptics'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
-import { profileApi } from '../src/services/api'
+import { profileApi, connectionHistoryApi } from '../src/services/api'
 
 // Dynamically import RTCView to handle Expo Go gracefully
 let RTCView: any = null
@@ -222,6 +222,46 @@ export default function ViewerScreen() {
       })
       setIsConnected(true)
       
+      // Record connection in history
+      connectionHistoryApi.recordConnection({
+        deviceId: myDeviceId,
+        partnerDeviceId: pairedDeviceId,
+        partnerDisplayName: partnerDisplayName || undefined,
+        partnerAvatar: partnerAvatar || '👤',
+        sessionId,
+        role: 'director',
+        initiatedBy: 'self',
+      }).then(({ connection }) => {
+        if (connection) {
+          sessionLogger.info('connection_recorded', { connectionId: connection.id })
+        }
+      }).catch(() => {
+        // Silent fail for history
+      })
+      
+      // Update online status
+      connectionHistoryApi.updateOnlineStatus(myDeviceId, true)
+      
+      // Subscribe to partner's online status for disconnect sync
+      const partnerStatusSubscription = connectionHistoryApi.subscribeToPartnerStatus(
+        pairedDeviceId,
+        (isOnline) => {
+          if (!isOnline) {
+            sessionLogger.info('partner_went_offline', { partnerDeviceId: pairedDeviceId })
+            // Partner disconnected - notify user
+            Alert.alert(
+              'Partner Disconnected',
+              `${partnerDisplayName || 'Your partner'} has disconnected.`,
+              [
+                { text: 'OK', onPress: () => {
+                  // Optionally navigate back or clear connection
+                }}
+              ]
+            )
+          }
+        }
+      )
+      
       webrtcService.init(
         myDeviceId,
         pairedDeviceId,
@@ -282,9 +322,13 @@ export default function ViewerScreen() {
         setIsConnected(false)
         setIsReceiving(false)
         setRemoteStream(null)
+        // Update online status when leaving
+        connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
+        // Unsubscribe from partner status
+        partnerStatusSubscription.unsubscribe()
       }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar])
 
   // Quick Connect: Auto-disconnect when leaving viewer
   useEffect(() => {

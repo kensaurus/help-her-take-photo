@@ -36,7 +36,7 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { Icon } from '../src/components/ui/Icon'
 import { CaptureButton } from '../src/components/CaptureButton'
-import { pairingApi } from '../src/services/api'
+import { pairingApi, connectionHistoryApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 
@@ -283,12 +283,51 @@ export default function CameraScreen() {
 
     // Track if component is still mounted
     let isMounted = true
+    let partnerStatusSubscription: { unsubscribe: () => void } | null = null
 
     sessionLogger.info('starting_webrtc_as_photographer', {
       myDeviceId,
       pairedDeviceId,
       sessionId,
     })
+    
+    // Record connection in history
+    connectionHistoryApi.recordConnection({
+      deviceId: myDeviceId,
+      partnerDeviceId: pairedDeviceId,
+      partnerDisplayName: partnerDisplayName || undefined,
+      partnerAvatar: partnerAvatar || '👤',
+      sessionId,
+      role: 'camera',
+      initiatedBy: 'self',
+    }).then(({ connection }) => {
+      if (connection) {
+        sessionLogger.info('connection_recorded', { connectionId: connection.id })
+      }
+    }).catch(() => {
+      // Silent fail for history
+    })
+    
+    // Update online status
+    connectionHistoryApi.updateOnlineStatus(myDeviceId, true)
+    
+    // Subscribe to partner's online status for disconnect sync
+    partnerStatusSubscription = connectionHistoryApi.subscribeToPartnerStatus(
+      pairedDeviceId,
+      (isOnline) => {
+        if (!isOnline && isMounted) {
+          sessionLogger.info('partner_went_offline', { partnerDeviceId: pairedDeviceId })
+          // Partner disconnected - notify user
+          Alert.alert(
+            'Director Disconnected',
+            `${partnerDisplayName || 'Your director'} has disconnected.`,
+            [
+              { text: 'OK' }
+            ]
+          )
+        }
+      }
+    )
     
     // Initialize WebRTC and handle errors properly
     const initWebRTC = async () => {
@@ -391,8 +430,16 @@ export default function CameraScreen() {
       setIsSharing(false)
       setLocalStream(null)
       setWebrtcInitialized(false)
+      // Update online status when leaving
+      if (myDeviceId) {
+        connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
+      }
+      // Unsubscribe from partner status
+      if (partnerStatusSubscription) {
+        partnerStatusSubscription.unsubscribe()
+      }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized, partnerDisplayName, partnerAvatar])
 
   // Handle commands from director
   const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
