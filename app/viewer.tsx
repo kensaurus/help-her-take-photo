@@ -471,8 +471,50 @@ export default function ViewerScreen() {
                       mirror={false}
                       zOrder={0}
                     />
+                    {/* Live indicator */}
                     <View style={styles.liveOverlay}>
                       <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>
+                    </View>
+                    
+                    {/* Overlay Quick Controls - Better UX */}
+                    <View style={styles.overlayControls}>
+                      {/* Direction controls in corners */}
+                      <View style={styles.overlayDirections}>
+                        <Pressable 
+                          style={styles.overlayBtn}
+                          onPress={() => sendDirection('left')}
+                        >
+                          <Text style={styles.overlayBtnText}>←</Text>
+                        </Pressable>
+                        <View style={styles.overlayVertical}>
+                          <Pressable 
+                            style={styles.overlayBtn}
+                            onPress={() => sendDirection('up')}
+                          >
+                            <Text style={styles.overlayBtnText}>↑</Text>
+                          </Pressable>
+                          <Pressable 
+                            style={styles.overlayBtn}
+                            onPress={() => sendDirection('down')}
+                          >
+                            <Text style={styles.overlayBtnText}>↓</Text>
+                          </Pressable>
+                        </View>
+                        <Pressable 
+                          style={styles.overlayBtn}
+                          onPress={() => sendDirection('right')}
+                        >
+                          <Text style={styles.overlayBtnText}>→</Text>
+                        </Pressable>
+                      </View>
+                      
+                      {/* Capture button at bottom center */}
+                      <Pressable 
+                        style={styles.overlayCaptureBtn}
+                        onPress={handleTakePhoto}
+                      >
+                        <Text style={styles.overlayCaptureIcon}>📸</Text>
+                      </Pressable>
                     </View>
                   </View>
                 ) : (
@@ -816,5 +858,59 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
     fontWeight: '600',
+  },
+  // Overlay controls for director (on top of video feed)
+  overlayControls: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  overlayDirections: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 'auto',
+    marginBottom: 20,
+  },
+  overlayVertical: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  overlayBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  overlayBtnText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  overlayCaptureBtn: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#22C55E',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+    marginBottom: 10,
+  },
+  overlayCaptureIcon: {
+    fontSize: 28,
   },
 })

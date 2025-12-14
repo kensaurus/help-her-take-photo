@@ -265,6 +265,7 @@ export default function CameraScreen() {
 
   // Initialize WebRTC when paired AND permission is granted
   // IMPORTANT: Only init WebRTC, don't use expo-camera when streaming
+  // Uses mounted ref to prevent state updates after unmount
   useEffect(() => {
     // Don't init if already initialized or not ready
     if (webrtcInitialized) return
@@ -279,6 +280,9 @@ export default function CameraScreen() {
       })
       return
     }
+
+    // Track if component is still mounted
+    let isMounted = true
 
     sessionLogger.info('starting_webrtc_as_photographer', {
       myDeviceId,
@@ -298,13 +302,23 @@ export default function CameraScreen() {
           'camera',
           {
             onConnectionStateChange: (state) => {
+              if (!isMounted) {
+                sessionLogger.info('photographer_state_after_unmount', { state })
+                return
+              }
               sessionLogger.info('photographer_webrtc_state', { 
                 connectionState: state,
                 role: 'camera',
               })
               setIsConnected(state === 'connected')
+              
+              // If connection failed or disconnected, notify user
+              if (state === 'failed' || state === 'disconnected') {
+                sessionLogger.warn('photographer_connection_lost', { state })
+              }
             },
             onError: (error) => {
+              if (!isMounted) return
               sessionLogger.error('photographer_webrtc_error', error, {
                 role: 'camera',
                 myDeviceId,
@@ -315,23 +329,33 @@ export default function CameraScreen() {
           }
         )
         
+        // Check if still mounted after async init
+        if (!isMounted) {
+          sessionLogger.warn('photographer_unmounted_after_init', {
+            message: 'Component unmounted during WebRTC init'
+          })
+          return
+        }
+        
         sessionLogger.info('photographer_webrtc_init_returned')
         
         // Get local stream for preview AFTER init completes
         const stream = webrtcService.getLocalStream()
-        if (stream) {
+        if (stream && isMounted) {
           setLocalStream(stream)
           sessionLogger.info('photographer_local_stream_ready', {
             trackCount: stream.getTracks().length,
             videoTracks: stream.getVideoTracks().length,
             streamId: stream.id?.substring(0, 8),
           })
-        } else {
+        } else if (!stream) {
           sessionLogger.warn('photographer_no_local_stream', {
-            message: 'WebRTC init completed but no local stream available'
+            message: 'WebRTC init completed but no local stream available',
+            isMounted,
           })
         }
       } catch (error) {
+        if (!isMounted) return
         sessionLogger.error('photographer_webrtc_init_failed', error, {
           errorMessage: (error as Error)?.message,
         })
@@ -349,6 +373,7 @@ export default function CameraScreen() {
 
     // Listen for commands from director
     webrtcService.onCommand((command, data) => {
+      if (!isMounted) return
       sessionLogger.info('command_received', { command, data })
       setLastCommand(command)
       handleRemoteCommand(command, data)
@@ -356,7 +381,11 @@ export default function CameraScreen() {
     })
 
     return () => {
-      sessionLogger.info('webrtc_cleanup')
+      isMounted = false
+      sessionLogger.info('webrtc_cleanup', { 
+        reason: 'component_unmount',
+        hadLocalStream: !!localStream,
+      })
       webrtcService.destroy()
       setIsConnected(false)
       setIsSharing(false)
