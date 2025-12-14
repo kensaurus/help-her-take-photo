@@ -40,7 +40,6 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
 import { sessionLogger } from '../src/services/sessionLogger'
-import { ErrorBoundary } from '../src/components/ErrorBoundary'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 // API timeout helper
@@ -403,7 +402,7 @@ function SubmitButton({
   )
 }
 
-function PairingScreenContent() {
+export default function PairingScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
   const { width } = useWindowDimensions()
@@ -1124,18 +1123,3 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 })
-
-// Wrap with ErrorBoundary for graceful error handling
-export default function PairingScreen() {
-  return (
-    <ErrorBoundary
-      onError={(error) => {
-        sessionLogger.error('pairing_screen_crash', error, {
-          screen: 'pairing',
-        })
-      }}
-    >
-      <PairingScreenContent />
-    </ErrorBoundary>
-  )
-}
