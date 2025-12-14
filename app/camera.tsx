@@ -344,10 +344,26 @@ export default function CameraScreen() {
   if (isLoadingPermission || permission === null) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        {/* Back button during loading */}
+        <Pressable 
+          style={styles.backButtonTop}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+            router.back()
+          }}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </Pressable>
+        
         <View style={styles.loadingContainer}>
-          <Animated.View entering={FadeIn.duration(300)}>
-            <Icon name="camera" size={64} color={colors.textMuted} />
-          </Animated.View>
+          <Animated.Text 
+            entering={FadeIn.duration(300)}
+            style={styles.loadingEmoji}
+          >
+            📷
+          </Animated.Text>
           <Animated.Text 
             entering={FadeIn.delay(200).duration(300)}
             style={[styles.loadingText, { color: colors.textMuted }]}
@@ -435,8 +451,45 @@ export default function CameraScreen() {
     } catch {}
   }
 
+  // Handle disconnect
+  const handleDisconnect = async () => {
+    Alert.alert(
+      'Disconnect',
+      'Clear current pairing and go back?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Disconnect', 
+          style: 'destructive',
+          onPress: async () => {
+            sessionLogger.info('manual_disconnect')
+            webrtcService.destroy()
+            if (myDeviceId) {
+              await pairingApi.unpair(myDeviceId)
+            }
+            clearPairing()
+            router.replace('/')
+          }
+        },
+      ]
+    )
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Close button - always visible */}
+      <Pressable 
+        style={styles.closeButton}
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+          router.back()
+        }}
+        accessibilityLabel="Go back"
+        accessibilityRole="button"
+      >
+        <Text style={styles.closeButtonText}>✕</Text>
+      </Pressable>
+
       {/* Real Camera preview */}
       <View style={styles.cameraPreview}>
         <CameraView
@@ -449,7 +502,12 @@ export default function CameraScreen() {
         {settings.showGrid && <GridOverlay />}
         
         {/* Status bar */}
-        <View style={styles.statusBar}>
+        <Pressable 
+          style={styles.statusBar}
+          onLongPress={handleDisconnect}
+          accessibilityLabel="Connection status. Long press to disconnect"
+          accessibilityHint="Hold to disconnect from partner"
+        >
           <View style={[
             styles.statusDot, 
             isConnected ? styles.statusDotLive : 
@@ -458,7 +516,7 @@ export default function CameraScreen() {
           <Text style={styles.statusText}>
             {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
           </Text>
-        </View>
+        </Pressable>
         
         {/* Photo count */}
         <View style={styles.photoCount}>
@@ -584,9 +642,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
+  loadingEmoji: {
+    fontSize: 64,
+  },
   loadingText: {
     fontSize: 16,
     fontWeight: '500',
+  },
+  backButtonTop: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    zIndex: 100,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 6,
+  },
+  backButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    zIndex: 100,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
   },
   // Permission denied styles
   permissionContainer: {

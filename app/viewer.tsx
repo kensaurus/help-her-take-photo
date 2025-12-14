@@ -146,6 +146,30 @@ export default function ViewerScreen() {
   const { t } = useLanguageStore()
   const { stats } = useStatsStore()
   
+  // Handle disconnect
+  const handleDisconnect = async () => {
+    Alert.alert(
+      'Disconnect',
+      'Clear current pairing and go back?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Disconnect', 
+          style: 'destructive',
+          onPress: async () => {
+            sessionLogger.info('manual_disconnect')
+            webrtcService.destroy()
+            if (myDeviceId) {
+              await pairingApi.unpair(myDeviceId)
+            }
+            clearPairing()
+            router.replace('/')
+          }
+        },
+      ]
+    )
+  }
+  
   const [isConnected, setIsConnected] = useState(false)
   const [isReceiving, setIsReceiving] = useState(false)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
@@ -306,6 +330,32 @@ export default function ViewerScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Close button */}
+      <View style={styles.headerButtons}>
+        <Pressable 
+          style={styles.backButton}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+            router.back()
+          }}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
+        >
+          <Text style={styles.backButtonText}>← Back</Text>
+        </Pressable>
+        
+        {isPaired && (
+          <Pressable 
+            style={styles.disconnectButton}
+            onPress={handleDisconnect}
+            accessibilityLabel="Disconnect"
+            accessibilityRole="button"
+          >
+            <Text style={styles.disconnectButtonText}>Disconnect</Text>
+          </Pressable>
+        )}
+      </View>
+
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -447,12 +497,42 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FAFAFA',
   },
+  headerButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 6,
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  disconnectButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#fee2e2',
+    borderRadius: 6,
+  },
+  disconnectButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#dc2626',
+  },
   scrollContent: {
     flexGrow: 1,
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 8,
     paddingBottom: 20,
   },
   title: {
