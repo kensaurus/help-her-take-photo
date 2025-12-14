@@ -37,6 +37,31 @@ export default function RootLayout() {
   useEffect(() => {
     const init = async () => {
       logger.info('App starting...')
+
+      // Global JS error handler (captures red-screen crashes into Supabase logs)
+      try {
+        const ErrorUtilsAny = (globalThis as any)?.ErrorUtils
+        const originalHandler = ErrorUtilsAny?.getGlobalHandler?.()
+        ErrorUtilsAny?.setGlobalHandler?.((error: unknown, isFatal?: boolean) => {
+          try {
+            const e = error as any
+            sessionLogger.error('global_js_error', e instanceof Error ? e : new Error(String(e)), {
+              isFatal: !!isFatal,
+              message: e?.message,
+              name: e?.name,
+              stack: e?.stack,
+            })
+          } catch {
+            // ignore
+          }
+
+          if (typeof originalHandler === 'function') {
+            originalHandler(error, isFatal)
+          }
+        })
+      } catch {
+        // ignore
+      }
       
       // Load all stores in parallel - these use AsyncStorage
       // which requires native modules to be ready
