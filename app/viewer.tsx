@@ -1,193 +1,124 @@
 /**
- * Viewer / Director Mode - Where she takes control
- * Now with real WebRTC video streaming
+ * Viewer/Director - Guide the photographer with direction commands
+ * Uses Supabase Realtime for commands (no WebRTC video)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  Pressable, 
-  Dimensions,
-  RefreshControl,
-  ScrollView,
+import { useState, useEffect, useRef } from 'react'
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
   Alert,
+  ScrollView,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import Animated, { 
+import Animated, {
   FadeIn,
-  FadeOut,
-  useAnimatedStyle, 
-  useSharedValue, 
+  FadeInUp,
+  useAnimatedStyle,
+  useSharedValue,
   withSpring,
   withSequence,
   withTiming,
   withRepeat,
+  Easing,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
-
-// Dynamically import RTCView to handle Expo Go gracefully
-let RTCView: any = null
-let MediaStream: any = null
-try {
-  const webrtc = require('react-native-webrtc')
-  RTCView = webrtc.RTCView
-  MediaStream = webrtc.MediaStream
-} catch {
-  // WebRTC not available (Expo Go)
-}
 import { useLanguageStore } from '../src/stores/languageStore'
+import { useThemeStore } from '../src/stores/themeStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
-import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
+import { supabase } from '../src/services/supabase'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
-const QUICK_CONNECT_KEY = 'quick_connect_mode'
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window')
-
-// Direction button with big touch target
-function DirectionButton({ 
-  label, 
+// Direction button component
+function DirectionButton({
   direction,
-  onPress 
-}: { 
-  label: string
-  direction: 'left' | 'right' | 'up' | 'down' | 'closer' | 'back'
-  onPress: () => void 
+  emoji,
+  onPress,
+}: {
+  direction: string
+  emoji: string
+  onPress: () => void
 }) {
   const scale = useSharedValue(1)
-  const [pressed, setPressed] = useState(false)
-  
-  const handlePress = () => {
-    scale.value = withSequence(
-      withSpring(0.9, { damping: 15 }),
-      withSpring(1, { damping: 15 })
-    )
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    setPressed(true)
-    setTimeout(() => setPressed(false), 300)
-    onPress()
-  }
   
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }))
-
-  const arrows: Record<string, string> = {
-    left: '←',
-    right: '→',
-    up: '↑',
-    down: '↓',
-    closer: '⊕',
-    back: '⊖',
+  
+  const handlePress = () => {
+    scale.value = withSequence(
+      withTiming(0.85, { duration: 50 }),
+      withSpring(1, { damping: 10 })
+    )
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    onPress()
   }
 
   return (
     <Pressable onPress={handlePress}>
-      <Animated.View style={[
-        styles.directionBtn,
-        pressed && styles.directionBtnPressed,
-        animatedStyle
-      ]}>
-        <Text style={styles.directionArrow}>{arrows[direction]}</Text>
-        <Text style={[styles.directionLabel, pressed && styles.directionLabelPressed]}>
-          {label}
-        </Text>
+      <Animated.View style={[styles.directionBtn, animatedStyle]}>
+        <Text style={styles.directionEmoji}>{emoji}</Text>
       </Animated.View>
     </Pressable>
   )
 }
 
-// Take photo button
-function TakePhotoButton({ onPress }: { onPress: () => void }) {
+// Capture button
+function CaptureButton({ onPress }: { onPress: () => void }) {
   const scale = useSharedValue(1)
+  const pulse = useSharedValue(1)
   
-  // Subtle pulse
   useEffect(() => {
-    scale.value = withRepeat(
+    pulse.value = withRepeat(
       withSequence(
-        withTiming(1.02, { duration: 1500 }),
-        withTiming(1, { duration: 1500 })
+        withTiming(1.05, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) })
       ),
-      -1
+      -1,
+      true
     )
-  }, [scale])
+  }, [])
   
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: scale.value * pulse.value }],
   }))
+  
+  const handlePress = () => {
+    scale.value = withSequence(
+      withTiming(0.9, { duration: 50 }),
+      withSpring(1, { damping: 8 })
+    )
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+    onPress()
+  }
 
   return (
-    <Pressable 
-      onPress={() => {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-        onPress()
-      }}
-    >
-      <Animated.View style={[styles.takePhotoBtn, animatedStyle]}>
-        <Text style={styles.takePhotoBtnIcon}>📸</Text>
-        <Text style={styles.takePhotoBtnText}>Perfect! Take it!</Text>
+    <Pressable onPress={handlePress}>
+      <Animated.View style={[styles.captureBtn, animatedStyle]}>
+        <Text style={styles.captureText}>📸</Text>
+        <Text style={styles.captureBtnText}>Take Photo!</Text>
       </Animated.View>
     </Pressable>
-  )
-}
-
-// Sent indicator
-function SentIndicator({ message }: { message: string }) {
-  return (
-    <Animated.View 
-      entering={FadeIn.duration(200)} 
-      exiting={FadeOut.duration(200)}
-      style={styles.sentIndicator}
-    >
-      <Text style={styles.sentText}>✓ {message}</Text>
-    </Animated.View>
   )
 }
 
 export default function ViewerScreen() {
   const router = useRouter()
+  const { colors } = useThemeStore()
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
   const { t } = useLanguageStore()
-  const { stats } = useStatsStore()
+  const { incrementScoldings } = useStatsStore()
   
-  // Handle disconnect
-  const handleDisconnect = async () => {
-    Alert.alert(
-      'Disconnect',
-      'Clear current pairing and go back?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Disconnect', 
-          style: 'destructive',
-          onPress: async () => {
-            sessionLogger.info('manual_disconnect')
-            webrtcService.destroy()
-            if (myDeviceId) {
-              await pairingApi.unpair(myDeviceId)
-            }
-            clearPairing()
-            router.replace('/')
-          }
-        },
-      ]
-    )
-  }
-  
+  const channelRef = useRef<RealtimeChannel | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isReceiving, setIsReceiving] = useState(false)
-  const [remoteStream, setRemoteStream] = useState<any>(null)
-  const [connectionState, setConnectionState] = useState<string>('disconnected')
-  const [webrtcError, setWebrtcError] = useState<string | null>(null)
-  const [lastCommand, setLastCommand] = useState('')
-  const [showSent, setShowSent] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
+  const [lastSent, setLastSent] = useState<string | null>(null)
+  const [photosTaken, setPhotosTaken] = useState(0)
 
   // Initialize logging
   useEffect(() => {
@@ -197,355 +128,249 @@ export default function ViewerScreen() {
     }
     return () => {
       sessionLogger.info('viewer_screen_closed')
+      sessionLogger.flush()
     }
   }, [myDeviceId, sessionId])
 
-  // Initialize WebRTC when paired
+  // Subscribe to commands channel
   useEffect(() => {
-    if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      // Check if WebRTC is available
-      if (!webrtcAvailable) {
-        sessionLogger.warn('webrtc_not_available_viewer')
-        setWebrtcError('Video streaming requires a development build. Expo Go does not support WebRTC.')
-        setIsConnected(true) // Mark as "connected" for UI purposes
-        return
+    if (!isPaired || !sessionId || !myDeviceId) {
+      // Not paired, redirect to home
+      if (!isPaired) {
+        router.replace('/')
       }
-
-      sessionLogger.info('starting_webrtc_as_director')
-      setIsConnected(true)
-      
-      webrtcService.init(
-        myDeviceId,
-        pairedDeviceId,
-        sessionId,
-        'director',
-        {
-          onRemoteStream: (stream) => {
-            sessionLogger.info('remote_stream_received')
-            setRemoteStream(stream)
-            setIsReceiving(true)
-          },
-          onConnectionStateChange: (state) => {
-            sessionLogger.info('webrtc_state', { state })
-            setConnectionState(state)
-            if (state === 'failed' || state === 'disconnected') {
-              setIsReceiving(false)
-              setRemoteStream(null)
-            }
-          },
-          onError: (error) => {
-            sessionLogger.error('webrtc_error', error)
-            setWebrtcError(error.message)
-          },
-        }
-      )
-
-      return () => {
-        webrtcService.destroy()
-        setIsConnected(false)
-        setIsReceiving(false)
-        setRemoteStream(null)
-      }
+      return
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
 
-  // Quick Connect: Auto-disconnect when leaving viewer
-  useEffect(() => {
-    return () => {
-      // Cleanup function runs when component unmounts
-      (async () => {
-        try {
-          const quickConnectMode = await AsyncStorage.getItem(QUICK_CONNECT_KEY)
-          if (quickConnectMode === 'true' && myDeviceId) {
-            // Auto-disconnect for quick connect mode
-            await pairingApi.unpair(myDeviceId)
-            clearPairing()
-            await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
-            sessionLogger.info('quick_connect_auto_disconnected')
+    const channelName = `commands:${sessionId}`
+    sessionLogger.info('subscribing_to_commands', { channelName })
+    
+    const channel = supabase.channel(channelName)
+    
+    channel
+      .on('broadcast', { event: 'status' }, (payload) => {
+        const { from, status, count } = payload.payload as {
+          from: string
+          to: string
+          status: string
+          count?: number
+        }
+        
+        if (from === pairedDeviceId) {
+          if (status === 'photo_taken' && count) {
+            setPhotosTaken(count)
+            incrementScoldings() // Count as scolding saved!
+            sessionLogger.info('photo_taken_by_partner', { count })
           }
-        } catch (error) {
-          sessionLogger.error('quick_connect_cleanup_error', error)
         }
-      })()
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState()
+        const partnerOnline = Object.keys(state).some(key => 
+          state[key].some((p: any) => p.deviceId === pairedDeviceId)
+        )
+        setIsConnected(partnerOnline)
+        sessionLogger.info('presence_sync', { partnerOnline })
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({ deviceId: myDeviceId, role: 'director' })
+          sessionLogger.info('channel_subscribed', { channelName })
+        }
+      })
+    
+    channelRef.current = channel
+    
+    return () => {
+      channel.unsubscribe()
+      channelRef.current = null
     }
-  }, [myDeviceId, clearPairing])
+  }, [isPaired, sessionId, myDeviceId, pairedDeviceId])
 
-  const sendDirection = async (direction: keyof typeof t.viewer.directions) => {
-    setLastCommand(t.viewer.directions[direction])
-    setShowSent(true)
-    setTimeout(() => setShowSent(false), 1500)
+  const sendCommand = async (command: string, data?: Record<string, unknown>) => {
+    if (!channelRef.current || !myDeviceId || !pairedDeviceId) return
     
-    // Send command via WebRTC
-    await webrtcService.sendCommand('direction', { direction })
-    sessionLogger.info('direction_sent', { direction })
+    setLastSent(command)
+    setTimeout(() => setLastSent(null), 1000)
+    
+    await channelRef.current.send({
+      type: 'broadcast',
+      event: 'command',
+      payload: {
+        from: myDeviceId,
+        to: pairedDeviceId,
+        command,
+        data,
+      }
+    })
+    
+    sessionLogger.info('command_sent', { command, data })
   }
 
-  const handleTakePhoto = async () => {
-    setLastCommand(t.viewer.takePhoto)
-    setShowSent(true)
-    setTimeout(() => setShowSent(false), 2000)
-    
-    // Send capture command via WebRTC
-    await webrtcService.sendCommand('capture')
-    sessionLogger.info('capture_command_sent')
-  }
-
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    sessionLogger.info('viewer_refresh_triggered')
-    
-    // Reconnect WebRTC
-    if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      await webrtcService.destroy()
-      setIsReceiving(false)
-      setRemoteStream(null)
-      
-      // Small delay before reconnecting
-      await new Promise(r => setTimeout(r, 500))
-      
-      webrtcService.init(
-        myDeviceId,
-        pairedDeviceId,
-        sessionId,
-        'director',
+  const handleDisconnect = async () => {
+    Alert.alert(
+      'Disconnect',
+      'End this session and go back?',
+      [
+        { text: 'Cancel', style: 'cancel' },
         {
-          onRemoteStream: (stream) => {
-            sessionLogger.info('remote_stream_received')
-            setRemoteStream(stream)
-            setIsReceiving(true)
+          text: 'Disconnect',
+          style: 'destructive',
+          onPress: async () => {
+            sessionLogger.info('manual_disconnect')
+            if (myDeviceId) {
+              await pairingApi.unpair(myDeviceId)
+            }
+            clearPairing()
+            router.replace('/')
           },
-          onConnectionStateChange: (state) => {
-            sessionLogger.info('webrtc_state', { state })
-            setConnectionState(state)
-          },
-          onError: (error) => {
-            sessionLogger.error('webrtc_error', error)
-          },
-        }
-      )
-    }
-    
-    setRefreshing(false)
+        },
+      ]
+    )
   }
 
-  // Funny waiting messages
-  const waitingMessages = [
-    "Waiting for his camera feed... 📡",
-    "He's probably holding it upside down",
-    "Connection buffering... like his brain",
-    "Any second now... (optimistic estimate)",
-  ]
-  const [waitingMsgIndex, setWaitingMsgIndex] = useState(0)
-  
-  useEffect(() => {
-    if (!isReceiving) {
-      const interval = setInterval(() => {
-        setWaitingMsgIndex(i => (i + 1) % waitingMessages.length)
-      }, 3000)
-      return () => clearInterval(interval)
-    }
-  }, [isReceiving, waitingMessages.length])
+  const handleBack = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    router.back()
+  }
+
+  // Not paired - show connect prompt
+  if (!isPaired) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+        <View style={styles.notPairedContainer}>
+          <Text style={styles.notPairedEmoji}>🔗</Text>
+          <Text style={[styles.notPairedTitle, { color: colors.text }]}>Not Connected</Text>
+          <Text style={[styles.notPairedDesc, { color: colors.textMuted }]}>
+            Connect with your partner first to start directing!
+          </Text>
+          <Pressable
+            style={[styles.connectBtn, { backgroundColor: colors.primary }]}
+            onPress={() => router.push('/pairing')}
+          >
+            <Text style={[styles.connectBtnText, { color: colors.primaryText }]}>
+              Connect Now
+            </Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    )
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Close button */}
-      <View style={styles.headerButtons}>
-        <Pressable 
-          style={styles.backButton}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            router.back()
-          }}
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-        >
-          <Text style={styles.backButtonText}>← Back</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable style={styles.backBtn} onPress={handleBack}>
+          <Text style={[styles.backBtnText, { color: colors.text }]}>← Back</Text>
         </Pressable>
         
-        {isPaired && (
-          <Pressable 
-            style={styles.disconnectButton}
-            onPress={handleDisconnect}
-            accessibilityLabel="Disconnect"
-            accessibilityRole="button"
-          >
-            <Text style={styles.disconnectButtonText}>Disconnect</Text>
-          </Pressable>
-        )}
+        <Pressable onLongPress={handleDisconnect}>
+          <View style={[
+            styles.statusBadge, 
+            { backgroundColor: isConnected ? '#22C55E20' : '#EAB30820' }
+          ]}>
+            <View style={[
+              styles.statusDot, 
+              { backgroundColor: isConnected ? '#22C55E' : '#EAB308' }
+            ]} />
+            <Text style={[
+              styles.statusBadgeText, 
+              { color: isConnected ? '#22C55E' : '#EAB308' }
+            ]}>
+              {isConnected ? 'Photographer Online' : 'Waiting...'}
+            </Text>
+          </View>
+        </Pressable>
       </View>
 
-      <ScrollView
+      <ScrollView 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#1a1a1a"
-          />
-        }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{t.viewer.title}</Text>
-          <Text style={styles.subtitle}>{t.viewer.subtitle}</Text>
-          {isPaired && (
-            <View style={styles.partnerCard}>
-              <Text style={styles.partnerEmoji}>📸</Text>
-              <View style={styles.partnerInfo}>
-                <Text style={styles.partnerLabel}>Connected to Photographer</Text>
-                <Text style={styles.partnerStatus}>
-                  {isReceiving ? '🟢 Streaming' : connectionState}
-                </Text>
-              </View>
-            </View>
-          )}
-        </View>
+        {/* Title */}
+        <Animated.View entering={FadeIn.duration(400)} style={styles.titleSection}>
+          <Text style={[styles.title, { color: colors.text }]}>👁️ Director Mode</Text>
+          <Text style={[styles.subtitle, { color: colors.textMuted }]}>
+            Send directions to help frame the perfect shot
+          </Text>
+        </Animated.View>
 
-        {/* Preview area */}
-        <View style={styles.previewSection}>
-          <View style={styles.previewContainer}>
-            {isConnected ? (
-              <View style={styles.preview}>
-                {webrtcError ? (
-                  <View style={styles.waitingPreview}>
-                    <Text style={styles.waitingEmoji}>📱</Text>
-                    <Text style={styles.waitingText}>
-                      {webrtcError}
-                    </Text>
-                    <Text style={styles.connectionStatus}>
-                      Commands still work! Use the direction buttons below.
-                    </Text>
-                  </View>
-                ) : isReceiving && remoteStream && RTCView ? (
-                  <View style={styles.livePreview}>
-                    <RTCView
-                      streamURL={remoteStream.toURL()}
-                      style={StyleSheet.absoluteFill}
-                      objectFit="cover"
-                      mirror={false}
-                    />
-                    <View style={styles.liveOverlay}>
-                      <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.waitingPreview}>
-                    <Text style={styles.waitingEmoji}>👀</Text>
-                    <Text style={styles.waitingText}>
-                      {waitingMessages[waitingMsgIndex]}
-                    </Text>
-                    <Text style={styles.connectionStatus}>
-                      Status: {connectionState}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : (
-              <Pressable 
-                style={styles.connectPreview}
-                onPress={() => router.push('/pairing')}
-              >
-                <Text style={styles.connectEmoji}>🔗</Text>
-                <Text style={styles.connectText}>{t.viewer.notConnected}</Text>
-                <Text style={styles.connectHint}>{t.viewer.connectPrompt}</Text>
-              </Pressable>
-            )}
-          </View>
-          
-          {/* Sent indicator */}
-          {showSent && <SentIndicator message={lastCommand} />}
-        </View>
-
-        {/* Direction controls */}
-        {isConnected && (
-          <Animated.View entering={FadeIn} style={styles.controlsSection}>
-            <Text style={styles.sectionLabel}>{t.viewer.giveDirections}</Text>
-            
-            {/* Directional pad */}
-            <View style={styles.directionGrid}>
-              <View style={styles.directionRow}>
-                <View style={styles.directionSpacer} />
-                <DirectionButton 
-                  label={t.viewer.directions.up} 
-                  direction="up"
-                  onPress={() => sendDirection('up')} 
-                />
-                <View style={styles.directionSpacer} />
-              </View>
-              
-              <View style={styles.directionRow}>
-                <DirectionButton 
-                  label={t.viewer.directions.left} 
-                  direction="left"
-                  onPress={() => sendDirection('left')} 
-                />
-                <View style={styles.directionCenter} />
-                <DirectionButton 
-                  label={t.viewer.directions.right} 
-                  direction="right"
-                  onPress={() => sendDirection('right')} 
-                />
-              </View>
-              
-              <View style={styles.directionRow}>
-                <View style={styles.directionSpacer} />
-                <DirectionButton 
-                  label={t.viewer.directions.down} 
-                  direction="down"
-                  onPress={() => sendDirection('down')} 
-                />
-                <View style={styles.directionSpacer} />
-              </View>
-            </View>
-
-            {/* Zoom controls */}
-            <View style={styles.zoomRow}>
-              <DirectionButton 
-                label={t.viewer.directions.closer} 
-                direction="closer"
-                onPress={() => sendDirection('closer')} 
-              />
-              <DirectionButton 
-                label={t.viewer.directions.back} 
-                direction="back"
-                onPress={() => sendDirection('back')} 
-              />
-            </View>
-
-            {/* Take photo button */}
-            <View style={styles.takePhotoSection}>
-              <TakePhotoButton onPress={handleTakePhoto} />
-            </View>
+        {/* Stats */}
+        {photosTaken > 0 && (
+          <Animated.View 
+            entering={FadeInUp.duration(300)} 
+            style={[styles.statsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Text style={[styles.statsValue, { color: colors.text }]}>{photosTaken}</Text>
+            <Text style={[styles.statsLabel, { color: colors.textMuted }]}>Photos Taken</Text>
           </Animated.View>
         )}
 
-        {/* Switch role button */}
-        {isPaired && (
-          <View style={styles.switchRoleSection}>
-            <Pressable 
-              style={styles.switchRoleBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-                webrtcService.destroy()
-                router.replace('/camera')
-              }}
-              accessibilityLabel="Switch to Photographer mode"
-              accessibilityHint="Change your role to take photos"
-              accessibilityRole="button"
-            >
-              <Text style={styles.switchRoleText}>📸 Switch to Photographer</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {/* Stats */}
-        <View style={styles.statsSection}>
-          <Text style={styles.statsText}>
-            🛡️ {stats.scoldingsSaved} {t.profile.scoldingsSaved}
+        {/* Direction Controls */}
+        <Animated.View entering={FadeInUp.delay(100).duration(400)} style={styles.controlsSection}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            DIRECTION CONTROLS
           </Text>
-        </View>
+          
+          <View style={styles.directionsGrid}>
+            {/* Up */}
+            <View style={styles.directionRow}>
+              <DirectionButton direction="up" emoji="⬆️" onPress={() => sendCommand('up')} />
+            </View>
+            
+            {/* Left / Center / Right */}
+            <View style={styles.directionRow}>
+              <DirectionButton direction="left" emoji="⬅️" onPress={() => sendCommand('left')} />
+              <DirectionButton direction="perfect" emoji="✨" onPress={() => sendCommand('perfect')} />
+              <DirectionButton direction="right" emoji="➡️" onPress={() => sendCommand('right')} />
+            </View>
+            
+            {/* Down */}
+            <View style={styles.directionRow}>
+              <DirectionButton direction="down" emoji="⬇️" onPress={() => sendCommand('down')} />
+            </View>
+          </View>
+          
+          {/* Last sent indicator */}
+          {lastSent && (
+            <Animated.View entering={FadeIn.duration(200)} style={styles.lastSentBadge}>
+              <Text style={styles.lastSentText}>✓ Sent: {lastSent.toUpperCase()}</Text>
+            </Animated.View>
+          )}
+        </Animated.View>
+
+        {/* Quick Actions */}
+        <Animated.View entering={FadeInUp.delay(200).duration(400)} style={styles.quickActions}>
+          <Pressable 
+            style={[styles.quickActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              sendCommand('flip')
+            }}
+          >
+            <Text style={styles.quickActionEmoji}>🔄</Text>
+            <Text style={[styles.quickActionText, { color: colors.text }]}>Flip Camera</Text>
+          </Pressable>
+        </Animated.View>
+
+        {/* Capture Button */}
+        <Animated.View entering={FadeInUp.delay(300).duration(400)} style={styles.captureSection}>
+          <CaptureButton onPress={() => sendCommand('capture')} />
+        </Animated.View>
+
+        {/* Switch Role */}
+        <Pressable 
+          style={styles.switchRoleBtn}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            router.replace('/camera')
+          }}
+        >
+          <Text style={[styles.switchRoleText, { color: colors.textMuted }]}>
+            📷 Switch to Photographer
+          </Text>
+        </Pressable>
       </ScrollView>
     </SafeAreaView>
   )
@@ -554,273 +379,196 @@ export default function ViewerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
   },
-  headerButtons: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
-  backButton: {
+  backBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 6,
+    paddingHorizontal: 4,
   },
-  backButtonText: {
-    fontSize: 14,
+  backBtnText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#1a1a1a',
   },
-  disconnectButton: {
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#fee2e2',
-    borderRadius: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
   },
-  disconnectButtonText: {
-    fontSize: 14,
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusBadgeText: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#dc2626',
   },
   scrollContent: {
-    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingBottom: 40,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
+  titleSection: {
+    paddingVertical: 20,
+    alignItems: 'center',
   },
   title: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 4,
+    fontWeight: '800',
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 15,
-    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
   },
-  partnerCard: {
-    flexDirection: 'row',
+  statsCard: {
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    marginTop: 12,
-  },
-  partnerEmoji: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  partnerInfo: {
-    flex: 1,
-  },
-  partnerLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-  },
-  partnerStatus: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  previewSection: {
-    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderRadius: 12,
+    borderWidth: 1,
     marginBottom: 24,
   },
-  previewContainer: {
-    aspectRatio: 3 / 4,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    overflow: 'hidden',
+  statsValue: {
+    fontSize: 40,
+    fontWeight: '800',
   },
-  preview: {
-    flex: 1,
-  },
-  livePreview: {
-    flex: 1,
-    position: 'relative',
-  },
-  liveOverlay: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-  },
-  liveLabel: {
-    fontSize: 14,
+  statsLabel: {
+    fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
-    backgroundColor: 'rgba(220, 38, 38, 0.9)',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 4,
-  },
-  connectionStatus: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 8,
-  },
-  waitingPreview: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  waitingEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  waitingText: {
-    fontSize: 15,
-    color: '#888',
-    textAlign: 'center',
-  },
-  connectPreview: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  connectEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
-  },
-  connectText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  connectHint: {
-    fontSize: 14,
-    color: '#888',
-  },
-  sentIndicator: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
-    backgroundColor: '#22C55E',
-    paddingVertical: 12,
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  sentText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
+    marginTop: 4,
   },
   controlsSection: {
-    paddingHorizontal: 20,
+    marginBottom: 24,
   },
-  sectionLabel: {
+  sectionTitle: {
     fontSize: 11,
-    fontWeight: '600',
-    color: '#999',
-    letterSpacing: 1,
+    fontWeight: '700',
+    letterSpacing: 1.5,
     marginBottom: 16,
     textAlign: 'center',
   },
-  directionGrid: {
+  directionsGrid: {
     alignItems: 'center',
-    marginBottom: 16,
+    gap: 8,
   },
   directionRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-  },
-  directionSpacer: {
-    width: 80,
-    height: 70,
-  },
-  directionCenter: {
-    width: 20,
-    height: 70,
+    gap: 8,
   },
   directionBtn: {
-    width: 80,
+    width: 70,
     height: 70,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 4,
+    borderRadius: 16,
+    backgroundColor: '#1f1f1f',
     alignItems: 'center',
     justifyContent: 'center',
-    margin: 4,
   },
-  directionBtnPressed: {
-    backgroundColor: '#1a1a1a',
-    borderColor: '#1a1a1a',
+  directionEmoji: {
+    fontSize: 32,
   },
-  directionArrow: {
-    fontSize: 24,
-    color: '#1a1a1a',
+  lastSentBadge: {
+    alignSelf: 'center',
+    marginTop: 16,
+    backgroundColor: '#22C55E20',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
   },
-  directionLabel: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 2,
-  },
-  directionLabelPressed: {
-    color: '#fff',
-  },
-  zoomRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginBottom: 24,
-  },
-  takePhotoSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  takePhotoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1a1a1a',
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    borderRadius: 4,
-    gap: 12,
-  },
-  takePhotoBtnIcon: {
-    fontSize: 24,
-  },
-  takePhotoBtnText: {
-    fontSize: 18,
+  lastSentText: {
+    color: '#22C55E',
+    fontSize: 13,
     fontWeight: '600',
-    color: '#fff',
   },
-  switchRoleSection: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
+  quickActions: {
+    marginBottom: 24,
+  },
+  quickActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  quickActionEmoji: {
+    fontSize: 24,
+  },
+  quickActionText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  captureSection: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  captureBtn: {
+    backgroundColor: '#22C55E',
+    paddingVertical: 20,
+    paddingHorizontal: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#22C55E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  captureText: {
+    fontSize: 40,
+    marginBottom: 4,
+  },
+  captureBtnText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#fff',
   },
   switchRoleBtn: {
-    backgroundColor: '#f5f5f5',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#e5e5e5',
-  },
-  switchRoleText: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  statsSection: {
     alignItems: 'center',
     paddingVertical: 16,
   },
-  statsText: {
+  switchRoleText: {
     fontSize: 14,
-    color: '#888',
+    fontWeight: '600',
+  },
+  notPairedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  notPairedEmoji: {
+    fontSize: 64,
+    marginBottom: 20,
+  },
+  notPairedTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  notPairedDesc: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  connectBtn: {
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+  },
+  connectBtnText: {
+    fontSize: 17,
+    fontWeight: '600',
   },
 })

@@ -1,7 +1,7 @@
 /**
- * Camera - The photographer's view (with encouragement!)
- * Full accessibility support and permission handling
- * Uses WebRTC for streaming when paired, expo-camera otherwise
+ * Camera - The photographer's view
+ * Uses expo-camera for preview, Supabase Realtime for commands
+ * NO WebRTC video streaming (causes conflicts)
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -13,7 +13,6 @@ import {
   Alert,
   Share,
   Linking,
-  useWindowDimensions,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -29,7 +28,6 @@ import Animated, {
 import * as Haptics from 'expo-haptics'
 import * as MediaLibrary from 'expo-media-library'
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { useSettingsStore } from '../src/stores/settingsStore'
 import { useLanguageStore } from '../src/stores/languageStore'
@@ -38,18 +36,8 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
-import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
-
-// Dynamically import RTCView
-let RTCView: any = null
-try {
-  const webrtc = require('react-native-webrtc')
-  RTCView = webrtc.RTCView
-} catch {
-  // WebRTC not available
-}
-
-const QUICK_CONNECT_KEY = 'quick_connect_mode'
+import { supabase } from '../src/services/supabase'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 
 // Grid overlay component
 function GridOverlay() {
@@ -79,7 +67,7 @@ function EncouragementToast({ message, visible }: { message: string; visible: bo
 }
 
 // Capture button with animation
-function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing: boolean }) {
+function CaptureButton({ onPress, isConnected }: { onPress: () => void; isConnected: boolean }) {
   const scale = useSharedValue(1)
   const innerScale = useSharedValue(1)
   
@@ -108,13 +96,12 @@ function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing:
     <Pressable 
       onPress={handlePress}
       accessibilityLabel="Take photo"
-      accessibilityHint="Captures a photo"
       accessibilityRole="button"
     >
       <Animated.View style={[styles.captureOuter, outerStyle]}>
         <Animated.View style={[
           styles.captureInner,
-          isSharing && styles.captureInnerSharing,
+          isConnected && styles.captureInnerConnected,
           innerStyle
         ]} />
       </Animated.View>
@@ -122,60 +109,23 @@ function CaptureButton({ onPress, isSharing }: { onPress: () => void; isSharing:
   )
 }
 
-// Action button
-function ActionButton({ 
-  label, 
-  onPress, 
-  active = false,
-  accessibilityHint,
-}: { 
-  label: string
-  onPress: () => void
-  active?: boolean
-  accessibilityHint?: string
-}) {
-  const scale = useSharedValue(1)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-
-  return (
-    <Pressable
-      onPress={() => {
-        scale.value = withSpring(0.95)
-        setTimeout(() => { scale.value = withSpring(1) }, 100)
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-        onPress()
-      }}
-      accessibilityLabel={label}
-      accessibilityHint={accessibilityHint}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
-    >
-      <Animated.View style={[styles.actionBtn, active && styles.actionBtnActive, animatedStyle]}>
-        <Text style={[styles.actionBtnText, active && styles.actionBtnTextActive]}>{label}</Text>
-      </Animated.View>
-    </Pressable>
-  )
-}
-
-/**
- * Permission denied view with action button
- */
+// Permission denied view
 function PermissionDenied({ 
   onRequestPermission,
   colors,
+  onBack,
 }: { 
   onRequestPermission: () => void
   colors: any 
+  onBack: () => void
 }) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-      <Animated.View 
-        entering={FadeIn.duration(400)}
-        style={styles.permissionContainer}
-      >
+      <Pressable style={styles.backButtonTop} onPress={onBack}>
+        <Text style={styles.backButtonText}>← Back</Text>
+      </Pressable>
+      
+      <Animated.View entering={FadeIn.duration(400)} style={styles.permissionContainer}>
         <View style={[styles.permissionIcon, { backgroundColor: colors.surfaceAlt }]}>
           <Icon name="camera" size={48} color={colors.textMuted} />
         </View>
@@ -185,26 +135,19 @@ function PermissionDenied({
         </Text>
         
         <Text style={[styles.permissionDesc, { color: colors.textSecondary }]}>
-          We need camera access to take photos. Your photos are never uploaded without your permission.
+          We need camera access to take photos. Your photos stay on your device.
         </Text>
         
         <Pressable
           style={[styles.permissionButton, { backgroundColor: colors.primary }]}
           onPress={onRequestPermission}
-          accessibilityLabel="Grant camera permission"
-          accessibilityRole="button"
         >
           <Text style={[styles.permissionButtonText, { color: colors.primaryText }]}>
             Enable Camera
           </Text>
         </Pressable>
         
-        <Pressable
-          style={styles.settingsLink}
-          onPress={() => Linking.openSettings()}
-          accessibilityLabel="Open device settings"
-          accessibilityHint="Opens system settings to manage app permissions"
-        >
+        <Pressable style={styles.settingsLink} onPress={() => Linking.openSettings()}>
           <Text style={[styles.settingsLinkText, { color: colors.accent }]}>
             Open Settings
           </Text>
@@ -223,17 +166,14 @@ export default function CameraScreen() {
   const { incrementPhotos, stats } = useStatsStore()
   
   const cameraRef = useRef<CameraView>(null)
+  const channelRef = useRef<RealtimeChannel | null>(null)
   const [permission, requestPermission] = useCameraPermissions()
   const [facing, setFacing] = useState<CameraType>('back')
-  const [isSharing, setIsSharing] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
-  const [localStream, setLocalStream] = useState<any>(null)
   const [photoCount, setPhotoCount] = useState(0)
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
   const [lastCommand, setLastCommand] = useState<string | null>(null)
-  const [isLoadingPermission, setIsLoadingPermission] = useState(true)
-  const [webrtcInitialized, setWebrtcInitialized] = useState(false)
   
   const encouragements = t.camera.encouragements
 
@@ -249,76 +189,59 @@ export default function CameraScreen() {
     }
   }, [myDeviceId, sessionId])
 
-  // Handle permission loading state
+  // Subscribe to commands channel (no WebRTC, just signaling)
   useEffect(() => {
-    if (permission !== null) {
-      setIsLoadingPermission(false)
-    }
-  }, [permission])
+    if (!isPaired || !sessionId || !myDeviceId) return
 
-  // Initialize WebRTC when paired AND permission is granted
-  // IMPORTANT: Only init WebRTC, don't use expo-camera when streaming
-  useEffect(() => {
-    // Don't init if already initialized or not ready
-    if (webrtcInitialized) return
-    if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) return
-    if (!permission?.granted) return
+    const channelName = `commands:${sessionId}`
+    sessionLogger.info('subscribing_to_commands', { channelName })
     
-    // Check if WebRTC is available
-    if (!webrtcAvailable) {
-      sessionLogger.warn('webrtc_not_available_camera')
-      return
-    }
-
-    sessionLogger.info('starting_webrtc_connection')
-    setWebrtcInitialized(true)
-    setIsSharing(true)
+    const channel = supabase.channel(channelName)
     
-    webrtcService.init(
-      myDeviceId,
-      pairedDeviceId,
-      sessionId,
-      'camera',
-      {
-        onConnectionStateChange: (state) => {
-          sessionLogger.info('webrtc_state', { state })
-          setIsConnected(state === 'connected')
-        },
-        onError: (error) => {
-          sessionLogger.error('webrtc_error', error)
-          setIsConnected(false)
-        },
-      }
-    ).then(() => {
-      // Get local stream for preview
-      const stream = webrtcService.getLocalStream()
-      if (stream) {
-        setLocalStream(stream)
-        sessionLogger.info('local_stream_ready')
-      }
-    })
-
-    // Listen for commands from director
-    webrtcService.onCommand((command, data) => {
-      sessionLogger.info('command_received', { command, data })
-      setLastCommand(command)
-      handleRemoteCommand(command, data)
-      setTimeout(() => setLastCommand(null), 2000)
-    })
-
+    channel
+      .on('broadcast', { event: 'command' }, (payload) => {
+        const { to, command, data } = payload.payload as {
+          from: string
+          to: string
+          command: string
+          data?: Record<string, unknown>
+        }
+        
+        // Only process commands for this device
+        if (to !== myDeviceId) return
+        
+        sessionLogger.info('command_received', { command, data })
+        handleCommand(command, data)
+      })
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState()
+        const partnerOnline = Object.keys(state).some(key => 
+          state[key].some((p: any) => p.deviceId === pairedDeviceId)
+        )
+        setIsConnected(partnerOnline)
+        sessionLogger.info('presence_sync', { partnerOnline })
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          // Track presence
+          await channel.track({ deviceId: myDeviceId, role: 'camera' })
+          sessionLogger.info('channel_subscribed', { channelName })
+        }
+      })
+    
+    channelRef.current = channel
+    
     return () => {
-      sessionLogger.info('webrtc_cleanup')
-      webrtcService.destroy()
-      setIsConnected(false)
-      setIsSharing(false)
-      setLocalStream(null)
-      setWebrtcInitialized(false)
+      channel.unsubscribe()
+      channelRef.current = null
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized])
+  }, [isPaired, sessionId, myDeviceId, pairedDeviceId])
 
   // Handle commands from director
-  const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
+  const handleCommand = (command: string, data?: Record<string, unknown>) => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    setLastCommand(command)
+    setTimeout(() => setLastCommand(null), 2000)
     
     switch (command) {
       case 'capture':
@@ -326,40 +249,38 @@ export default function CameraScreen() {
         break
       case 'flip':
         setFacing(f => f === 'back' ? 'front' : 'back')
+        showMessage('📱 Camera flipped!')
         break
-      case 'direction':
-        setShowEncouragement(true)
-        setEncouragement(`👆 ${data?.direction || 'Adjust'}`)
-        setTimeout(() => setShowEncouragement(false), 2000)
+      case 'up':
+        showMessage('⬆️ Move UP')
+        break
+      case 'down':
+        showMessage('⬇️ Move DOWN')
+        break
+      case 'left':
+        showMessage('⬅️ Move LEFT')
+        break
+      case 'right':
+        showMessage('➡️ Move RIGHT')
+        break
+      case 'perfect':
+        showMessage('✨ Perfect! Hold still!')
         break
     }
   }
 
-  // Quick Connect cleanup
-  useEffect(() => {
-    return () => {
-      (async () => {
-        try {
-          const quickConnectMode = await AsyncStorage.getItem(QUICK_CONNECT_KEY)
-          if (quickConnectMode === 'true' && myDeviceId) {
-            await pairingApi.unpair(myDeviceId)
-            clearPairing()
-            await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
-            sessionLogger.info('quick_connect_auto_disconnected')
-          }
-        } catch (error) {
-          sessionLogger.error('quick_connect_cleanup_error', error)
-        }
-      })()
-    }
-  }, [myDeviceId, clearPairing])
+  const showMessage = (msg: string) => {
+    setEncouragement(msg)
+    setShowEncouragement(true)
+    setTimeout(() => setShowEncouragement(false), 2000)
+  }
 
   const handleRequestPermission = async () => {
     const result = await requestPermission()
     if (!result.granted) {
       Alert.alert(
         'Permission Required',
-        'Please enable camera access in your device settings to use this feature.',
+        'Please enable camera access in your device settings.',
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -368,41 +289,34 @@ export default function CameraScreen() {
     }
   }
 
-  // Loading state
-  if (isLoadingPermission || permission === null) {
+  const handleBack = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    router.back()
+  }
+
+  // Loading / Permission denied states
+  if (!permission) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <Pressable 
-          style={styles.backButtonTop}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            router.back()
-          }}
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-        >
+        <Pressable style={styles.backButtonTop} onPress={handleBack}>
           <Text style={styles.backButtonText}>← Back</Text>
         </Pressable>
-        
         <View style={styles.loadingContainer}>
-          <Animated.Text entering={FadeIn.duration(300)} style={styles.loadingEmoji}>📷</Animated.Text>
-          <Animated.Text 
-            entering={FadeIn.delay(200).duration(300)}
-            style={[styles.loadingText, { color: colors.textMuted }]}
-          >
-            {t.camera.loading || 'Preparing camera...'}
-          </Animated.Text>
+          <Text style={styles.loadingEmoji}>📷</Text>
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+            Checking permissions...
+          </Text>
         </View>
       </SafeAreaView>
     )
   }
 
-  // Permission denied
   if (!permission.granted) {
     return (
       <PermissionDenied 
         onRequestPermission={handleRequestPermission}
         colors={colors}
+        onBack={handleBack}
       />
     )
   }
@@ -415,19 +329,45 @@ export default function CameraScreen() {
   }, [encouragements])
 
   const handleCapture = async () => {
-    // For now, just increment counter and show encouragement
-    // Photo capture from WebRTC stream requires additional implementation
-    setPhotoCount(prev => prev + 1)
-    incrementPhotos()
-    showRandomEncouragement()
-    sessionLogger.info('capture_triggered')
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-  }
+    if (!cameraRef.current) return
+    
+    try {
+      sessionLogger.info('capture_started')
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
+      
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+        skipProcessing: false,
+      })
+      
+      if (photo) {
+        setPhotoCount(prev => prev + 1)
+        incrementPhotos()
+        showRandomEncouragement()
+        sessionLogger.info('capture_success', { uri: photo.uri })
+        
+        // Save to library
+        if (settings.autoSave) {
+          try {
+            await MediaLibrary.createAssetAsync(photo.uri)
+            sessionLogger.info('photo_saved')
+          } catch (saveError) {
+            sessionLogger.error('photo_save_failed', saveError)
+          }
+        }
 
-  const toggleSharing = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    if (!isPaired) {
-      router.push('/pairing')
+        // Notify director
+        if (channelRef.current && pairedDeviceId) {
+          channelRef.current.send({
+            type: 'broadcast',
+            event: 'status',
+            payload: { from: myDeviceId, to: pairedDeviceId, status: 'photo_taken', count: photoCount + 1 }
+          })
+        }
+      }
+    } catch (error) {
+      sessionLogger.error('capture_failed', error)
+      Alert.alert('Capture Failed', 'Could not take photo. Please try again.')
     }
   }
 
@@ -439,7 +379,7 @@ export default function CameraScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `📸 ${t.appName} - I've avoided ${stats.scoldingsSaved} scoldings so far! ${t.tagline}`,
+        message: `📸 HelpHer - I've avoided ${stats.scoldingsSaved} scoldings so far!`,
       })
     } catch {}
   }
@@ -447,7 +387,7 @@ export default function CameraScreen() {
   const handleDisconnect = async () => {
     Alert.alert(
       'Disconnect',
-      'Clear current pairing and go back?',
+      'End this session and go back?',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
@@ -455,7 +395,6 @@ export default function CameraScreen() {
           style: 'destructive',
           onPress: async () => {
             sessionLogger.info('manual_disconnect')
-            webrtcService.destroy()
             if (myDeviceId) {
               await pairingApi.unpair(myDeviceId)
             }
@@ -467,78 +406,52 @@ export default function CameraScreen() {
     )
   }
 
-  // Determine which camera view to show
-  // If paired + WebRTC available + has local stream → show RTCView
-  // Otherwise → show expo-camera CameraView
-  const useWebRTCPreview = isPaired && webrtcAvailable && localStream && RTCView
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Close button */}
-      <Pressable 
-        style={styles.closeButton}
-        onPress={() => {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-          router.back()
-        }}
-        accessibilityLabel="Go back"
-        accessibilityRole="button"
-      >
+      <Pressable style={styles.closeButton} onPress={handleBack}>
         <Text style={styles.closeButtonText}>✕</Text>
       </Pressable>
 
-      {/* Camera preview */}
+      {/* Camera preview - expo-camera only, no WebRTC */}
       <View style={styles.cameraPreview}>
-        {useWebRTCPreview ? (
-          // WebRTC local stream preview (when paired)
-          <RTCView
-            streamURL={localStream.toURL()}
-            style={StyleSheet.absoluteFill}
-            objectFit="cover"
-            mirror={facing === 'front'}
-          />
-        ) : (
-          // expo-camera preview (when not paired)
-          <CameraView
-            ref={cameraRef}
-            style={StyleSheet.absoluteFill}
-            facing={facing}
-            onCameraReady={() => sessionLogger.info('camera_ready')}
-          />
-        )}
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={facing}
+          onCameraReady={() => sessionLogger.info('camera_ready')}
+        />
         
         {settings.showGrid && <GridOverlay />}
         
         {/* Status bar */}
-        <Pressable 
-          style={styles.statusBar}
-          onLongPress={handleDisconnect}
-          accessibilityLabel="Connection status. Long press to disconnect"
-        >
+        <Pressable style={styles.statusBar} onLongPress={handleDisconnect}>
           <View style={[
             styles.statusDot, 
-            isConnected ? styles.statusDotLive : 
-            isPaired ? styles.statusDotOn : styles.statusDotOff
+            isConnected ? styles.statusDotConnected : 
+            isPaired ? styles.statusDotPaired : styles.statusDotOff
           ]} />
           <View style={styles.statusTextContainer}>
             <Text style={styles.statusText}>
-              {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
+              {isConnected ? '🟢 Director Online' : isPaired ? '🟡 Waiting for Director' : '⚪ Not Connected'}
             </Text>
-            {isPaired && pairedDeviceId && (
-              <Text style={styles.partnerText}>👁️ Director watching</Text>
+            {isPaired && (
+              <Text style={styles.partnerText}>
+                Session: {sessionId?.slice(0, 8)}...
+              </Text>
             )}
           </View>
         </Pressable>
         
         {/* Photo count */}
         <View style={styles.photoCount}>
-          <Text style={styles.photoCountText}>{photoCount} {t.camera.captured}</Text>
+          <Text style={styles.photoCountText}>📷 {photoCount}</Text>
         </View>
 
         {/* Command overlay */}
         {lastCommand && (
           <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.commandOverlay}>
-            <Text style={styles.commandText}>📍 {lastCommand}</Text>
+            <Text style={styles.commandText}>📍 {lastCommand.toUpperCase()}</Text>
           </Animated.View>
         )}
         
@@ -547,65 +460,37 @@ export default function CameraScreen() {
 
       {/* Controls */}
       <View style={styles.controls}>
-        <View style={styles.topControls}>
-          <ActionButton
-            label={isPaired ? (isConnected ? '🔴 Live' : 'Connecting') : t.camera.share}
-            onPress={toggleSharing}
-            active={isSharing}
-            accessibilityHint={isPaired ? 'Connection status' : 'Connect with partner'}
-          />
-          
-          <ActionButton
-            label={t.camera.options}
-            onPress={() => router.push('/settings')}
-            accessibilityHint="Open camera settings"
-          />
-        </View>
-
         <View style={styles.captureRow}>
-          <CaptureButton onPress={handleCapture} isSharing={isSharing} />
+          <CaptureButton onPress={handleCapture} isConnected={isConnected} />
         </View>
 
-        <View style={styles.bottomControls} accessibilityRole="toolbar">
+        <View style={styles.bottomControls}>
           <Pressable 
             style={styles.quickAction}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
               updateSettings({ showGrid: !settings.showGrid })
             }}
-            accessibilityLabel={`Grid overlay ${settings.showGrid ? 'on' : 'off'}`}
           >
             <Text style={styles.quickActionText}>⊞</Text>
-            <Text style={styles.quickActionLabel}>Grid</Text>
+            <Text style={styles.quickActionLabel}>{settings.showGrid ? 'Grid On' : 'Grid'}</Text>
           </Pressable>
           
-          <Pressable 
-            style={styles.quickAction}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              router.push('/gallery')
-            }}
-            accessibilityLabel="Gallery"
-          >
-            <Text style={styles.quickActionText}>◫</Text>
-            <Text style={styles.quickActionLabel}>Gallery</Text>
-          </Pressable>
-          
-          <Pressable 
-            style={styles.quickAction}
-            onPress={toggleCameraFacing}
-            accessibilityLabel="Flip camera"
-          >
+          <Pressable style={styles.quickAction} onPress={toggleCameraFacing}>
             <Text style={styles.quickActionText}>🔄</Text>
             <Text style={styles.quickActionLabel}>Flip</Text>
           </Pressable>
-
+          
           <Pressable 
             style={styles.quickAction}
-            onPress={handleShare}
-            accessibilityLabel="Share"
+            onPress={() => router.push('/gallery')}
           >
-            <Text style={styles.quickActionText}>↗</Text>
+            <Text style={styles.quickActionText}>🖼️</Text>
+            <Text style={styles.quickActionLabel}>Gallery</Text>
+          </Pressable>
+
+          <Pressable style={styles.quickAction} onPress={handleShare}>
+            <Text style={styles.quickActionText}>↗️</Text>
             <Text style={styles.quickActionLabel}>Share</Text>
           </Pressable>
         </View>
@@ -613,13 +498,9 @@ export default function CameraScreen() {
         {!isPaired && (
           <Pressable 
             style={styles.connectPrompt}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              router.push('/pairing')
-            }}
-            accessibilityLabel={t.camera.connectPrompt}
+            onPress={() => router.push('/pairing')}
           >
-            <Text style={styles.connectPromptText}>{t.camera.connectPrompt}</Text>
+            <Text style={styles.connectPromptText}>🔗 Connect with partner to receive directions</Text>
           </Pressable>
         )}
 
@@ -628,10 +509,8 @@ export default function CameraScreen() {
             style={styles.switchRolePrompt}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              webrtcService.destroy()
               router.replace('/viewer')
             }}
-            accessibilityLabel="Switch to Director mode"
           >
             <Text style={styles.switchRoleText}>👁️ Switch to Director</Text>
           </Pressable>
@@ -748,7 +627,7 @@ const styles = StyleSheet.create({
   },
   gridLine: {
     position: 'absolute',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
   gridLineH: {
     left: 0,
@@ -767,28 +646,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
-  statusDotOn: {
+  statusDotConnected: {
     backgroundColor: '#22C55E',
   },
-  statusDotOff: {
-    backgroundColor: '#DC2626',
+  statusDotPaired: {
+    backgroundColor: '#EAB308',
   },
-  statusDotLive: {
-    backgroundColor: '#DC2626',
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
+  statusDotOff: {
+    backgroundColor: '#6B7280',
   },
   statusTextContainer: {
     flexDirection: 'column',
@@ -800,21 +675,21 @@ const styles = StyleSheet.create({
   },
   partnerText: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.7)',
+    color: 'rgba(255,255,255,0.6)',
     marginTop: 2,
   },
   photoCount: {
     position: 'absolute',
     top: 16,
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 4,
+    right: 60,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
   },
   photoCountText: {
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#fff',
   },
   commandOverlay: {
@@ -822,30 +697,31 @@ const styles = StyleSheet.create({
     top: '40%',
     left: 20,
     right: 20,
-    backgroundColor: 'rgba(34, 197, 94, 0.9)',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    backgroundColor: 'rgba(34, 197, 94, 0.95)',
+    paddingVertical: 20,
+    paddingHorizontal: 24,
+    borderRadius: 12,
     alignItems: 'center',
   },
   commandText: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     color: '#fff',
   },
   toast: {
     position: 'absolute',
-    bottom: 80,
+    bottom: 100,
     left: 20,
     right: 20,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 4,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 8,
     alignItems: 'center',
   },
   toastText: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '600',
     color: '#fff',
     textAlign: 'center',
   },
@@ -853,34 +729,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     paddingBottom: 32,
   },
-  topControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  actionBtn: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 4,
-    minWidth: 100,
-    alignItems: 'center',
-  },
-  actionBtnActive: {
-    backgroundColor: '#DC2626',
-  },
-  actionBtnText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  actionBtnTextActive: {
-    color: '#fff',
-  },
   captureRow: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 24,
   },
   captureOuter: {
     width: 80,
@@ -898,55 +749,54 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     backgroundColor: '#fff',
   },
-  captureInnerSharing: {
-    backgroundColor: '#DC2626',
+  captureInnerConnected: {
+    backgroundColor: '#22C55E',
   },
   bottomControls: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingHorizontal: 40,
+    paddingHorizontal: 20,
     paddingTop: 8,
   },
   quickAction: {
     alignItems: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
   },
   quickActionText: {
-    fontSize: 24,
-    color: '#fff',
+    fontSize: 26,
     marginBottom: 4,
   },
   quickActionLabel: {
     fontSize: 11,
     color: '#888',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   connectPrompt: {
     backgroundColor: 'rgba(255,255,255,0.1)',
     marginHorizontal: 20,
-    marginTop: 12,
+    marginTop: 16,
     paddingVertical: 14,
-    borderRadius: 4,
+    borderRadius: 8,
     alignItems: 'center',
   },
   connectPromptText: {
     fontSize: 14,
-    color: '#888',
+    color: '#aaa',
   },
   switchRolePrompt: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     marginHorizontal: 20,
-    marginTop: 12,
-    paddingVertical: 12,
-    borderRadius: 4,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   switchRoleText: {
     fontSize: 14,
     color: '#aaa',
-    fontWeight: '500',
+    fontWeight: '600',
   },
 })
