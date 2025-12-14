@@ -285,46 +285,67 @@ export default function CameraScreen() {
       pairedDeviceId,
       sessionId,
     })
+    
+    // Initialize WebRTC and handle errors properly
+    const initWebRTC = async () => {
+      try {
+        sessionLogger.info('photographer_calling_webrtc_init')
+        
+        await webrtcService.init(
+          myDeviceId,
+          pairedDeviceId,
+          sessionId,
+          'camera',
+          {
+            onConnectionStateChange: (state) => {
+              sessionLogger.info('photographer_webrtc_state', { 
+                connectionState: state,
+                role: 'camera',
+              })
+              setIsConnected(state === 'connected')
+            },
+            onError: (error) => {
+              sessionLogger.error('photographer_webrtc_error', error, {
+                role: 'camera',
+                myDeviceId,
+                pairedDeviceId,
+              })
+              setIsConnected(false)
+            },
+          }
+        )
+        
+        sessionLogger.info('photographer_webrtc_init_returned')
+        
+        // Get local stream for preview AFTER init completes
+        const stream = webrtcService.getLocalStream()
+        if (stream) {
+          setLocalStream(stream)
+          sessionLogger.info('photographer_local_stream_ready', {
+            trackCount: stream.getTracks().length,
+            videoTracks: stream.getVideoTracks().length,
+            streamId: stream.id?.substring(0, 8),
+          })
+        } else {
+          sessionLogger.warn('photographer_no_local_stream', {
+            message: 'WebRTC init completed but no local stream available'
+          })
+        }
+      } catch (error) {
+        sessionLogger.error('photographer_webrtc_init_failed', error, {
+          errorMessage: (error as Error)?.message,
+        })
+        setIsConnected(false)
+        setIsSharing(false)
+      }
+    }
+    
+    // Set state before async call
     setWebrtcInitialized(true)
     setIsSharing(true)
     
-    webrtcService.init(
-      myDeviceId,
-      pairedDeviceId,
-      sessionId,
-      'camera',
-      {
-        onConnectionStateChange: (state) => {
-          sessionLogger.info('photographer_webrtc_state', { 
-            connectionState: state,
-            role: 'camera',
-          })
-          setIsConnected(state === 'connected')
-        },
-        onError: (error) => {
-          sessionLogger.error('photographer_webrtc_error', error, {
-            role: 'camera',
-            myDeviceId,
-            pairedDeviceId,
-          })
-          setIsConnected(false)
-        },
-      }
-    ).then(() => {
-      // Get local stream for preview
-      const stream = webrtcService.getLocalStream()
-      if (stream) {
-        setLocalStream(stream)
-        sessionLogger.info('photographer_local_stream_ready', {
-          trackCount: stream.getTracks().length,
-          videoTracks: stream.getVideoTracks().length,
-        })
-      } else {
-        sessionLogger.warn('photographer_no_local_stream')
-      }
-    }).catch((error) => {
-      sessionLogger.error('photographer_webrtc_init_failed', error)
-    })
+    // Call async function
+    initWebRTC()
 
     // Listen for commands from director
     webrtcService.onCommand((command, data) => {

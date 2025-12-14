@@ -40,41 +40,87 @@ try {
 // Export availability check
 export const webrtcAvailable = isWebRTCAvailable
 
-// STUN/TURN servers for NAT traversal
-// IMPORTANT: STUN-only often fails on mobile networks (symmetric NAT)
-// For production, add TURN servers (e.g., from Twilio, Metered, or self-hosted coturn)
-const ICE_SERVERS = {
+// Metered TURN server API configuration
+// Get your API key from https://www.metered.ca/stun-turn
+const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || ''
+const METERED_API_URL = process.env.EXPO_PUBLIC_METERED_API_URL || 'https://kenji.metered.live/api/v1/turn/credentials'
+
+// Fallback STUN servers (used if TURN fetch fails)
+const FALLBACK_ICE_SERVERS = {
   iceServers: [
-    // Free STUN servers (unreliable on mobile networks behind symmetric NAT)
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // Free TURN server from Metered (for testing - get your own for production)
-    // Sign up at https://www.metered.ca/stun-turn for free tier
-    {
-      urls: 'stun:stun.relay.metered.ca:80',
-    },
-    {
-      urls: 'turn:standard.relay.metered.ca:80',
-      username: 'free', // Replace with your credentials
-      credential: 'free', // Replace with your credentials
-    },
-    {
-      urls: 'turn:standard.relay.metered.ca:80?transport=tcp',
-      username: 'free',
-      credential: 'free',
-    },
-    {
-      urls: 'turn:standard.relay.metered.ca:443',
-      username: 'free',
-      credential: 'free',
-    },
-    {
-      urls: 'turns:standard.relay.metered.ca:443?transport=tcp',
-      username: 'free',
-      credential: 'free',
-    },
+    { urls: 'stun:stun2.l.google.com:19302' },
   ],
   iceCandidatePoolSize: 10,
+}
+
+// Cache for TURN credentials (they expire, so we refresh periodically)
+let cachedIceServers: RTCConfiguration | null = null
+let cacheTimestamp = 0
+const CACHE_DURATION_MS = 5 * 60 * 1000 // 5 minutes (credentials typically expire in 1 hour)
+
+/**
+ * Fetch TURN server credentials from Metered API
+ * Returns cached credentials if still valid
+ */
+async function getIceServers(): Promise<RTCConfiguration> {
+  // Return cached if still valid
+  const now = Date.now()
+  if (cachedIceServers && (now - cacheTimestamp) < CACHE_DURATION_MS) {
+    sessionLogger.logWebRTC('using_cached_ice_servers', { 
+      age: Math.round((now - cacheTimestamp) / 1000) + 's' 
+    })
+    return cachedIceServers
+  }
+
+  // If no API key configured, use fallback STUN-only
+  if (!METERED_API_KEY) {
+    sessionLogger.warn('no_metered_api_key', {
+      message: 'EXPO_PUBLIC_METERED_API_KEY not set, using STUN-only (may fail on mobile networks)',
+    })
+    return FALLBACK_ICE_SERVERS
+  }
+
+  try {
+    sessionLogger.logWebRTC('fetching_turn_credentials', { 
+      url: METERED_API_URL.replace(METERED_API_KEY, '***') 
+    })
+
+    const response = await fetch(`${METERED_API_URL}?apiKey=${METERED_API_KEY}`)
+    
+    if (!response.ok) {
+      throw new Error(`Metered API error: ${response.status} ${response.statusText}`)
+    }
+
+    const iceServers = await response.json()
+    
+    sessionLogger.logWebRTC('turn_credentials_fetched', {
+      serverCount: iceServers?.length ?? 0,
+      hasSTUN: iceServers?.some((s: { urls: string | string[] }) => 
+        (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u: string) => u.startsWith('stun:'))
+      ),
+      hasTURN: iceServers?.some((s: { urls: string | string[] }) => 
+        (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u: string) => u.startsWith('turn:'))
+      ),
+    })
+
+    // Cache the result
+    cachedIceServers = {
+      iceServers,
+      iceCandidatePoolSize: 10,
+    }
+    cacheTimestamp = now
+
+    return cachedIceServers
+  } catch (error) {
+    sessionLogger.error('turn_credentials_fetch_failed', error, {
+      fallback: 'using STUN-only servers',
+    })
+    
+    // Return fallback STUN servers
+    return FALLBACK_ICE_SERVERS
+  }
 }
 
 export type WebRTCRole = 'camera' | 'director'
@@ -124,6 +170,13 @@ class WebRTCService {
     role: WebRTCRole,
     callbacks: WebRTCCallbacks
   ): Promise<void> {
+    // Log at the very start to track if init is called
+    sessionLogger.logWebRTC('init_called', { 
+      role,
+      deviceId: deviceId?.substring(0, 8),
+      isWebRTCAvailable,
+    })
+
     // Check if WebRTC is available (requires development build)
     if (!isWebRTCAvailable) {
       const error = new Error('WebRTC requires a development build. Video streaming is not available in Expo Go.')
@@ -132,61 +185,105 @@ class WebRTCService {
       return
     }
 
-    // Clean up any existing connection first
-    if (this.peerConnection || this.channel) {
-      sessionLogger.logWebRTC('init_cleanup_existing', { 
-        hadPeerConnection: !!this.peerConnection,
-        hadChannel: !!this.channel,
+    try {
+      // Clean up any existing connection first
+      if (this.peerConnection || this.channel) {
+        sessionLogger.logWebRTC('init_cleanup_existing', { 
+          hadPeerConnection: !!this.peerConnection,
+          hadChannel: !!this.channel,
+          previousRole: this.role,
+        })
+        await this.cleanupInternal()
+      }
+
+      // Set initialization lock and ID
+      this.isInitializing = true
+      this.initializationId++
+      const currentInitId = this.initializationId
+
+      this.deviceId = deviceId
+      this.peerDeviceId = peerDeviceId
+      this.sessionId = sessionId
+      this.role = role
+      this.callbacks = callbacks
+
+      sessionLogger.logWebRTC('init', { 
+        role,
+        deviceId,
+        sessionId,
+        peerDeviceId,
+        initId: currentInitId,
       })
-      await this.cleanupInternal()
-    }
 
-    // Set initialization lock and ID
-    this.isInitializing = true
-    this.initializationId++
-    const currentInitId = this.initializationId
-
-    this.deviceId = deviceId
-    this.peerDeviceId = peerDeviceId
-    this.sessionId = sessionId
-    this.role = role
-    this.callbacks = callbacks
-
-    sessionLogger.logWebRTC('init', { 
-      role,
-      deviceId,
-      sessionId,
-      peerDeviceId,
-      initId: currentInitId,
-    })
-
-    // Create peer connection
-    this.peerConnection = new RTCPeerConnection(ICE_SERVERS)
-    this.setupPeerConnectionHandlers()
-
-    // Subscribe to signaling channel
-    await this.subscribeToSignaling()
-
-    // Check if init was cancelled during async operations
-    if (this.initializationId !== currentInitId) {
-      sessionLogger.logWebRTC('init_cancelled', { reason: 'new_init_started', initId: currentInitId })
-      return
-    }
-
-    // Camera starts the connection
-    if (role === 'camera') {
-      await this.startLocalStream()
+      // Fetch TURN credentials from Metered API
+      sessionLogger.logWebRTC('fetching_ice_servers', { role, initId: currentInitId })
+      const iceServersConfig = await getIceServers()
       
-      // Check again after async operation
-      if (this.initializationId !== currentInitId || !this.peerConnection) {
-        sessionLogger.logWebRTC('init_cancelled_before_offer', { initId: currentInitId })
+      // Check if init was cancelled during credential fetch
+      if (this.initializationId !== currentInitId) {
+        sessionLogger.logWebRTC('init_cancelled_during_ice_fetch', { initId: currentInitId })
         return
       }
+
+      // Create peer connection with fetched ICE servers
+      sessionLogger.logWebRTC('creating_peer_connection', { 
+        role, 
+        initId: currentInitId,
+        iceServerCount: iceServersConfig.iceServers?.length ?? 0,
+      })
+      this.peerConnection = new RTCPeerConnection(iceServersConfig)
+      this.setupPeerConnectionHandlers()
+      sessionLogger.logWebRTC('peer_connection_created', { role, initId: currentInitId })
+
+      // Subscribe to signaling channel
+      sessionLogger.logWebRTC('subscribing_to_signaling', { role, initId: currentInitId })
+      await this.subscribeToSignaling()
+
+      // Check if init was cancelled during async operations
+      if (this.initializationId !== currentInitId) {
+        sessionLogger.logWebRTC('init_cancelled', { reason: 'new_init_started', initId: currentInitId })
+        return
+      }
+
+      // Camera starts the connection - get local stream and create offer
+      if (role === 'camera') {
+        sessionLogger.logWebRTC('camera_role_starting_stream', { initId: currentInitId })
+        
+        const stream = await this.startLocalStream()
+        
+        if (!stream) {
+          sessionLogger.error('init_failed_no_stream', new Error('Failed to get local stream'), { role })
+          callbacks.onError?.(new Error('Failed to access camera. Please check permissions.'))
+          return
+        }
+        
+        // Check again after async operation
+        if (this.initializationId !== currentInitId || !this.peerConnection) {
+          sessionLogger.logWebRTC('init_cancelled_before_offer', { initId: currentInitId })
+          return
+        }
+        
+        sessionLogger.logWebRTC('camera_creating_offer', { initId: currentInitId })
+        await this.createOffer()
+        sessionLogger.logWebRTC('camera_init_complete', { initId: currentInitId })
+      } else {
+        sessionLogger.logWebRTC('director_init_complete', { initId: currentInitId })
+      }
       
-      await this.createOffer()
+      this.isInitializing = false
+      sessionLogger.logWebRTC('init_success', { role, initId: currentInitId })
+      
+    } catch (error) {
+      sessionLogger.error('init_error', error, { 
+        role,
+        deviceId: deviceId?.substring(0, 8),
+        errorMessage: (error as Error)?.message,
+        errorStack: (error as Error)?.stack?.substring(0, 200),
+      })
+      this.isInitializing = false
+      callbacks.onError?.(error as Error)
+      throw error // Re-throw so caller knows init failed
     }
-    
-    this.isInitializing = false
   }
 
   /**
@@ -284,6 +381,8 @@ class WebRTCService {
 
   /**
    * Create and send offer (camera side)
+   * IMPORTANT: On Android, H.264 can cause black screens if hardware encoder unavailable
+   * We prefer VP8 which has software fallback
    */
   private async createOffer() {
     if (!this.peerConnection) {
@@ -303,22 +402,84 @@ class WebRTCService {
         offerToReceiveAudio: false,
       })
 
-      await this.peerConnection.setLocalDescription(offer)
+      // Prefer VP8 codec over H.264 - H.264 causes black screen on many Android devices
+      // because not all have hardware H.264 encoder and there's no software fallback
+      const modifiedSdp = this.preferVP8Codec(offer.sdp)
+      const modifiedOffer = {
+        type: offer.type,
+        sdp: modifiedSdp,
+      }
+
+      await this.peerConnection.setLocalDescription(modifiedOffer as RTCSessionDescriptionInit)
 
       // Send offer via Supabase
       await this.sendSignal({
         type: 'offer',
-        data: offer,
+        data: modifiedOffer,
       })
 
       sessionLogger.logWebRTC('offer_created', { 
         role: this.role,
         offerType: offer.type,
         hasSdp: !!offer.sdp,
+        codecPreference: 'VP8',
       })
     } catch (error) {
       sessionLogger.error('webrtc_offer_failed', error, { role: this.role })
       this.callbacks.onError?.(error as Error)
+    }
+  }
+
+  /**
+   * Modify SDP to prefer VP8 codec over H.264
+   * H.264 hardware encoders are unreliable on Android devices
+   */
+  private preferVP8Codec(sdp: string | undefined): string {
+    if (!sdp) return sdp || ''
+    
+    try {
+      // Find video m-line and reorder codecs to prefer VP8
+      const lines = sdp.split('\r\n')
+      const mLineIndex = lines.findIndex(line => line.startsWith('m=video'))
+      
+      if (mLineIndex === -1) return sdp
+
+      const mLine = lines[mLineIndex]
+      const parts = mLine.split(' ')
+      
+      // parts[3...] are codec payload types
+      // Find VP8 payload type from a=rtpmap lines
+      let vp8Payload: string | null = null
+      for (const line of lines) {
+        if (line.includes('a=rtpmap:') && line.toLowerCase().includes('vp8')) {
+          const match = line.match(/a=rtpmap:(\d+)/)
+          if (match) {
+            vp8Payload = match[1]
+            break
+          }
+        }
+      }
+
+      if (vp8Payload && parts.length > 3) {
+        // Remove VP8 from its current position
+        const payloadIndex = parts.indexOf(vp8Payload, 3)
+        if (payloadIndex > 3) {
+          parts.splice(payloadIndex, 1)
+          // Insert VP8 as first codec preference
+          parts.splice(3, 0, vp8Payload)
+          lines[mLineIndex] = parts.join(' ')
+          
+          sessionLogger.logWebRTC('codec_preference_modified', {
+            vp8Payload,
+            message: 'VP8 set as preferred video codec',
+          })
+        }
+      }
+
+      return lines.join('\r\n')
+    } catch (error) {
+      sessionLogger.warn('codec_preference_failed', { error: (error as Error)?.message })
+      return sdp
     }
   }
 
@@ -344,16 +505,25 @@ class WebRTCService {
       sessionLogger.logWebRTC('remote_description_set', { role: this.role })
 
       const answer = await this.peerConnection.createAnswer()
-      await this.peerConnection.setLocalDescription(answer)
+      
+      // Also prefer VP8 in answer for consistency
+      const modifiedSdp = this.preferVP8Codec(answer.sdp)
+      const modifiedAnswer = {
+        type: answer.type,
+        sdp: modifiedSdp,
+      }
+      
+      await this.peerConnection.setLocalDescription(modifiedAnswer as RTCSessionDescriptionInit)
 
       await this.sendSignal({
         type: 'answer',
-        data: answer,
+        data: modifiedAnswer,
       })
 
       sessionLogger.logWebRTC('answer_created', { 
         role: this.role,
         answerType: answer.type,
+        codecPreference: 'VP8',
       })
     } catch (error) {
       sessionLogger.error('webrtc_answer_failed', error, { role: this.role })
