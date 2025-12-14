@@ -302,6 +302,7 @@ export default function CameraScreen() {
   const [isConnected, setIsConnected] = useState(false)
   const [localStream, setLocalStream] = useState<any>(null)
   const [photoCount, setPhotoCount] = useState(0)
+  const [cameraReady, setCameraReady] = useState(false)
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
   const [lastCommand, setLastCommand] = useState<string | null>(null)
@@ -591,18 +592,29 @@ export default function CameraScreen() {
       webrtcPreview: useWebRTCPreview,
     })
 
-    // If we're showing RTCView (WebRTC preview), we can't take a native still photo from that stream yet.
-    // Fall back to a clear message instead of silently incrementing stats.
     if (useWebRTCPreview) {
-      sessionLogger.warn('capture_not_supported_in_webrtc_preview', {
-        message: 'Photo capture is not implemented for RTCView preview yet',
-      })
-      Alert.alert(
-        'Photo capture not ready',
-        'Live preview is on, but taking a high-quality photo from the stream is not supported yet. Turn off LIVE / reconnect, then try again.',
-        [{ text: 'OK' }]
-      )
-      return
+      // WebRTC is holding the camera. To capture a real photo, temporarily stop WebRTC,
+      // take a photo via expo-camera, then resume WebRTC.
+      sessionLogger.info('capture_webrtc_pause_start')
+      try {
+        webrtcService.destroy()
+      } catch {}
+      setLocalStream(null)
+      setIsConnected(false)
+      setIsSharing(false)
+      setWebrtcInitialized(false)
+
+      // Give the native camera a moment to release + CameraView to mount
+      await new Promise<void>((resolve) => setTimeout(resolve, 500))
+
+      // Wait for camera to become ready (max 3s)
+      const start = Date.now()
+      while (!cameraReady && Date.now() - start < 3000) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise<void>((resolve) => setTimeout(resolve, 100))
+      }
+
+      sessionLogger.info('capture_webrtc_pause_done', { cameraReady })
     }
 
     try {
@@ -648,6 +660,14 @@ export default function CameraScreen() {
         message: (error as Error)?.message,
       })
       Alert.alert('Capture failed', 'Please try again.')
+    } finally {
+      // Resume WebRTC after capture if we're paired
+      if (isPaired && myDeviceId && pairedDeviceId && sessionId && permission?.granted && webrtcAvailable) {
+        sessionLogger.info('capture_webrtc_resume_requested')
+        // Let the normal effect re-init WebRTC
+        setWebrtcInitialized(false)
+        setIsSharing(true)
+      }
     }
   }
 
@@ -718,7 +738,10 @@ export default function CameraScreen() {
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             facing={facing}
-            onCameraReady={() => sessionLogger.info('camera_ready')}
+            onCameraReady={() => {
+              setCameraReady(true)
+              sessionLogger.info('camera_ready')
+            }}
           />
         )}
         
