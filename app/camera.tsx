@@ -219,7 +219,7 @@ function PermissionDenied({
 export default function CameraScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
-  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerPresence } = usePairingStore()
   const partnerNameRef = useRef(partnerDisplayName)
   const partnerAvatarRef = useRef(partnerAvatar)
 
@@ -279,6 +279,7 @@ export default function CameraScreen() {
       partnerDeviceId: pairedDeviceId,
       onPartnerOnlineChange: (isOnline) => {
         sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
+        setPartnerPresence(isOnline)
         if (!isOnline) {
           Alert.alert(
             'Director Disconnected',
@@ -760,7 +761,7 @@ export default function CameraScreen() {
           ]} />
           <View style={styles.statusTextContainer}>
             <Text style={styles.statusText}>
-              {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Connected') : t.camera.notConnected}
+              {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Paired') : t.camera.notConnected}
             </Text>
             {isPaired && pairedDeviceId && (
               <Text style={styles.partnerText}>👁️ Director watching</Text>

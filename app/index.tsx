@@ -288,7 +288,7 @@ function StatusPill({
 export default function HomeScreen() {
   const router = useRouter()
   const { colors, mode } = useThemeStore()
-  const { isPaired, myDeviceId, pairedDeviceId, sessionId } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, setPartnerPresence } = usePairingStore()
   const { setRole } = useConnectionStore()
   const { t, loadLanguage } = useLanguageStore()
   const { stats, getRank, loadStats } = useStatsStore()
@@ -322,6 +322,7 @@ export default function HomeScreen() {
       partnerDeviceId: pairedDeviceId,
       onPartnerOnlineChange: (isOnline) => {
         sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
+        setPartnerPresence(isOnline)
       },
       onError: (message) => sessionLogger.warn('presence_error', { message }),
     })

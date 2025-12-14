@@ -185,6 +185,8 @@ export default function SettingsScreen() {
     clearPairing, 
     partnerDisplayName, 
     partnerAvatar, 
+    partnerOnline,
+    partnerLastSeenAt,
     sessionId,
     connectionHistory,
     setConnectionHistory,
@@ -280,9 +282,17 @@ export default function SettingsScreen() {
                       {partnerDisplayName || 'Partner'}
                     </Text>
                     <View style={styles.statusBadge}>
-                      <View style={[styles.statusDotGreen]} />
-                      <Text style={styles.statusBadgeText}>Connected</Text>
+                      <View style={[styles.statusDotGreen, { backgroundColor: partnerOnline ? '#22C55E' : '#9CA3AF' }]} />
+                      <Text style={[styles.statusBadgeText, { color: partnerOnline ? '#22C55E' : colors.textMuted }]}>
+                        {partnerOnline ? 'Online' : 'Offline'}
+                      </Text>
                     </View>
+                    {!partnerOnline && (
+                      <Text style={[styles.connectionStatusDesc, { color: colors.textMuted, marginTop: 6 }]}>
+                        Paired, but your partner’s app isn’t online yet. Open the app on the other phone to go live.
+                        {partnerLastSeenAt ? ` (last seen ${formatRelativeTime(partnerLastSeenAt)})` : ''}
+                      </Text>
+                    )}
                   </View>
                 </View>
                 

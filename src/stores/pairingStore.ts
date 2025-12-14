@@ -27,6 +27,9 @@ interface PairingState {
   pairedDeviceId: string | null
   partnerDisplayName: string | null
   partnerAvatar: string
+  // Presence-driven connection status (real-time)
+  partnerOnline: boolean | null
+  partnerLastSeenAt: string | null
   sessionId: string | null
   role: 'camera' | 'viewer' | null
   isPaired: boolean
@@ -40,6 +43,7 @@ interface PairingState {
   setMyAvatar: (emoji: string) => Promise<void>
   setPairedDeviceId: (id: string | null) => Promise<void>
   setPartnerInfo: (name: string | null, avatar?: string) => void
+  setPartnerPresence: (isOnline: boolean) => void
   setSessionId: (id: string | null) => Promise<void>
   setRole: (role: 'camera' | 'viewer') => Promise<void>
   setHasSetupProfile: (value: boolean) => Promise<void>
@@ -59,6 +63,8 @@ export const usePairingStore = create<PairingState>((set, get) => ({
   pairedDeviceId: null,
   partnerDisplayName: null,
   partnerAvatar: '👤',
+  partnerOnline: null,
+  partnerLastSeenAt: null,
   sessionId: null,
   role: null,
   isPaired: false,
@@ -94,6 +100,13 @@ export const usePairingStore = create<PairingState>((set, get) => ({
     set({ 
       partnerDisplayName: name,
       partnerAvatar: avatar || '👤',
+    })
+  },
+
+  setPartnerPresence: (isOnline) => {
+    set({
+      partnerOnline: isOnline,
+      partnerLastSeenAt: isOnline ? null : new Date().toISOString(),
     })
   },
 
@@ -143,6 +156,8 @@ export const usePairingStore = create<PairingState>((set, get) => ({
       isPaired: false,
       partnerDisplayName: null,
       partnerAvatar: '👤',
+      partnerOnline: null,
+      partnerLastSeenAt: null,
       activeConnectionId: null,
     })
   },

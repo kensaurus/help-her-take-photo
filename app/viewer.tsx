@@ -140,7 +140,7 @@ function SentIndicator({ message }: { message: string }) {
 
 export default function ViewerScreen() {
   const router = useRouter()
-  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo, setPartnerPresence } = usePairingStore()
   const { t } = useLanguageStore()
   const autoDisconnectingRef = useRef(false)
   const partnerNameRef = useRef(partnerDisplayName)
@@ -282,6 +282,7 @@ export default function ViewerScreen() {
         partnerDeviceId: pairedDeviceId,
         onPartnerOnlineChange: (isOnline) => {
           sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
+          setPartnerPresence(isOnline)
           if (!isOnline) {
             Alert.alert(
               'Partner Disconnected',
