@@ -219,10 +219,39 @@ function PermissionDenied({
 export default function CameraScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
-  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing } = usePairingStore()
+  const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar } = usePairingStore()
   const { settings, updateSettings } = useSettingsStore()
   const { t } = useLanguageStore()
   const { incrementPhotos } = useStatsStore()
+  const autoDisconnectingRef = useRef(false)
+
+  const disconnectAndUnpair = useCallback(async (reason: string, extra?: Record<string, unknown>) => {
+    if (autoDisconnectingRef.current) return
+    autoDisconnectingRef.current = true
+
+    sessionLogger.warn('auto_disconnect_start', {
+      reason,
+      role: 'camera',
+      sessionId: sessionId?.substring(0, 8),
+      pairedDeviceId: pairedDeviceId?.substring(0, 8),
+      ...extra,
+    })
+
+    try {
+      webrtcService.destroy()
+
+      if (myDeviceId) {
+        await connectionHistoryApi.disconnectAll(myDeviceId)
+        await connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
+        await pairingApi.unpair(myDeviceId)
+      }
+    } catch (e) {
+      sessionLogger.error('auto_disconnect_failed', e, { reason })
+    } finally {
+      await clearPairing()
+      router.replace('/')
+    }
+  }, [clearPairing, myDeviceId, pairedDeviceId, router, sessionId])
   
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
@@ -308,26 +337,23 @@ export default function CameraScreen() {
       // Silent fail for history
     })
     
-    // Update online status
-    connectionHistoryApi.updateOnlineStatus(myDeviceId, true)
-    
-    // Subscribe to partner's online status for disconnect sync
-    partnerStatusSubscription = connectionHistoryApi.subscribeToPartnerStatus(
-      pairedDeviceId,
-      (isOnline) => {
+    // Presence-based partner disconnect detection (works even on abrupt disconnects)
+    partnerStatusSubscription = connectionHistoryApi.subscribeToSessionPresence({
+      sessionId,
+      myDeviceId,
+      partnerDeviceId: pairedDeviceId,
+      onPartnerOnlineChange: (isOnline) => {
+        sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
         if (!isOnline && isMounted) {
-          sessionLogger.info('partner_went_offline', { partnerDeviceId: pairedDeviceId })
-          // Partner disconnected - notify user
           Alert.alert(
             'Director Disconnected',
             `${partnerDisplayName || 'Your director'} has disconnected.`,
-            [
-              { text: 'OK' }
-            ]
+            [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
           )
         }
-      }
-    )
+      },
+      onError: (message) => sessionLogger.warn('presence_error', { message }),
+    })
     
     // Initialize WebRTC and handle errors properly
     const initWebRTC = async () => {
@@ -354,6 +380,7 @@ export default function CameraScreen() {
               // If connection failed or disconnected, notify user
               if (state === 'failed' || state === 'disconnected') {
                 sessionLogger.warn('photographer_connection_lost', { state })
+                disconnectAndUnpair(`webrtc_${state}`)
               }
             },
             onError: (error) => {
@@ -364,6 +391,7 @@ export default function CameraScreen() {
                 pairedDeviceId,
               })
               setIsConnected(false)
+              disconnectAndUnpair('webrtc_error', { message: error?.message })
             },
           }
         )
@@ -430,13 +458,9 @@ export default function CameraScreen() {
       setIsSharing(false)
       setLocalStream(null)
       setWebrtcInitialized(false)
-      // Update online status when leaving
-      if (myDeviceId) {
-        connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
-      }
       // Unsubscribe from partner status
       if (partnerStatusSubscription) {
-        partnerStatusSubscription.unsubscribe()
+        void partnerStatusSubscription.unsubscribe()
       }
     }
   }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized, partnerDisplayName, partnerAvatar])

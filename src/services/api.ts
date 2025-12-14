@@ -889,6 +889,51 @@ export const connectionHistoryApi = {
       )
       .subscribe()
   },
+
+  /**
+   * Presence-based disconnect detection (recommended).
+   * Unlike `is_online` column updates, Realtime Presence detects abrupt disconnects.
+   */
+  subscribeToSessionPresence(params: {
+    sessionId: string
+    myDeviceId: string
+    partnerDeviceId: string
+    onPartnerOnlineChange: (isOnline: boolean) => void
+    onError?: (message: string) => void
+  }) {
+    const channel = supabase.channel(`presence:${params.sessionId}`, {
+      config: {
+        presence: { key: params.myDeviceId },
+      },
+    })
+
+    let lastPartnerOnline: boolean | null = null
+
+    channel.on('presence', { event: 'sync' }, () => {
+      const state = channel.presenceState() as Record<string, unknown>
+      const isOnline = Object.prototype.hasOwnProperty.call(state, params.partnerDeviceId)
+
+      if (lastPartnerOnline === null || lastPartnerOnline !== isOnline) {
+        lastPartnerOnline = isOnline
+        params.onPartnerOnlineChange(isOnline)
+      }
+    })
+
+    channel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        channel.track({ online_at: new Date().toISOString() })
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        params.onError?.(`presence_subscribe_${status.toLowerCase()}`)
+      }
+    })
+
+    return {
+      channel,
+      unsubscribe: async () => {
+        await supabase.removeChannel(channel)
+      },
+    }
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────

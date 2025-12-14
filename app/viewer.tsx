@@ -142,6 +142,41 @@ export default function ViewerScreen() {
   const router = useRouter()
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo } = usePairingStore()
   const { t } = useLanguageStore()
+  const autoDisconnectingRef = useRef(false)
+
+  const disconnectAndUnpair = useCallback(async (reason: string, extra?: Record<string, unknown>) => {
+    if (autoDisconnectingRef.current) return
+    autoDisconnectingRef.current = true
+
+    sessionLogger.warn('auto_disconnect_start', {
+      reason,
+      role: 'director',
+      sessionId: sessionId?.substring(0, 8),
+      pairedDeviceId: pairedDeviceId?.substring(0, 8),
+      ...extra,
+    })
+
+    try {
+      // Stop WebRTC immediately
+      webrtcService.destroy()
+
+      // Mark any active connection records as disconnected (best-effort)
+      if (myDeviceId) {
+        await connectionHistoryApi.disconnectAll(myDeviceId)
+        await connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
+      }
+
+      // Hard unpair so the other device also drops the session
+      if (myDeviceId) {
+        await pairingApi.unpair(myDeviceId)
+      }
+    } catch (e) {
+      sessionLogger.error('auto_disconnect_failed', e, { reason })
+    } finally {
+      clearPairing()
+      router.replace('/')
+    }
+  }, [clearPairing, myDeviceId, pairedDeviceId, router, sessionId])
   
   // Handle disconnect
   const handleDisconnect = async () => {
@@ -155,12 +190,7 @@ export default function ViewerScreen() {
           style: 'destructive',
           onPress: async () => {
             sessionLogger.info('manual_disconnect')
-            webrtcService.destroy()
-            if (myDeviceId) {
-              await pairingApi.unpair(myDeviceId)
-            }
-            clearPairing()
-            router.replace('/')
+            await disconnectAndUnpair('manual')
           }
         },
       ]
@@ -239,28 +269,23 @@ export default function ViewerScreen() {
         // Silent fail for history
       })
       
-      // Update online status
-      connectionHistoryApi.updateOnlineStatus(myDeviceId, true)
-      
-      // Subscribe to partner's online status for disconnect sync
-      const partnerStatusSubscription = connectionHistoryApi.subscribeToPartnerStatus(
-        pairedDeviceId,
-        (isOnline) => {
+      // Presence-based partner disconnect detection (works even on abrupt disconnects)
+      const presenceSub = connectionHistoryApi.subscribeToSessionPresence({
+        sessionId,
+        myDeviceId,
+        partnerDeviceId: pairedDeviceId,
+        onPartnerOnlineChange: (isOnline) => {
+          sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
           if (!isOnline) {
-            sessionLogger.info('partner_went_offline', { partnerDeviceId: pairedDeviceId })
-            // Partner disconnected - notify user
             Alert.alert(
               'Partner Disconnected',
               `${partnerDisplayName || 'Your partner'} has disconnected.`,
-              [
-                { text: 'OK', onPress: () => {
-                  // Optionally navigate back or clear connection
-                }}
-              ]
+              [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
             )
           }
-        }
-      )
+        },
+        onError: (message) => sessionLogger.warn('presence_error', { message }),
+      })
       
       webrtcService.init(
         myDeviceId,
@@ -304,6 +329,8 @@ export default function ViewerScreen() {
             if (state === 'failed' || state === 'disconnected') {
               setIsReceiving(false)
               setRemoteStream(null)
+              // Keep both devices consistent: drop pairing if the call dies
+              disconnectAndUnpair(`webrtc_${state}`)
             }
           },
           onError: (error) => {
@@ -322,10 +349,7 @@ export default function ViewerScreen() {
         setIsConnected(false)
         setIsReceiving(false)
         setRemoteStream(null)
-        // Update online status when leaving
-        connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
-        // Unsubscribe from partner status
-        partnerStatusSubscription.unsubscribe()
+        void presenceSub.unsubscribe()
       }
     }
   }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar])
