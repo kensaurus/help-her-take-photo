@@ -83,6 +83,7 @@ class WebRTCService {
 
   /**
    * Initialize WebRTC service
+   * Returns a promise that resolves when initialization is complete
    */
   async init(
     deviceId: string,
@@ -90,7 +91,7 @@ class WebRTCService {
     sessionId: string,
     role: WebRTCRole,
     callbacks: WebRTCCallbacks
-  ) {
+  ): Promise<void> {
     // Check if WebRTC is available (requires development build)
     if (!isWebRTCAvailable) {
       const error = new Error('WebRTC requires a development build. Video streaming is not available in Expo Go.')
