@@ -18,6 +18,7 @@ import { usePairingStore } from '../src/stores/pairingStore'
 import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { ErrorBoundary } from '../src/components/ErrorBoundary'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
@@ -102,6 +103,11 @@ export default function RootLayout() {
   }, [])
 
   return (
+    <ErrorBoundary
+      onError={(error) => {
+        sessionLogger.error('app_crash', error, { screen: 'root' })
+      }}
+    >
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
@@ -196,5 +202,6 @@ export default function RootLayout() {
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+    </ErrorBoundary>
   )
 }

@@ -40,7 +40,18 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { ErrorBoundary } from '../src/components/ErrorBoundary'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+
+// API timeout helper
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error('Request timed out. Please try again.')), ms)
+    ),
+  ])
+}
 
 const CODE_LENGTH = 4
 
@@ -392,7 +403,7 @@ function SubmitButton({
   )
 }
 
-export default function PairingScreen() {
+function PairingScreenContent() {
   const router = useRouter()
   const { colors } = useThemeStore()
   const { width } = useWindowDimensions()
@@ -461,7 +472,7 @@ export default function PairingScreen() {
     return newId
   }, [myDeviceId, setMyDeviceId])
 
-  // Generate pairing code
+  // Generate pairing code with timeout
   const generateCode = async () => {
     const deviceId = await getDeviceId()
     
@@ -470,7 +481,8 @@ export default function PairingScreen() {
     
     try {
       sessionLogger.info('creating_pairing_code', { deviceId })
-      const result = await pairingApi.createPairing(deviceId)
+      // 10 second timeout to prevent hanging
+      const result = await withTimeout(pairingApi.createPairing(deviceId), 10000)
       sessionLogger.info('pairing_code_created', { code: result.code, error: result.error })
       
       if (result.code) {
@@ -483,14 +495,16 @@ export default function PairingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      sessionLogger.error('pairing_error', err)
-      setError('Server unavailable. Please try again.')
+      const errorMessage = err instanceof Error ? err.message : 'Server unavailable. Please try again.'
+      sessionLogger.error('pairing_error', err, { errorMessage })
+      setError(errorMessage)
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
-  // Join with code
+  // Join with code with timeout
   const joinWithCode = async () => {
     if (inputCode.length !== CODE_LENGTH) {
       setError(`Enter all ${CODE_LENGTH} digits`)
@@ -506,7 +520,8 @@ export default function PairingScreen() {
     
     try {
       sessionLogger.info('joining_pairing', { code: inputCode, deviceId })
-      const result = await pairingApi.joinPairing(deviceId, inputCode)
+      // 10 second timeout to prevent hanging
+      const result = await withTimeout(pairingApi.joinPairing(deviceId, inputCode), 10000)
       sessionLogger.info('join_result', { partnerId: result.partnerId, error: result.error })
       
       if (result.partnerId) {
@@ -526,11 +541,13 @@ export default function PairingScreen() {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
       }
     } catch (err) {
-      sessionLogger.error('join_error', err)
-      setError('Server unavailable. Check your connection.')
+      const errorMessage = err instanceof Error ? err.message : 'Server unavailable. Check your connection.'
+      sessionLogger.error('join_error', err, { errorMessage })
+      setError(errorMessage)
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   // Check for partner joining
@@ -1107,3 +1124,18 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 })
+
+// Wrap with ErrorBoundary for graceful error handling
+export default function PairingScreen() {
+  return (
+    <ErrorBoundary
+      onError={(error) => {
+        sessionLogger.error('pairing_screen_crash', error, {
+          screen: 'pairing',
+        })
+      }}
+    >
+      <PairingScreenContent />
+    </ErrorBoundary>
+  )
+}
