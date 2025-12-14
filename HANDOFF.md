@@ -1,581 +1,239 @@
-# 📱 Help Her Take Photo - Developer Handoff Documentation
+# Project Handoff: Help Her Take Photo
 
-> **Last Updated:** December 13, 2025
-> **Version:** 1.1.1
-> **Author:** kensaurus
-
----
-
-## 📋 Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [Architecture](#architecture)
-3. [Tech Stack & Libraries](#tech-stack--libraries)
-4. [Project Structure](#project-structure)
-5. [Database Schema](#database-schema)
-6. [Development Setup](#development-setup)
-7. [Build & Deployment](#build--deployment)
-8. [CI/CD Pipeline](#cicd-pipeline)
-9. [Environment Variables](#environment-variables)
-10. [Known Issues & Technical Debt](#known-issues--technical-debt)
-11. [Feature Status](#feature-status)
-12. [Quick Answers to Common Questions](#quick-answers)
+**Date:** December 14, 2025  
+**Last OTA Update:** `03af5cdc-cd89-4113-89bb-e48978d08403`  
+**Branch:** `main`
 
 ---
 
 ## 🎯 Project Overview
 
-**Help Her Take Photo** is a mobile app that helps couples take better photos by allowing one person to remotely guide the other's camera in real-time.
+**Help Her Take Photo** is a React Native (Expo) app that enables couples to take photos together remotely. One person acts as the "Photographer" (holds the camera) and the other as the "Director" (sees the live feed and gives directions).
 
-### Business Purpose
-- Solve the common problem of boyfriends taking bad photos
-- Allow remote camera guidance and control
-- Enable real-time photo sharing between paired devices
+### Tech Stack
+- **Framework:** React Native with Expo SDK 52
+- **Router:** Expo Router (file-based routing)
+- **Backend:** Supabase (auth, database, realtime)
+- **WebRTC:** `react-native-webrtc` for peer-to-peer video streaming
+- **State:** Zustand (global state), nuqs (URL params)
+- **UI:** Custom components, Reanimated for animations
 
-### Key Features
-- ✅ Device pairing via 4-digit code
-- ✅ Real-time camera streaming (P2P UDP)
-- ✅ Remote photo capture
-- ✅ Photo gallery with sharing
-- ✅ Multi-language support (EN, TH, ZH, JA) - **selectable in onboarding**
-- ✅ Dark/Light theme
-- ✅ Gamification (scoldings saved counter)
-- ✅ Feedback submission
-- ✅ OTA updates via EAS
+### Key Files
+| File | Purpose |
+|------|---------|
+| `app/camera.tsx` | Photographer's view - streams camera via WebRTC |
+| `app/viewer.tsx` | Director's view - receives WebRTC stream, sends commands |
+| `src/services/webrtc.ts` | WebRTC service singleton - handles P2P connection |
+| `src/services/api.ts` | Supabase API including presence tracking |
+| `src/stores/pairingStore.ts` | Pairing state, session ID, partner info |
 
 ---
 
-## 🏗 Architecture
+## 🔴 Current Issue Being Debugged
 
-### Current Architecture (Direct Supabase)
+### Problem: Photographer mode camera screen crashes/shows error
 
+**Symptom:** When user clicks "Photographer" button, the camera screen opens briefly then crashes or shows an error screen.
+
+**Latest logs show:**
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND                              │
-│   React Native + Expo SDK 54 + Expo Router v6               │
-├─────────────────────────────────────────────────────────────┤
-│   • Zustand (State Management)                               │
-│   • react-native-reanimated (Animations)                     │
-│   • expo-camera / vision-camera (Camera)                     │
-│   • @supabase/supabase-js (Database Client)                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              │ Direct Connection (HTTPS)
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     SUPABASE BACKEND                         │
-├─────────────────────────────────────────────────────────────┤
-│   Database Tables:                                           │
-│   • pairing_sessions  - 4-digit code pairing                │
-│   • devices           - Device registration                 │
-│   • captures          - Photo metadata                      │
-│   • user_stats        - Gamification (XP, levels)           │
-│   • user_settings     - User preferences                    │
-│   • feedback          - Bug reports & feature requests      │
-│   • session_events    - Analytics                           │
-│   • active_connections- Real-time connections               │
-├─────────────────────────────────────────────────────────────┤
-│   Security:                                                  │
-│   • Row Level Security (RLS) enabled on all tables          │
-│   • Privacy enforced at application level (device_id filter)│
-└─────────────────────────────────────────────────────────────┘
+12:00:57.285 - camera_screen_opened
+12:00:57.304 - webrtc_init_called, webrtc_fetching_turn_credentials
+12:00:57.382 - camera_screen_closed (only ~80ms later!)
 ```
 
-### Why Direct Supabase (No API Server)?
+### Root Causes Identified & Fixed (in this session)
 
-| Aspect | Old (Separate API) | New (Direct Supabase) |
-|--------|-------------------|----------------------|
-| **Deployment** | Server maintenance | Zero maintenance |
-| **Cost** | Pay for hosting | Free tier |
-| **Latency** | Extra hop | Direct connection |
-| **Scaling** | Manual | Automatic |
-| **Security** | Custom auth | Built-in RLS |
+#### 1. ✅ WebRTC Race Condition (FIXED)
+**Problem:** When switching from Director→Photographer, `destroy()` from viewer.tsx was still running when `init()` was called from camera.tsx.
 
-**Note:** The `help-her-take-photo-api` repo is **archived** and no longer needed.
-
----
-
-## 📚 Tech Stack & Libraries
-
-### Frontend (help-her-take-photo)
-
-| Category | Library | Version | Purpose |
-|----------|---------|---------|---------|
-| **Framework** | Expo SDK | 54.0.27 | React Native tooling |
-| **Navigation** | expo-router | 6.0.17 | File-based routing |
-| **React** | React | 19.1.0 | UI library |
-| **React Native** | react-native | 0.81.5 | Mobile framework |
-| **State** | Zustand | 5.0.9 | State management |
-| **Animations** | react-native-reanimated | 4.1.1 | 60fps animations |
-| **Gestures** | react-native-gesture-handler | 2.28.0 | Touch handling |
-| **Camera** | expo-camera | 17.0.10 | Camera access |
-| **Storage** | @react-native-async-storage | 2.2.0 | Persistent storage |
-| **Haptics** | expo-haptics | 15.0.8 | Tactile feedback |
-| **OTA Updates** | expo-updates | 29.0.14 | Over-the-air updates |
-| **Backend** | @supabase/supabase-js | 2.86.2 | Database client |
-| **Video** | react-native-webrtc | 124.0.7 | P2P video streaming |
-| **Versioning** | expo-application | 7.0.8 | App version tracking |
-
-### ✅ Library Status
-All libraries are **up-to-date** as of December 2025:
-- Using latest Expo SDK 54 (released Sep 2025)
-- React Native 0.81.5 with New Architecture
-- Reanimated v4 (New Architecture only)
-
----
-
-## 📁 Project Structure
-
-```
-help-her-take-photo/
-├── app/                    # Expo Router pages
-│   ├── _layout.tsx        # Root layout with navigation
-│   ├── index.tsx          # Home screen (role selection)
-│   ├── onboarding.tsx     # First-time flow + language selection
-│   ├── pairing.tsx        # Device pairing screen
-│   ├── camera.tsx         # Camera view (photographer)
-│   ├── viewer.tsx         # Remote viewer (director)
-│   ├── gallery.tsx        # Photo gallery
-│   ├── profile.tsx        # User profile & stats
-│   ├── settings.tsx       # App settings
-│   ├── feedback.tsx       # Feedback form
-│   └── changelog.tsx      # Version changelog
-├── src/
-│   ├── components/        # Reusable components
-│   │   ├── CaptureButton.tsx  # Enhanced capture with animations
-│   │   └── ui/           # AnimatedButton, AnimatedPressable, FadeView, Icon
-│   ├── stores/           # Zustand stores
-│   │   ├── pairingStore.ts
-│   │   ├── connectionStore.ts
-│   │   ├── settingsStore.ts
-│   │   ├── languageStore.ts
-│   │   ├── statsStore.ts
-│   │   ├── themeStore.ts
-│   │   └── onboardingStore.ts
-│   ├── services/         # API & business logic
-│   │   ├── api.ts        # Supabase API methods
-│   │   ├── supabase.ts   # Supabase client config
-│   │   ├── sessionLogger.ts  # Supabase debug logging
-│   │   ├── soundService.ts   # Sound + haptic feedback
-│   │   └── webrtc.ts     # WebRTC P2P video streaming
-│   ├── lib/              # Utility libraries
-│   │   └── microInteractions.ts  # Animation & haptic configs
-│   ├── i18n/             # Translations (EN, TH, ZH, JA)
-│   ├── config/           # Build info, changelog
-│   └── types/            # TypeScript types
-├── supabase/
-│   └── migrations/       # SQL migration files
-│       ├── 001_pairing_tables.sql
-│       ├── 004_simple_migration.sql
-│       └── 006_simple_rls.sql
-├── assets/               # Images, icons
-├── scripts/              # Build scripts
-├── .github/workflows/    # CI/CD
-├── app.config.ts         # Expo config (dynamic)
-├── eas.json              # EAS Build config
-└── package.json
-```
-
----
-
-## 🗄️ Database Schema
-
-### Tables in Supabase
-
-| Table | Purpose | Key Columns |
-|-------|---------|-------------|
-| `pairing_sessions` | 4-digit code pairing | `code`, `device_id`, `partner_device_id`, `status` |
-| `devices` | Device registration | `device_id`, `platform`, `push_token` |
-| `captures` | Photo metadata | `camera_device_id`, `storage_path`, `is_favorite` |
-| `user_stats` | Gamification | `device_id`, `photos_taken`, `level`, `xp` |
-| `user_settings` | Preferences | `device_id`, `theme`, `language` |
-| `feedback` | Bug reports | `device_token`, `type`, `message` |
-| `session_events` | Analytics | `device_id`, `event_type`, `event_data` |
-| `active_connections` | Real-time | `camera_device_id`, `viewer_device_id` |
-| **`app_logs`** | Debug logging | `device_id`, `level`, `event`, `data`, `timestamp`, `platform`, `app_version` |
-| **`webrtc_signals`** | WebRTC signaling | `session_id`, `from_device_id`, `signal_type`, `signal_data` |
-| **`commands`** | Direction commands | `session_id`, `command_type`, `command_data` |
-
-### Privacy Model
-
-Since there's no user authentication:
-- Each device has a unique `device_id` (UUID)
-- All queries filter by `device_id`
-- RLS policies allow all operations (privacy at app level)
-- Users can only see their own data
-
-### SQL Migrations
-
-Migrations are in `supabase/migrations/`. Run them in order:
-1. `001_pairing_tables.sql` - Initial pairing & feedback
-2. `004_simple_migration.sql` - All new tables
-3. `006_simple_rls.sql` - RLS policies
-4. `007_logging_tables.sql` - Logging & WebRTC tables
-5. `008_fix_logging_policies.sql` - Fix duplicate policies (if needed)
-
----
-
-## 📊 Logging & Debugging
-
-### Session Logger Service
-
-The app uses `sessionLogger` (`src/services/sessionLogger.ts`) to log all events to Supabase.
-
+**Fix:** Added mutex/lock in `src/services/webrtc.ts`:
 ```typescript
-// Usage in components
-import { sessionLogger } from '../src/services/sessionLogger'
+private cleanupPromise: Promise<void> | null = null
 
-// Initialize (done automatically in app/_layout.tsx on app start)
-// sessionLogger.init(deviceId, sessionId)
-
-// Log events
-sessionLogger.info('event_name', { data: 'value' })
-sessionLogger.warn('warning_event', { issue: 'description' })
-sessionLogger.error('error_event', error, { context: 'data' })
-sessionLogger.debug('debug_info', { verbose: true }) // Only in __DEV__
+async init(...) {
+  // Wait for any pending destroy() to complete
+  if (this.cleanupPromise) {
+    await this.cleanupPromise
+  }
+  // ... rest of init
+}
 ```
 
-### Retrieve Logs from Supabase
+#### 2. ✅ Camera Conflict (FIXED - NEEDS TESTING)
+**Problem:** `CameraView` (expo-camera) and WebRTC's `getUserMedia()` both trying to access camera simultaneously.
 
-Run these queries in Supabase SQL Editor:
+**Fix:** Added placeholder state in `app/camera.tsx`:
+```typescript
+const webrtcIsInitializing = isPaired && webrtcAvailable && !localStream && (isSharing || webrtcInitialized)
 
-```sql
--- 1. All recent logs
-SELECT * FROM app_logs ORDER BY timestamp DESC LIMIT 50;
-
--- 2. Filter by device
-SELECT * FROM app_logs 
-WHERE device_id = 'abc123' 
-ORDER BY timestamp DESC;
-
--- 3. Filter by log level
-SELECT level, event, data, timestamp 
-FROM app_logs 
-WHERE level = 'error' 
-ORDER BY timestamp DESC;
-
--- 4. Filter by event type
-SELECT * FROM app_logs 
-WHERE event LIKE 'webrtc_%' 
-ORDER BY timestamp DESC;
-
--- 5. Filter by session
-SELECT * FROM app_logs 
-WHERE session_id = 'session-uuid' 
-ORDER BY timestamp DESC;
-
--- 6. Time-based query (last hour)
-SELECT * FROM app_logs 
-WHERE timestamp > NOW() - INTERVAL '1 hour'
-ORDER BY timestamp DESC;
-
--- 7. Search in data JSON
-SELECT * FROM app_logs 
-WHERE data->>'error_message' IS NOT NULL
-ORDER BY timestamp DESC;
-
--- 8. Filter by platform
-SELECT * FROM app_logs 
-WHERE platform LIKE 'android%'
-ORDER BY timestamp DESC;
-
--- 9. Filter by app version
-SELECT * FROM app_logs 
-WHERE app_version = '1.0.0'
-ORDER BY timestamp DESC;
-```
-
-### Log Entry Schema
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `device_id` | UUID | Unique device identifier |
-| `session_id` | UUID | Pairing session (nullable) |
-| `level` | string | Log level (`debug`, `info`, `warn`, `error`) |
-| `event` | string | Event name (e.g., `webrtc_connected`) |
-| `data` | JSONB | Event payload |
-| `timestamp` | ISO 8601 | When event occurred |
-| `platform` | string | OS + version (`android 35`, `ios 17.2`) |
-| `app_version` | string | App version from `expo-application` |
-
-### Log Levels
-
-| Level | When to Use | Stored in Supabase |
-|-------|-------------|-------------------|
-| `debug` | Verbose debugging | **Only in dev** |
-| `info` | Normal operations | ✅ Yes |
-| `warn` | Potential issues | ✅ Yes |
-| `error` | Failures | ✅ Yes (+ stack trace) |
-
-### WebRTC & Command Logs
-
-```sql
--- Track WebRTC connection attempts
-SELECT * FROM webrtc_signals 
-WHERE session_id = 'your-session' 
-ORDER BY created_at;
-
--- Track commands sent between devices
-SELECT * FROM commands 
-WHERE session_id = 'your-session' 
-ORDER BY created_at;
-
--- Connection state changes
-SELECT * FROM session_events 
-WHERE event_type LIKE 'connection_%'
-ORDER BY created_at DESC;
-```
-
-### Automatic Cleanup (Optional)
-
-Add this as a scheduled Supabase function to clean old logs:
-
-```sql
--- Delete logs older than 7 days
-DELETE FROM app_logs WHERE timestamp < NOW() - INTERVAL '7 days';
-DELETE FROM webrtc_signals WHERE created_at < NOW() - INTERVAL '1 day';
-DELETE FROM commands WHERE created_at < NOW() - INTERVAL '1 day';
+// In render:
+{webrtcIsInitializing ? (
+  <View style={styles.initializingContainer}>
+    <Text>📷</Text>
+    <Text>Connecting camera...</Text>
+  </View>
+) : (
+  <CameraView ... />
+)}
 ```
 
 ---
 
-## 🚀 Development Setup
+## 📋 Testing Checklist
 
-### Prerequisites
-- Node.js 20.x+
-- npm or yarn
-- Expo Go app (for testing)
-- Supabase account
+After the user updates to latest OTA, verify:
 
-### Setup Steps
+- [ ] Photographer screen opens without crashing
+- [ ] "Connecting camera..." placeholder shows briefly
+- [ ] Live camera feed appears after WebRTC connects
+- [ ] Director can see the stream on their device
+- [ ] Taking photos works while streaming
+- [ ] Switching between Director/Photographer modes works
 
+---
+
+## 🔍 How to Debug
+
+### 1. Check App Logs in Supabase
+```sql
+SELECT * FROM app_logs 
+WHERE timestamp > NOW() - INTERVAL '10 minutes' 
+ORDER BY timestamp DESC;
+```
+
+### 2. Key Log Events to Look For
+| Event | Meaning |
+|-------|---------|
+| `camera_screen_opened` | Screen mounted |
+| `webrtc_init_called` | WebRTC init started |
+| `webrtc_init_waiting_for_cleanup` | Waiting for previous destroy() |
+| `webrtc_fetching_turn_credentials` | Getting TURN servers |
+| `webrtc_turn_credentials_fetched` | TURN servers received |
+| `webrtc_creating_peer_connection` | Creating RTCPeerConnection |
+| `webrtc_local_stream_started` | Camera stream acquired |
+| `photographer_local_stream_ready` | Stream set in React state |
+| `camera_screen_closed` | Screen unmounted |
+| `global_js_error` | Uncaught JavaScript error |
+
+### 3. If Screen Closes Immediately
+Look for:
+- Missing logs between `webrtc_init_called` and `camera_screen_closed`
+- `global_js_error` events
+- `photographer_webrtc_init_failed` errors
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│   Photographer  │         │    Director     │
+│  (camera.tsx)   │         │  (viewer.tsx)   │
+└────────┬────────┘         └────────┬────────┘
+         │                           │
+         │    WebRTC P2P Stream      │
+         │◄─────────────────────────►│
+         │                           │
+         ▼                           ▼
+┌─────────────────────────────────────────────┐
+│            webrtcService (singleton)         │
+│  - Manages RTCPeerConnection                │
+│  - Handles ICE candidates                   │
+│  - Uses Supabase Realtime for signaling     │
+└─────────────────────────────────────────────┘
+         │                           │
+         ▼                           ▼
+┌─────────────────────────────────────────────┐
+│             Supabase Realtime               │
+│  - Signaling channel (SDP, ICE)             │
+│  - Presence channel (online/offline)        │
+│  - Commands channel (capture, direction)    │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## 🧪 OTA Updates
+
+Push updates with:
 ```bash
-# 1. Clone repo
-git clone https://github.com/kensaurus/help-her-take-photo.git
-cd help-her-take-photo
-
-# 2. Install dependencies
-npm install
-
-# 3. Configure environment
-cp .env.example .env
-# Edit .env with your Supabase credentials
-
-# 4. Start development
-npx expo start
+npx eas update --branch main --message "your message" --non-interactive
 ```
 
-### Environment Variables
-
-```env
-EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-```
-
-Get these from **Supabase Dashboard → Settings → API**
-
----
-
-## 📦 Build & Deployment
-
-### Build Profiles (eas.json)
-
-| Profile | Distribution | Use Case |
-|---------|--------------|----------|
-| `development` | internal | Dev client with hot reload |
-| `preview` | internal | Testing with production DB |
-| `staging` | internal | Pre-release testing |
-| `production` | store | App Store / Play Store |
-
-### Build Commands
-
-```bash
-# Preview build (Android)
-eas build --platform android --profile preview
-
-# Production build (both platforms)
-eas build --platform all --profile production
-
-# OTA Update
-eas update --branch preview --message "Bug fixes"
-```
-
----
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions Workflows
-
-| Workflow | Trigger | Action |
-|----------|---------|--------|
-| `eas-build.yml` | Release / Manual | Build Android + iOS APK/IPA |
-| `eas-update.yml` | Push to main | OTA update to preview channel |
-
-### Required GitHub Secrets
-
-```
-EXPO_TOKEN  # Personal access token from expo.dev
-```
-
----
-
-## ✨ Micro-interactions & UI Polish
-
-### Animation System (`src/lib/microInteractions.ts`)
-
-Centralized configuration for consistent, physics-based animations:
-
-| Preset | Properties | Use Case |
-|--------|------------|----------|
-| `SpringConfigs.button` | damping: 15, stiffness: 400 | Button press feedback |
-| `SpringConfigs.bouncy` | damping: 8, stiffness: 180 | Celebration moments |
-| `SpringConfigs.gentle` | damping: 20, stiffness: 200 | Subtle transitions |
-
-### Haptic Patterns
-
-| Pattern | Type | Usage |
-|---------|------|-------|
-| `tap` | Light | Button tap |
-| `select` | Medium | Selection |
-| `heavy` | Heavy | Photo capture |
-| `rigid` | Rigid | Toggle switch |
-| `success` | Notification | Task completed |
-
-### Reusable Components
-
-**AnimatedPressable** (`src/components/ui/AnimatedPressable.tsx`)
-- Physics-based scale + opacity on press
-- Configurable interaction presets
-- Built-in haptic feedback
-
-**CaptureButton** (`src/components/CaptureButton.tsx`)
-- Ring pulse effect on capture
-- Flash overlay animation
-- Spring physics (scale 0.92 → 1.0)
-- Heavy haptic on capture
-
-### Usage Example
-
-```tsx
-import { AnimatedPressable } from '@/components/ui/AnimatedPressable'
-import { HapticPatterns, SpringConfigs } from '@/lib/microInteractions'
-
-// Use preset
-<AnimatedPressable interaction="button" onPress={handlePress}>
-  <Text>Press Me</Text>
-</AnimatedPressable>
-
-// Manual haptic
-HapticPatterns.success()
-```
+User needs to **force close and reopen** the app to get updates.
 
 ---
 
 ## ⚠️ Known Issues & Technical Debt
 
-### Current Issues
+### 1. Expo Go Limitation
+WebRTC requires a **development build** - it doesn't work in Expo Go. The app gracefully falls back to expo-camera only mode.
 
-1. **iOS Build Not Configured**
-   - **Cause:** Apple Developer credentials not set up
-   - **Fix:** Run `eas credentials --platform ios`
+### 2. TURN Server Credentials
+Using Metered.ca TURN servers. API key is hardcoded as fallback because `EXPO_PUBLIC_*` env vars require native rebuild (OTA doesn't update them).
 
-2. **WebRTC NAT Traversal**
-   - **Issue:** Video may not connect if devices are on different networks
-   - **Cause:** Using only STUN servers (Google's free ones)
-   - **Fix:** Add TURN server for production (Twilio, or self-hosted)
-
-3. **Same WiFi Requirement**
-   - WebRTC works best when both devices are on same WiFi
-   - For different networks, need TURN server
-
-### Technical Debt
-
-| Item | Priority | Description |
-|------|----------|-------------|
-| Tests | High | No unit/integration tests yet |
-| TURN Server | High | Add TURN for cross-network video |
-| Error Boundaries | Medium | Add crash recovery UI |
-| Offline Mode | Low | Handle offline scenarios |
-
----
-
-## ✅ Feature Status
-
-### Completed ✅
-- [x] Device pairing (4-digit code)
-- [x] Camera capture and preview (real expo-camera)
-- [x] Photo gallery with Supabase sync
-- [x] Multi-language (EN, TH, ZH, JA)
-- [x] Language selection in onboarding
-- [x] Dark/Light theme
-- [x] User profile with gamification
-- [x] Feedback form to Supabase
-- [x] OTA updates configured
-- [x] CI/CD pipeline
-- [x] Direct Supabase integration
-- [x] **WebRTC P2P video streaming**
-- [x] **Direction commands (left, right, up, down)**
-- [x] **Debug logging to Supabase (app_logs)**
-- [x] **Session tracking & analytics**
-
-### In Progress 🚧
-- [ ] iOS build credentials
-- [ ] Production deployment
-- [ ] TURN server for NAT traversal
-
-### Planned 📋
-- [ ] Push notifications
-- [ ] SSO login (Google/Apple)
-- [ ] Photo editing features
-- [ ] Leaderboard system
-
----
-
-## ❓ Quick Answers
-
-### Why no iOS builds?
-iOS requires Apple Developer Program ($99/year). Run:
-```bash
-eas credentials --platform ios
+```typescript
+// src/services/webrtc.ts
+const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || '692e88ad36749006f9f653eb3d40989da0d8'
 ```
 
-### How does pairing work?
-1. Device A generates 4-digit code (stored in Supabase)
-2. Device B enters code
-3. Supabase updates session with partner
-4. Both devices navigate to camera/viewer
-
-### How is privacy handled?
-- Each device has a unique `device_id`
-- All API calls filter by this ID
-- RLS policies ensure data isolation
-
-### How to test quickly?
-```bash
-# Local with tunnel
-npx expo start --tunnel
-
-# OTA update (faster than full build)
-eas update --branch preview
+### 3. H.264 Black Screen on Android
+Some Android devices have issues with H.264 codec. We prefer VP8:
+```typescript
+// In createOffer() and handleOffer()
+const modifiedSdp = this.preferVP8Codec(offer.sdp)
 ```
 
-### Where's the API server?
-**Archived!** We now use direct Supabase access. The `help-her-take-photo-api` repo is deprecated.
+### 4. Presence Grace Period
+To prevent "partner disconnected" false alarms during navigation, there's a 10-second grace period in `subscribeToSessionPresence()`.
 
 ---
 
-## 👤 Contact & Resources
+## 📁 Files Modified in This Session
 
-- **Repository:** github.com/kensaurus/help-her-take-photo
-- **Expo Dashboard:** expo.dev/accounts/kensaurus
-- **Supabase Dashboard:** supabase.com/dashboard
-- **Author:** kensaurus (kensaur.us)
-
-### Useful Links
-- [Expo Documentation](https://docs.expo.dev)
-- [Supabase Documentation](https://supabase.com/docs)
-- [EAS Build Guide](https://docs.expo.dev/build/introduction/)
+| File | Changes |
+|------|---------|
+| `src/services/webrtc.ts` | Added cleanup mutex, defensive error handling |
+| `app/camera.tsx` | Added placeholder while WebRTC initializes |
 
 ---
 
-*© 2025 kensaurus - kensaur.us*
+## 🎯 Next Steps
+
+1. **Verify the camera conflict fix works** - User needs to test after OTA update
+2. **If still crashing**, check logs for:
+   - `global_js_error` - will show actual JS exception
+   - Missing `webrtc_turn_credentials_fetched` - network issue
+   - `photographer_webrtc_init_failed` - init error details
+
+3. **Potential remaining issues:**
+   - Native crash (not caught by JS error handler)
+   - Expo Camera permissions issue
+   - WebRTC native module issue
+
+---
+
+## 📞 Resources
+
+- **Supabase Dashboard:** Check `app_logs` table for debugging
+- **EAS Dashboard:** https://expo.dev/accounts/kensaurus/projects/help-her-take-photo
+- **WebRTC Docs:** https://github.com/react-native-webrtc/react-native-webrtc
+
+---
+
+## 🔄 Session Log Summary
+
+| Time | Action |
+|------|--------|
+| Start | User reported Photographer mode showing error screen |
+| Analysis | Found no `webrtc_init_called` for camera role - race condition |
+| Fix 1 | Added mutex to prevent init/destroy race |
+| Result | `webrtc_init_called` now appears, but screen closes ~80ms later |
+| Analysis | Found camera conflict - CameraView vs getUserMedia() |
+| Fix 2 | Added placeholder while WebRTC initializes |
+| Status | **AWAITING USER TEST** |
+
+---
+
+*Generated: December 14, 2025*
