@@ -43,6 +43,7 @@ type IconName =
   | 'minus'
   | 'dot'
   | 'loading'
+  | 'download'
 
 interface IconProps {
   name: IconName
@@ -725,6 +726,70 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
                   borderColor: 'transparent',
                   borderTopColor: iconColor,
                   borderRadius: size,
+                },
+              ]}
+            />
+          </View>
+        )
+
+      case 'download':
+        return (
+          <View style={baseStyle}>
+            {/* Arrow line */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: quarter,
+                  left: half - stroke / 2,
+                  width: stroke,
+                  height: half,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
+                },
+              ]}
+            />
+            {/* Arrow head left */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half + stroke,
+                  left: quarter + stroke,
+                  width: stroke,
+                  height: quarter * 0.8,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
+                  transform: [{ rotate: '-45deg' }],
+                },
+              ]}
+            />
+            {/* Arrow head right */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half + stroke,
+                  right: quarter + stroke,
+                  width: stroke,
+                  height: quarter * 0.8,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
+                  transform: [{ rotate: '45deg' }],
+                },
+              ]}
+            />
+            {/* Bottom bar */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  bottom: quarter,
+                  left: quarter,
+                  right: quarter,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
                 },
               ]}
             />

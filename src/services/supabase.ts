@@ -182,3 +182,13 @@ export interface SessionEvent {
   event_data?: Record<string, unknown>
   created_at?: string
 }
+
+export interface AppVersion {
+  id: string
+  version: string
+  build_number?: string
+  download_url: string
+  force_update: boolean
+  changelog?: string
+  created_at?: string
+}

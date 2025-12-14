@@ -18,6 +18,7 @@ import { usePairingStore } from '../src/stores/pairingStore'
 import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { AppUpdatePrompt } from '../src/components/ui/AppUpdatePrompt'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
@@ -104,6 +105,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <AppUpdatePrompt />
         <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
         <Stack
           screenOptions={{

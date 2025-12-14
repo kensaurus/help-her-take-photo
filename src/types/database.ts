@@ -349,6 +349,35 @@ export interface Database {
           created_at?: string | null
         }
       }
+      app_versions: {
+        Row: {
+          id: string
+          version: string
+          build_number: string | null
+          download_url: string
+          force_update: boolean | null
+          changelog: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          version: string
+          build_number?: string | null
+          download_url: string
+          force_update?: boolean | null
+          changelog?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          version?: string
+          build_number?: string | null
+          download_url?: string
+          force_update?: boolean | null
+          changelog?: string | null
+          created_at?: string | null
+        }
+      }
     }
   }
 }
