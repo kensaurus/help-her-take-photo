@@ -8,18 +8,37 @@
  * 2. Director device fetches offer → creates answer → stores in Supabase
  * 3. Both exchange ICE candidates via Supabase Realtime
  * 4. Connection established → video streams P2P
+ * 
+ * NOTE: WebRTC requires a development build - it does NOT work in Expo Go!
  */
 
-import {
-  RTCPeerConnection,
-  RTCSessionDescription,
-  RTCIceCandidate,
-  mediaDevices,
-  MediaStream,
-} from 'react-native-webrtc'
 import { supabase } from './supabase'
 import { sessionLogger } from './sessionLogger'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+
+// Dynamically import WebRTC to handle Expo Go gracefully
+let RTCPeerConnection: any
+let RTCSessionDescription: any
+let RTCIceCandidate: any
+let mediaDevices: any
+let MediaStream: any
+let isWebRTCAvailable = false
+
+try {
+  const webrtc = require('react-native-webrtc')
+  RTCPeerConnection = webrtc.RTCPeerConnection
+  RTCSessionDescription = webrtc.RTCSessionDescription
+  RTCIceCandidate = webrtc.RTCIceCandidate
+  mediaDevices = webrtc.mediaDevices
+  MediaStream = webrtc.MediaStream
+  isWebRTCAvailable = true
+} catch (error) {
+  console.warn('[WebRTC] Native module not available - requires development build')
+  isWebRTCAvailable = false
+}
+
+// Export availability check
+export const webrtcAvailable = isWebRTCAvailable
 
 // STUN/TURN servers for NAT traversal
 const ICE_SERVERS = {
@@ -56,6 +75,13 @@ class WebRTCService {
   private callbacks: WebRTCCallbacks = {}
 
   /**
+   * Check if WebRTC is available
+   */
+  isAvailable(): boolean {
+    return isWebRTCAvailable
+  }
+
+  /**
    * Initialize WebRTC service
    */
   async init(
@@ -65,6 +91,14 @@ class WebRTCService {
     role: WebRTCRole,
     callbacks: WebRTCCallbacks
   ) {
+    // Check if WebRTC is available (requires development build)
+    if (!isWebRTCAvailable) {
+      const error = new Error('WebRTC requires a development build. Video streaming is not available in Expo Go.')
+      sessionLogger.warn('webrtc_not_available', { reason: 'expo_go' })
+      callbacks.onError?.(error)
+      return
+    }
+
     this.deviceId = deviceId
     this.peerDeviceId = peerDeviceId
     this.sessionId = sessionId

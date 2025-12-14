@@ -40,7 +40,7 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
-import { webrtcService } from '../src/services/webrtc'
+import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 
 const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
@@ -251,6 +251,18 @@ export default function CameraScreen() {
   // Initialize WebRTC when paired and sharing
   useEffect(() => {
     if (isPaired && isSharing && myDeviceId && pairedDeviceId && sessionId) {
+      // Check if WebRTC is available
+      if (!webrtcAvailable) {
+        sessionLogger.warn('webrtc_not_available_camera')
+        Alert.alert(
+          'Video Streaming Unavailable',
+          'WebRTC requires a development build. Video streaming is not available in Expo Go, but you can still take photos!',
+          [{ text: 'OK' }]
+        )
+        setIsSharing(false)
+        return
+      }
+
       sessionLogger.info('starting_webrtc_connection')
       
       webrtcService.init(
@@ -266,6 +278,7 @@ export default function CameraScreen() {
           onError: (error) => {
             sessionLogger.error('webrtc_error', error)
             Alert.alert('Connection Error', error.message)
+            setIsSharing(false)
           },
         }
       )

@@ -28,13 +28,23 @@ import Animated, {
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import { RTCView, MediaStream } from 'react-native-webrtc'
 import { usePairingStore } from '../src/stores/pairingStore'
+
+// Dynamically import RTCView to handle Expo Go gracefully
+let RTCView: any = null
+let MediaStream: any = null
+try {
+  const webrtc = require('react-native-webrtc')
+  RTCView = webrtc.RTCView
+  MediaStream = webrtc.MediaStream
+} catch {
+  // WebRTC not available (Expo Go)
+}
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
-import { webrtcService } from '../src/services/webrtc'
+import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 
 const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
@@ -172,8 +182,9 @@ export default function ViewerScreen() {
   
   const [isConnected, setIsConnected] = useState(false)
   const [isReceiving, setIsReceiving] = useState(false)
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<any>(null)
   const [connectionState, setConnectionState] = useState<string>('disconnected')
+  const [webrtcError, setWebrtcError] = useState<string | null>(null)
   const [lastCommand, setLastCommand] = useState('')
   const [showSent, setShowSent] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -192,6 +203,14 @@ export default function ViewerScreen() {
   // Initialize WebRTC when paired
   useEffect(() => {
     if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
+      // Check if WebRTC is available
+      if (!webrtcAvailable) {
+        sessionLogger.warn('webrtc_not_available_viewer')
+        setWebrtcError('Video streaming requires a development build. Expo Go does not support WebRTC.')
+        setIsConnected(true) // Mark as "connected" for UI purposes
+        return
+      }
+
       sessionLogger.info('starting_webrtc_as_director')
       setIsConnected(true)
       
@@ -216,7 +235,7 @@ export default function ViewerScreen() {
           },
           onError: (error) => {
             sessionLogger.error('webrtc_error', error)
-            Alert.alert('Connection Error', error.message)
+            setWebrtcError(error.message)
           },
         }
       )
@@ -378,7 +397,17 @@ export default function ViewerScreen() {
           <View style={styles.previewContainer}>
             {isConnected ? (
               <View style={styles.preview}>
-                {isReceiving && remoteStream ? (
+                {webrtcError ? (
+                  <View style={styles.waitingPreview}>
+                    <Text style={styles.waitingEmoji}>📱</Text>
+                    <Text style={styles.waitingText}>
+                      {webrtcError}
+                    </Text>
+                    <Text style={styles.connectionStatus}>
+                      Commands still work! Use the direction buttons below.
+                    </Text>
+                  </View>
+                ) : isReceiving && remoteStream && RTCView ? (
                   <View style={styles.livePreview}>
                     <RTCView
                       streamURL={remoteStream.toURL()}
