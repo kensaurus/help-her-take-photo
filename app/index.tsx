@@ -38,6 +38,7 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
+import { getBuildInfo } from '../src/config/build'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -315,7 +316,7 @@ function StatusPill({
 export default function HomeScreen() {
   const router = useRouter()
   const { colors, mode } = useThemeStore()
-  const { isPaired, sessionId } = usePairingStore()
+  const { isPaired } = usePairingStore()
   const { setRole } = useConnectionStore()
   const { t, loadLanguage } = useLanguageStore()
   const { stats, getRank, loadStats } = useStatsStore()
@@ -411,12 +412,7 @@ export default function HomeScreen() {
               style={styles.statusRow}
             >
               {isPaired && (
-                <Pressable 
-                  onPress={() => router.push('/pairing')}
-                  style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
-                >
-                  <StatusPill connected label={`🔗 ${t.home.paired}`} />
-                </Pressable>
+                <StatusPill connected label={t.home.paired} />
               )}
               
               {stats.scoldingsSaved > 0 && (
@@ -427,32 +423,6 @@ export default function HomeScreen() {
                   </Text>
                 </View>
               )}
-            </Animated.View>
-          )}
-
-          {/* Linked device info */}
-          {isPaired && sessionId && (
-            <Animated.View 
-              entering={FadeInDown.delay(200).duration(350)}
-              style={[styles.linkedCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            >
-              <Text style={[styles.linkedTitle, { color: colors.text }]}>
-                📱 Linked Device
-              </Text>
-              <Text style={[styles.linkedSession, { color: colors.textMuted }]}>
-                Session: {sessionId.slice(0, 8)}...
-              </Text>
-              <Pressable 
-                style={[styles.unlinkBtn, { borderColor: colors.border }]}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-                  router.push('/pairing')
-                }}
-              >
-                <Text style={[styles.unlinkBtnText, { color: colors.textMuted }]}>
-                  Manage Connection
-                </Text>
-              </Pressable>
             </Animated.View>
           )}
         </Animated.View>
@@ -597,6 +567,9 @@ export default function HomeScreen() {
               kensaur.us  /  2025
             </Text>
           </Pressable>
+          <Text style={[styles.versionText, { color: colors.textMuted }]}>
+            v{getBuildInfo().fullVersion}
+          </Text>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -674,32 +647,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.3,
-  },
-  linkedCard: {
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  linkedTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  linkedSession: {
-    fontSize: 12,
-    marginBottom: 12,
-  },
-  unlinkBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  unlinkBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
   },
   statsCard: {
     flexDirection: 'row',
@@ -812,5 +759,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     letterSpacing: 1,
+  },
+  versionText: {
+    fontSize: 10,
+    fontWeight: '400',
+    marginTop: 4,
+    opacity: 0.6,
   },
 })
