@@ -1,6 +1,11 @@
 /**
  * Home - Your relationship's photography insurance
- * Minimal, artistic design with micro-interactions
+ * 
+ * Zen Design Philosophy:
+ * - Generous whitespace for breathing room
+ * - Calm, muted colors
+ * - Gentle, deliberate animations
+ * - Clear focus on essential actions
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -91,14 +96,16 @@ function ActionCard({
   }))
   
   const handlePressIn = () => {
-    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 })
-    pressed.value = withTiming(1, { duration: 80 })
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    // Zen: gentler, more deliberate press animation
+    scale.value = withSpring(0.985, { damping: 20, stiffness: 300 })
+    pressed.value = withTiming(1, { duration: 120 })
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft)
   }
   
   const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 300 })
-    pressed.value = withTiming(0, { duration: 150 })
+    // Zen: slower spring back
+    scale.value = withSpring(1, { damping: 18, stiffness: 250 })
+    pressed.value = withTiming(0, { duration: 200 })
   }
 
   return (
@@ -137,7 +144,7 @@ function ActionCard({
           >
             <Icon 
               name={icon} 
-              size={22} 
+              size={26} 
               color={highlight ? colors.primaryText : colors.text} 
             />
           </View>
@@ -208,6 +215,9 @@ function NavItem({
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      accessibilityLabel={label}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: active }}
     >
       <Animated.View style={[styles.navItemInner, animatedStyle]}>
         <Icon name={icon} size={20} color={active ? colors.text : colors.textMuted} />
@@ -395,7 +405,7 @@ export default function HomeScreen() {
         <Animated.View entering={FadeIn.duration(500)} style={styles.header}>
           <View style={styles.brand}>
             <Text style={[styles.brandBold, { color: colors.text }]}>
-              HelpHer 📸
+              {t.appName} 📸
             </Text>
           </View>
 
@@ -579,144 +589,150 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingBottom: 32,
+    paddingHorizontal: 28,      // Zen: more breathing room
+    paddingBottom: 40,
   },
   header: {
-    paddingTop: 16,
-    paddingBottom: 32,
+    paddingTop: 24,             // Zen: more space at top
+    paddingBottom: 40,          // Zen: generous spacing
   },
   brand: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   brandBold: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontSize: 30,               // Zen: slightly smaller, more refined
+    fontWeight: '700',          // Zen: less aggressive weight
+    letterSpacing: -0.3,
   },
   tagline: {
     fontSize: 15,
-    lineHeight: 22,
-    minHeight: 44,
+    lineHeight: 24,             // Zen: more line height for readability
+    minHeight: 48,
     fontWeight: '400',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
-    gap: 10,
+    marginTop: 24,              // Zen: more space
+    gap: 12,
     flexWrap: 'wrap',
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,           // Zen: softer corners
+    minHeight: 48,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
   },
   statusText: {
     fontSize: 12,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontWeight: '500',          // Zen: lighter weight
+    letterSpacing: 0.4,
   },
   rankPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    minHeight: 48,
   },
   rankText: {
     fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    fontWeight: '600',
+    letterSpacing: 0.4,
   },
   statsCard: {
     flexDirection: 'row',
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 18,
-    marginBottom: 28,
+    borderRadius: 16,           // Zen: softer corners
+    padding: 24,                // Zen: more padding
+    marginBottom: 36,           // Zen: more spacing
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    fontSize: 26,               // Zen: slightly smaller
+    fontWeight: '700',
+    letterSpacing: -0.3,
   },
   statLabel: {
-    fontSize: 11,
-    marginTop: 4,
-    fontWeight: '500',
-    letterSpacing: 0.3,
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '400',          // Zen: lighter
+    letterSpacing: 0.4,
   },
   statDivider: {
     width: 1,
-    marginHorizontal: 16,
+    marginHorizontal: 20,       // Zen: more space
   },
   actions: {
     flex: 1,
   },
   sectionLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.5,
+    fontSize: 12,
+    fontWeight: '500',          // Zen: lighter
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginBottom: 14,
+    marginBottom: 18,           // Zen: more space
   },
   cardPressable: {
-    marginBottom: 10,
+    marginBottom: 14,           // Zen: more space between cards
   },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 18,
-    paddingHorizontal: 16,
+    paddingVertical: 26,        // Zen: more padding
+    paddingHorizontal: 22,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 16,           // Zen: softer corners
     overflow: 'hidden',
+    minHeight: 96,              // Zen: taller for breathing room
   },
   shimmer: {
     ...StyleSheet.absoluteFillObject,
   },
   cardIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
+    width: 54,
+    height: 54,
+    borderRadius: 14,           // Zen: softer corners
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
+    marginRight: 18,
   },
   cardContent: {
     flex: 1,
   },
   cardLabel: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,               // Zen: slightly smaller
+    fontWeight: '600',          // Zen: lighter weight
     letterSpacing: -0.2,
   },
   cardSubtitle: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: 14,
+    marginTop: 6,
     fontWeight: '400',
+    lineHeight: 21,             // Zen: more line height
+    opacity: 0.8,               // Zen: softer secondary text
   },
   cardArrowContainer: {
-    paddingLeft: 12,
-    paddingRight: 2, // Extra space to prevent icon clipping
+    paddingLeft: 14,
+    paddingRight: 4,
     overflow: 'visible',
+    opacity: 0.5,               // Zen: subtle arrow
   },
   spacer: {
-    height: 16,
+    height: 20,                 // Zen: more space
   },
   bottomNav: {
     flexDirection: 'row',
@@ -730,7 +746,8 @@ const styles = StyleSheet.create({
   navItem: {
     flex: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 12,
+    minHeight: 48, // Accessibility: minimum touch target
   },
   navItemInner: {
     alignItems: 'center',

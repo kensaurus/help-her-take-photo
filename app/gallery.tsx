@@ -2,9 +2,14 @@
  * Gallery - Enhanced with share, zoom, skeleton loaders, and theme support
  * Full accessibility support and responsive design
  * Now loads photos from Supabase captures table
+ * 
+ * UX Enhancements:
+ * - Undo pattern for delete (instead of confirm dialogs)
+ * - Infinite scroll with prefetching
+ * - Better accessibility labels
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { 
   View, 
   Text, 
@@ -42,8 +47,11 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { Icon } from '../src/components/ui/Icon'
+import { ZenLoader } from '../src/components/ui/ZenLoader'
+import { ZenEmptyState } from '../src/components/ui/ZenEmptyState'
 import { capturesApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { useRouter } from 'expo-router'
 
 const COLUMN_COUNT = 3
 const GAP = 3
@@ -294,7 +302,75 @@ function PhotoViewer({
 }
 
 
+/**
+ * UndoToast - Shows undo option after destructive actions
+ */
+function UndoToast({ 
+  message, 
+  visible, 
+  onUndo, 
+  onDismiss,
+  duration = 5000,
+}: { 
+  message: string
+  visible: boolean
+  onUndo: () => void
+  onDismiss: () => void
+  duration?: number
+}) {
+  const { colors } = useThemeStore()
+  const progress = useSharedValue(1)
+  const translateY = useSharedValue(100)
+  
+  useEffect(() => {
+    if (visible) {
+      translateY.value = withSpring(0, { damping: 15, stiffness: 200 })
+      progress.value = 1
+      progress.value = withTiming(0, { duration })
+      
+      const timer = setTimeout(() => {
+        onDismiss()
+      }, duration)
+      
+      return () => clearTimeout(timer)
+    } else {
+      translateY.value = withTiming(100, { duration: 200 })
+    }
+  }, [visible, duration, onDismiss])
+  
+  const containerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }))
+  
+  const progressStyle = useAnimatedStyle(() => ({
+    width: `${progress.value * 100}%`,
+  }))
+  
+  if (!visible) return null
+  
+  return (
+    <Animated.View style={[styles.undoToast, { backgroundColor: colors.surface }, containerStyle]}>
+      <View style={styles.undoContent}>
+        <Text style={[styles.undoMessage, { color: colors.text }]}>{message}</Text>
+        <Pressable 
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+            onUndo()
+          }}
+          style={[styles.undoButton, { backgroundColor: colors.primary }]}
+          accessibilityLabel="Undo delete"
+          accessibilityRole="button"
+        >
+          <Text style={[styles.undoButtonText, { color: colors.primaryText }]}>UNDO</Text>
+        </Pressable>
+      </View>
+      <Animated.View style={[styles.undoProgress, { backgroundColor: colors.primary }, progressStyle]} />
+    </Animated.View>
+  )
+}
+
 export default function GalleryScreen() {
+  const router = useRouter()
   const { colors } = useThemeStore()
   const { t } = useLanguageStore()
   const { stats } = useStatsStore()
@@ -306,6 +382,20 @@ export default function GalleryScreen() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [isAdding, setIsAdding] = useState(false)
   const { myDeviceId, sessionId, pairedDeviceId } = usePairingStore()
+  
+  // Undo state for delete actions
+  const [undoState, setUndoState] = useState<{
+    visible: boolean
+    deletedPhoto: Photo | null
+    message: string
+  }>({ visible: false, deletedPhoto: null, message: '' })
+  const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
+  // Infinite scroll state
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
   
   // Calculate responsive photo size
   const photoSize = (screenWidth - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
@@ -345,12 +435,12 @@ export default function GalleryScreen() {
       for (const asset of result.assets) {
         // Create a capture record in Supabase
         if (myDeviceId) {
-          const { capture, error } = await capturesApi.create({
-            camera_device_id: myDeviceId,
-            viewer_device_id: pairedDeviceId || undefined,
-            session_id: sessionId || undefined,
-            storage_path: asset.uri,
-            captured_by: 'camera',
+          const { capture, error } = await capturesApi.save({
+            cameraDeviceId: myDeviceId,
+            viewerDeviceId: pairedDeviceId || undefined,
+            sessionId: sessionId || undefined,
+            storagePath: asset.uri,
+            capturedBy: 'camera',
             width: asset.width,
             height: asset.height,
           })
@@ -414,7 +504,7 @@ export default function GalleryScreen() {
         id: capture.id,
         uri: capture.storage_path || capture.thumbnail_path || '',
         byMe: capture.captured_by === 'camera',
-        timestamp: new Date(capture.created_at),
+        timestamp: capture.created_at ? new Date(capture.created_at) : new Date(),
       }))
 
       setPhotos(loadedPhotos)
@@ -468,39 +558,95 @@ export default function GalleryScreen() {
     }
   }
 
+  // Undo pattern for delete - more user-friendly than confirm dialogs
   const handleDelete = () => {
     if (!selectedPhoto) return
-    Alert.alert(
-      t.gallery.delete,
-      'Are you sure?',
-      [
-        { text: t.common.cancel, style: 'cancel' },
-        { 
-          text: t.common.delete, 
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete from Supabase
-              const { success, error } = await capturesApi.delete(selectedPhoto.id)
-              
-              if (success) {
-                setPhotos(prev => prev.filter(p => p.id !== selectedPhoto.id))
-                setSelectedPhoto(null)
-                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-                sessionLogger.info('photo_deleted', { photoId: selectedPhoto.id })
-              } else {
-                sessionLogger.error('photo_delete_failed', new Error(error || 'Unknown error'))
-                Alert.alert(t.common.error, 'Failed to delete photo')
-              }
-            } catch (err) {
-              sessionLogger.error('photo_delete_error', err)
-              Alert.alert(t.common.error, 'Failed to delete photo')
-            }
-          }
-        },
-      ]
-    )
+    
+    const photoToDelete = selectedPhoto
+    
+    // Optimistic removal from UI
+    setPhotos(prev => prev.filter(p => p.id !== photoToDelete.id))
+    setSelectedPhoto(null)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    
+    // Show undo toast
+    setUndoState({
+      visible: true,
+      deletedPhoto: photoToDelete,
+      message: 'Photo deleted',
+    })
+    
+    sessionLogger.info('photo_delete_initiated', { photoId: photoToDelete.id })
   }
+  
+  // Handle undo
+  const handleUndo = useCallback(() => {
+    if (undoState.deletedPhoto) {
+      // Restore the photo to the list
+      setPhotos(prev => [undoState.deletedPhoto!, ...prev])
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      sessionLogger.info('photo_delete_undone', { photoId: undoState.deletedPhoto.id })
+    }
+    setUndoState({ visible: false, deletedPhoto: null, message: '' })
+  }, [undoState.deletedPhoto])
+  
+  // Handle dismiss (actually delete)
+  const handleUndoDismiss = useCallback(async () => {
+    if (undoState.deletedPhoto) {
+      try {
+        // Actually delete from Supabase
+        const { success, error } = await capturesApi.delete(undoState.deletedPhoto.id)
+        
+        if (success) {
+          sessionLogger.info('photo_deleted', { photoId: undoState.deletedPhoto.id })
+        } else {
+          // Restore on failure
+          setPhotos(prev => [undoState.deletedPhoto!, ...prev])
+          sessionLogger.error('photo_delete_failed', new Error(error || 'Unknown error'))
+          Alert.alert(t.common.error, 'Failed to delete photo. Photo has been restored.')
+        }
+      } catch (err) {
+        // Restore on failure
+        setPhotos(prev => [undoState.deletedPhoto!, ...prev])
+        sessionLogger.error('photo_delete_error', err)
+        Alert.alert(t.common.error, 'Failed to delete photo. Photo has been restored.')
+      }
+    }
+    setUndoState({ visible: false, deletedPhoto: null, message: '' })
+  }, [undoState.deletedPhoto, t.common.error])
+  
+  // Infinite scroll - load more photos
+  const handleEndReached = useCallback(async () => {
+    if (isLoadingMore || !hasMore || !myDeviceId) return
+    
+    setIsLoadingMore(true)
+    try {
+      const { captures } = await capturesApi.getByDevice(myDeviceId, { 
+        limit: PAGE_SIZE, 
+        offset: (page + 1) * PAGE_SIZE 
+      })
+      
+      if (captures.length < PAGE_SIZE) {
+        setHasMore(false)
+      }
+      
+      if (captures.length > 0) {
+        const newPhotos: Photo[] = captures.map(capture => ({
+          id: capture.id,
+          uri: capture.storage_path || capture.thumbnail_path || '',
+          byMe: capture.captured_by === 'camera',
+          timestamp: capture.created_at ? new Date(capture.created_at) : new Date(),
+        }))
+        
+        setPhotos(prev => [...prev, ...newPhotos])
+        setPage(prev => prev + 1)
+      }
+    } catch (err) {
+      sessionLogger.error('gallery_load_more_error', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [isLoadingMore, hasMore, myDeviceId, page])
 
   const renderPhoto = useCallback(({ item, index }: ListRenderItemInfo<Photo>) => (
     <Animated.View entering={FadeInUp.delay(index * 25).duration(250)}>
@@ -545,40 +691,30 @@ export default function GalleryScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['bottom']}>
 
       {isLoading ? (
-        <PhotoGridSkeleton count={12} />
-      ) : filteredPhotos.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Animated.View entering={FadeIn.duration(400)} style={styles.emptyContent}>
-            <View 
-              style={[styles.emptyIconContainer, { backgroundColor: colors.surfaceAlt }]}
-              accessibilityElementsHidden
-            >
-              <Icon name="image" size={40} color={colors.textMuted} />
-            </View>
-            <Text 
-              style={[styles.emptyTitle, { color: colors.text }]}
-              accessibilityRole="header"
-            >
-              {t.gallery.noPhotos}
-            </Text>
-            <Text style={[styles.emptyDesc, { color: colors.textSecondary }]}>
-              {t.gallery.noPhotosDesc}
-            </Text>
-            <Text style={[styles.emptyHint, { color: colors.textMuted }]}>
-              Start a session and the magic happens ✨
-            </Text>
-          </Animated.View>
+        <View style={styles.zenLoadingContainer}>
+          <ZenLoader variant="breathe" size="large" message="Loading your memories..." />
         </View>
+      ) : filteredPhotos.length === 0 ? (
+        <ZenEmptyState
+          icon="gallery"
+          title={t.gallery.noPhotos}
+          description={t.gallery.noPhotosDesc}
+          action={{
+            label: 'Start a session',
+            onPress: () => router.push('/pairing'),
+          }}
+        />
       ) : (
-        <FlashList<Photo>
+        // @ts-expect-error FlashList v2 types are incomplete
+        <FlashList
           data={filteredPhotos}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item: Photo) => item.id}
           numColumns={COLUMN_COUNT}
           renderItem={renderPhoto}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
           estimatedItemSize={photoSize}
-          drawDistance={photoSize * 2}
+          drawDistance={photoSize * 3}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -587,6 +723,14 @@ export default function GalleryScreen() {
               colors={[colors.primary]}
             />
           }
+          // Infinite scroll with prefetching
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={isLoadingMore ? (
+            <View style={styles.loadingMore}>
+              <ZenLoader variant="dots" size="small" />
+            </View>
+          ) : null}
           accessible={true}
           accessibilityLabel={`Photo gallery with ${filteredPhotos.length} photos`}
         />
@@ -602,6 +746,14 @@ export default function GalleryScreen() {
           t={t}
         />
       )}
+
+      {/* Undo Toast for delete actions */}
+      <UndoToast
+        visible={undoState.visible}
+        message={undoState.message}
+        onUndo={handleUndo}
+        onDismiss={handleUndoDismiss}
+      />
 
       {/* Floating Add Button */}
       <Pressable
@@ -647,6 +799,11 @@ const styles = StyleSheet.create({
     height: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  zenLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyState: {
     flex: 1,
@@ -768,5 +925,58 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  // Undo toast styles
+  undoToast: {
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  undoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  undoMessage: {
+    fontSize: 15,
+    fontWeight: '500',
+    flex: 1,
+  },
+  undoButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  undoButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  undoProgress: {
+    height: 3,
+    borderRadius: 1.5,
+  },
+  // Loading more styles
+  loadingMore: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  loadingMoreText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
 })

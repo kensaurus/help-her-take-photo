@@ -36,7 +36,9 @@ A mobile app that helps couples take better photos by allowing one person to rem
 | Lists | @shopify/flash-list |
 | Images | expo-image |
 | Haptics | expo-haptics |
-| **Backend** | **Supabase (Direct)** |
+| **Backend** | **Supabase (PostgreSQL, Auth, Edge Functions)** |
+| **Error Tracking** | **Sentry (@sentry/react-native)** |
+| **Validation** | Custom Zod-like schemas |
 
 ## 🚀 Quick Start
 
@@ -96,7 +98,7 @@ npx expo start
 
 ```
 ├── app/                    # Expo Router screens
-│   ├── _layout.tsx        # Root navigation & store initialization
+│   ├── _layout.tsx        # Root navigation, Sentry init, Auth provider
 │   ├── index.tsx          # Home screen (role selection)
 │   ├── onboarding.tsx     # First-time user flow + language selection
 │   ├── pairing.tsx        # Device pairing (4-digit code)
@@ -110,11 +112,21 @@ npx expo start
 ├── src/
 │   ├── components/        # Reusable UI components
 │   │   ├── CaptureButton.tsx  # Enhanced capture with animations
-│   │   └── ui/           # Base UI (Icon, Skeleton, AnimatedPressable)
+│   │   ├── ErrorBoundary.tsx  # React error boundary
+│   │   └── ui/           # Base UI components
+│   │       ├── DebugMenu.tsx  # Dev-only debug utilities
+│   │       └── ...       # Icon, Skeleton, AnimatedPressable, etc.
+│   ├── contexts/         # React contexts
+│   │   └── AuthContext.tsx   # Supabase auth state provider
+│   ├── schemas/          # Input validation
+│   │   └── index.ts      # Zod-like validation schemas
 │   ├── stores/           # Zustand state stores
 │   ├── services/         # Business logic
 │   │   ├── api.ts        # Supabase API client
-│   │   ├── supabase.ts   # Supabase configuration
+│   │   ├── supabase.ts   # Supabase client + anonymous auth
+│   │   ├── errorTracking.ts  # Sentry integration
+│   │   ├── logging.ts    # Structured logging service
+│   │   ├── connectionManager.ts  # WebRTC connection management
 │   │   ├── sessionLogger.ts  # Supabase logging service
 │   │   ├── soundService.ts   # Sound + haptic feedback
 │   │   └── webrtc.ts     # WebRTC P2P video streaming
@@ -125,6 +137,9 @@ npx expo start
 │   ├── types/            # TypeScript definitions
 │   └── config/           # Build configuration
 ├── supabase/
+│   ├── functions/        # Edge Functions (Deno)
+│   │   ├── create-pairing/   # Create pairing session
+│   │   └── join-pairing/     # Join pairing session
 │   └── migrations/       # SQL migrations for Supabase
 ├── assets/               # Images, icons, sounds
 └── scripts/              # Build & utility scripts
@@ -145,6 +160,52 @@ npx expo start
 | `app_logs` | **Debug logging** |
 | `webrtc_signals` | **WebRTC signaling** |
 | `commands` | **Direction commands** |
+
+## ⚡ Supabase Edge Functions
+
+### create-pairing
+Creates a new pairing session with a 4-digit code.
+
+```bash
+# Request
+curl -X POST 'https://your-project.supabase.co/functions/v1/create-pairing' \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId": "uuid-here", "role": "camera"}'
+
+# Response
+{
+  "success": true,
+  "code": "1234",
+  "sessionId": "uuid",
+  "expiresAt": "2025-12-15T11:00:00Z"
+}
+```
+
+### join-pairing
+Joins an existing pairing session using the 4-digit code.
+
+```bash
+# Request
+curl -X POST 'https://your-project.supabase.co/functions/v1/join-pairing' \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId": "uuid-here", "code": "1234"}'
+
+# Response
+{
+  "success": true,
+  "sessionId": "uuid",
+  "partnerId": "partner-uuid",
+  "creatorRole": "camera"
+}
+```
+
+### Deploying Edge Functions
+
+```bash
+# Deploy with JWT verification disabled (for anonymous access)
+supabase functions deploy create-pairing --no-verify-jwt
+supabase functions deploy join-pairing --no-verify-jwt
+```
 
 ## 📊 Logging & Debugging
 
@@ -283,9 +344,93 @@ Create `.env` in project root:
 ```env
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
 ```
 
-Get these from **Supabase Dashboard → Settings → API**
+Get these from:
+- **Supabase:** Dashboard → Settings → API
+- **Sentry:** Dashboard → Settings → Projects → Client Keys (DSN)
+
+## 🔒 Security Features
+
+The app implements production-grade security best practices:
+
+### Authentication & Session Management
+| Feature | Implementation |
+|---------|----------------|
+| **Anonymous Auth** | Supabase Auth with `signInAnonymously()` for RLS |
+| **Session Refresh** | Auto-refresh on app foreground via `AppState` listener |
+| **Secure Storage** | Device ID stored in `expo-secure-store` (encrypted) |
+| **Auth Context** | React Context provides auth state throughout app |
+
+```typescript
+// Session auto-refresh on app state change
+AppState.addEventListener('change', (state) => {
+  if (state === 'active') {
+    supabase.auth.startAutoRefresh()
+  } else {
+    supabase.auth.stopAutoRefresh()
+  }
+})
+```
+
+### Edge Functions (Secure Endpoints)
+| Function | Purpose | Security |
+|----------|---------|----------|
+| `create-pairing` | Create pairing session | Rate limiting, input validation |
+| `join-pairing` | Join existing session | Rate limiting, UUID validation |
+
+**Edge Function Security Features:**
+- ✅ Input validation (UUID format, code format)
+- ✅ Rate limiting (10 requests/minute per device)
+- ✅ CORS headers for mobile clients
+- ✅ Service role key for database operations
+- ✅ Detailed error messages in dev, generic in prod
+
+### Input Validation
+Client-side validation schemas in `src/schemas/index.ts`:
+
+```typescript
+// Zod-like validation for all API inputs
+validateCreatePairing({ deviceId, role })
+validateJoinPairing({ deviceId, code })
+validateFeedback({ type, message, email, rating })
+validateSettings({ theme, language, ... })
+```
+
+### Error Tracking (Sentry)
+| Feature | Description |
+|---------|-------------|
+| **Automatic capture** | Unhandled exceptions sent to Sentry |
+| **User context** | Device ID attached to errors |
+| **Breadcrumbs** | Navigation and action trails |
+| **PII scrubbing** | Auth headers removed before send |
+| **Source maps** | Stack traces point to original code |
+
+```typescript
+// Sentry initialized in _layout.tsx
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  enabled: !__DEV__,
+  tracesSampleRate: 0.2,
+})
+```
+
+### Row Level Security (RLS)
+All Supabase tables have RLS enabled:
+- `pairing_sessions` - Device-based access
+- `devices` - Own device only
+- `captures` - Session participants only
+- `user_stats` / `user_settings` - Own device only
+- `feedback` - Insert only (public)
+
+### Debug Menu (Development Only)
+Available in dev builds via shake gesture or debug button:
+- View current session
+- Clear AsyncStorage
+- View network state
+- Test Supabase connection
+- **Test Crash (Sentry)** - Trigger test error
 
 ## 📱 State Management
 
@@ -298,6 +443,37 @@ Get these from **Supabase Dashboard → Settings → API**
 | `statsStore` | User statistics (photos, scoldings saved) |
 | `settingsStore` | App preferences |
 | `onboardingStore` | First-run completion flag |
+
+## 🛠️ Services
+
+| Service | Purpose |
+|---------|---------|
+| `supabase.ts` | Supabase client with anonymous auth, session management |
+| `errorTracking.ts` | Sentry integration for crash reporting |
+| `logging.ts` | Structured logging with levels (debug/info/warn/error) |
+| `connectionManager.ts` | WebRTC connection state machine |
+| `api.ts` | Supabase database operations |
+| `webrtc.ts` | P2P video streaming |
+
+### Key Service Functions
+
+```typescript
+// Authentication (supabase.ts)
+await ensureAuthenticated()  // Anonymous auth for RLS
+await getDeviceId()          // From SecureStore
+await signOut()              // Clear session
+
+// Error Tracking (errorTracking.ts)
+captureException(error, { context })
+captureMessage('User action', 'info')
+setUser({ id, deviceId })
+addBreadcrumb('navigation', 'Opened settings')
+
+// Logging (logging.ts)
+logger.info('Action completed', { data })
+logger.error('Failed to connect', error, { sessionId })
+logger.warn('Deprecation warning')
+```
 
 ## 🎨 UI Components
 
@@ -392,8 +568,11 @@ chore: maintenance
 ## 📖 Documentation
 
 - [Handoff Documentation](./HANDOFF.md) - Comprehensive developer guide
+- [UX/UI Audit Report](./AUDIT_REPORT.md) - UX best practices audit
+- [Production Audit](./PRODUCTION_AUDIT.md) - Security & production readiness
 - [Expo Documentation](https://docs.expo.dev)
 - [Supabase Documentation](https://supabase.com/docs)
+- [Sentry Documentation](https://docs.sentry.io/platforms/react-native/)
 
 ## 📄 License
 

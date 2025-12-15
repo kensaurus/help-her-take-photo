@@ -118,17 +118,34 @@ function QuickActionButton({
   )
 }
 
-// Encouragement toast
+// Encouragement toast - minimal
 function EncouragementToast({ message, visible }: { message: string; visible: boolean }) {
   if (!visible) return null
   
   return (
     <Animated.View 
-      entering={FadeIn.duration(200)} 
-      exiting={FadeOut.duration(200)}
+      entering={FadeIn.duration(150)} 
+      exiting={FadeOut.duration(150)}
       style={styles.toast}
     >
       <Text style={styles.toastText}>{message}</Text>
+    </Animated.View>
+  )
+}
+
+// Toast notification for role switch request from partner
+function SwitchRoleToast({ visible, partnerName }: { visible: boolean; partnerName: string }) {
+  if (!visible) return null
+  return (
+    <Animated.View 
+      entering={FadeIn.duration(200)} 
+      exiting={FadeOut.duration(200)}
+      style={styles.switchToast}
+    >
+      <Text style={styles.switchToastText}>
+        {partnerName} wants to be Photographer
+      </Text>
+      <Text style={styles.switchToastSubtext}>Switching you to Director...</Text>
     </Animated.View>
   )
 }
@@ -291,13 +308,9 @@ export default function CameraScreen() {
         sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
         setPartnerPresence(isOnline)
         setPartnerOnline(isOnline)
-        if (!isOnline) {
-          Alert.alert(
-            'Director Disconnected',
-            `${partnerNameRef.current || 'Your director'} has disconnected.`,
-            [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
-          )
-        }
+        // NOTE: We do NOT auto-disconnect when partner goes offline.
+        // Session should persist so they can reconnect when they return.
+        // User can manually disconnect if needed.
       },
       onError: (message) => {
         sessionLogger.warn('presence_error', { message })
@@ -312,6 +325,8 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
   const [facing, setFacing] = useState<CameraType>('back')
+  const [flashMode, setFlashMode] = useState<'off' | 'on' | 'auto'>('off')
+  const [showSwitchToast, setShowSwitchToast] = useState(false)
   // IMPORTANT: Don't auto-start WebRTC on mount. If pairing state is stale or partner isn't online yet,
   // auto-starting WebRTC frequently results in an Android "blank screen" (getUserMedia hangs / RTCView black).
   // We only start sharing once Presence confirms partner is online (or user explicitly retries).
@@ -529,6 +544,21 @@ export default function CameraScreen() {
         webrtcService.onCommand((command, data) => {
           if (!isMounted) return
           sessionLogger.info('command_received', { command, data })
+          
+          // Handle role switch command - auto-navigate to director mode
+          if (command === 'switch_role' && data?.newRole === 'director') {
+            sessionLogger.info('switch_role_received', { newRole: 'director' })
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+            // Show toast notification before switching
+            setShowSwitchToast(true)
+            setTimeout(() => {
+              webrtcService.destroy().then(() => {
+                router.replace('/viewer')
+              })
+            }, 1500)
+            return
+          }
+          
           setLastCommand(command)
           handleRemoteCommand(command, data)
           setTimeout(() => setLastCommand(null), 2000)
@@ -653,11 +683,29 @@ export default function CameraScreen() {
         handleCapture()
         break
       case 'flip':
-        setFacing(f => f === 'back' ? 'front' : 'back')
+        toggleCameraFacing()
+        setShowEncouragement(true)
+        setEncouragement('Camera flipped')
+        setTimeout(() => setShowEncouragement(false), 1500)
+        break
+      case 'flash':
+        toggleFlash()
+        setShowEncouragement(true)
+        setEncouragement(flashMode === 'off' ? 'Flash ON' : 'Flash OFF')
+        setTimeout(() => setShowEncouragement(false), 1500)
         break
       case 'direction':
         setShowEncouragement(true)
-        setEncouragement(`👆 ${data?.direction || 'Adjust'}`)
+        // Show clear direction with arrow
+        const directionMap: Record<string, string> = {
+          up: '↑ Tilt Up',
+          down: '↓ Tilt Down', 
+          left: '← Pan Left',
+          right: '→ Pan Right',
+          closer: '⊕ Move Closer',
+          back: '⊖ Step Back',
+        }
+        setEncouragement(directionMap[data?.direction as string] || 'Adjust position')
         setTimeout(() => setShowEncouragement(false), 2000)
         break
     }
@@ -709,7 +757,7 @@ export default function CameraScreen() {
           accessibilityLabel="Go back"
           accessibilityRole="button"
         >
-          <Text style={styles.backButtonText}>← Back</Text>
+          <Text style={styles.backButtonText}>‹</Text>
         </Pressable>
         
         <View style={styles.loadingContainer}>
@@ -851,6 +899,11 @@ export default function CameraScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
 
+  const toggleFlash = () => {
+    setFlashMode(f => f === 'off' ? 'on' : 'off')
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+  }
+
   const handleDisconnect = async () => {
     Alert.alert(
       'Disconnect',
@@ -885,7 +938,7 @@ export default function CameraScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Back button - consistent navigation */}
+      {/* Back button - minimal */}
       <Pressable 
         style={styles.backButton}
         onPress={() => {
@@ -895,7 +948,7 @@ export default function CameraScreen() {
         accessibilityLabel="Go back"
         accessibilityRole="button"
       >
-        <Text style={styles.backButtonTextCamera}>← Back</Text>
+        <Text style={styles.backButtonTextCamera}>‹</Text>
       </Pressable>
 
       {/* Camera preview */}
@@ -976,6 +1029,7 @@ export default function CameraScreen() {
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             facing={facing}
+            flash={flashMode}
             onCameraReady={() => {
               setCameraReady(true)
               setCameraError(null)
@@ -983,6 +1037,7 @@ export default function CameraScreen() {
                 facing,
                 isPaired,
                 isSharing,
+                flashMode,
                 source: 'expo-camera',
               })
             }}
@@ -1002,24 +1057,30 @@ export default function CameraScreen() {
         
         {settings.showGrid && <GridOverlay />}
         
-        {/* Status bar */}
+        {/* Status bar with long-press hint */}
         <Pressable 
           style={styles.statusBar}
           onLongPress={handleDisconnect}
-          accessibilityLabel="Connection status. Long press to disconnect"
+          accessibilityLabel={`Connection status: ${isConnected ? 'Live streaming' : isPaired ? 'Paired' : 'Not connected'}. Long press to disconnect`}
+          accessibilityHint="Long press to disconnect from partner"
+          accessibilityRole="button"
         >
           <View style={[
             styles.statusDot, 
             isConnected ? styles.statusDotLive : 
-            isPaired ? styles.statusDotOn : styles.statusDotOff
+            isPaired ? (partnerOnline === false ? styles.statusDotOff : styles.statusDotOn) : styles.statusDotOff
           ]} />
           <View style={styles.statusTextContainer}>
             <Text style={styles.statusText}>
-              {isConnected ? '🔴 LIVE' : isPaired ? (isSharing ? 'Connecting...' : 'Paired') : t.camera.notConnected}
+              {isConnected ? '🔴 LIVE' : isPaired ? (partnerOnline === false ? '📴 Offline' : isSharing ? '⏳ Connecting...' : '✓ Paired') : t.camera.notConnected}
             </Text>
             {isPaired && pairedDeviceId && (
-              <Text style={styles.partnerText}>👁️ Director watching</Text>
+              <Text style={styles.partnerText}>
+                {partnerOnline === false ? '⏳ Session saved' : '👁️ Director watching'}
+              </Text>
             )}
+            {/* Long-press hint indicator */}
+            <Text style={styles.longPressHint}>Hold to disconnect</Text>
           </View>
         </Pressable>
         
@@ -1036,26 +1097,36 @@ export default function CameraScreen() {
         )}
         
         <EncouragementToast message={encouragement} visible={showEncouragement} />
+        <SwitchRoleToast visible={showSwitchToast} partnerName={partnerDisplayName || 'Partner'} />
       </View>
 
       {/* Controls - Simplified for focus */}
       <View style={styles.controls}>
-        {/* Connection status indicator */}
+        {/* Prominent streaming indicator */}
         {isPaired && (
-          <View style={styles.connectionIndicator}>
+          <Animated.View 
+            entering={FadeIn.duration(200)}
+            style={styles.connectionIndicator}
+          >
             <View style={[styles.liveIndicator, isConnected && styles.liveIndicatorActive]}>
+              {isConnected && <View style={styles.recordingDot} />}
               <Text style={styles.liveIndicatorText}>
-                {isConnected ? '🔴 LIVE' : '⏳ Connecting...'}
+                {isConnected ? 'STREAMING TO PARTNER' : '⏳ Connecting...'}
               </Text>
             </View>
-          </View>
+            {isConnected && (
+              <Text style={styles.streamingHint}>
+                📷 Camera is being shared
+              </Text>
+            )}
+          </Animated.View>
         )}
 
         <View style={styles.captureRow}>
           <CaptureButton onPress={handleCapture} isSharing={isSharing} />
         </View>
 
-        {/* Minimal quick actions - only essential controls */}
+        {/* Minimal quick actions - essential controls */}
         <View style={styles.bottomControls} accessibilityRole="toolbar">
           <QuickActionButton
             icon="⊞"
@@ -1065,11 +1136,18 @@ export default function CameraScreen() {
               updateSettings({ showGrid: !settings.showGrid })
             }}
           />
-          
+
           <QuickActionButton
-            icon="🔄"
+            icon="⟲"
             label="Flip"
             onPress={toggleCameraFacing}
+          />
+
+          <QuickActionButton
+            icon="⚡"
+            label="Flash"
+            active={flashMode === 'on'}
+            onPress={toggleFlash}
           />
         </View>
 
@@ -1096,6 +1174,9 @@ export default function CameraScreen() {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
               ;(async () => {
                 try {
+                  // Notify partner to switch to photographer before we switch
+                  await webrtcService.sendCommand('switch_role', { newRole: 'photographer' })
+                  sessionLogger.info('switch_role_command_sent', { partnerNewRole: 'photographer' })
                   await webrtcService.destroy()
                 } finally {
                   router.replace('/viewer')
@@ -1104,7 +1185,7 @@ export default function CameraScreen() {
             }}
             accessibilityLabel="Switch to Director mode"
           >
-            <Text style={styles.switchRoleIcon}>👁️</Text>
+            <Text style={styles.switchRoleIcon}>◉</Text>
             <Text style={styles.switchRoleText}>Switch to Director</Text>
           </Pressable>
         )}
@@ -1135,7 +1216,7 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0a0a0a',
   },
   loadingContainer: {
     flex: 1,
@@ -1144,41 +1225,44 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   loadingEmoji: {
-    fontSize: 64,
+    fontSize: 32,
+    opacity: 0.5,
   },
   loadingText: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 0.5,
   },
   backButtonTop: {
     position: 'absolute',
     top: 50,
-    left: 20,
+    left: 16,
     zIndex: 100,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 6,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   backButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 28,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.7)',
   },
   backButton: {
     position: 'absolute',
     top: 50,
-    left: 16,
+    left: 12,
     zIndex: 100,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   backButtonTextCamera: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 28,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.7)',
   },
   permissionContainer: {
     flex: 1,
@@ -1187,100 +1271,114 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   permissionIcon: {
-    width: 100,
-    height: 100,
-    borderRadius: 24,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   permissionTitle: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '500',
     textAlign: 'center',
     marginBottom: 12,
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 0.3,
   },
   permissionDesc: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
     marginBottom: 32,
+    color: 'rgba(255,255,255,0.5)',
   },
   permissionButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 24,
     marginBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   permissionButtonText: {
-    fontSize: 17,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.8)',
   },
   settingsLink: {
     paddingVertical: 12,
   },
   settingsLinkText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '500',
+    color: 'rgba(255,255,255,0.4)',
   },
   cameraPreview: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#111',
     position: 'relative',
   },
   initializingContainer: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#111',
     justifyContent: 'center',
     alignItems: 'center',
   },
   initializingEmoji: {
-    fontSize: 64,
+    fontSize: 32,
     marginBottom: 16,
+    opacity: 0.4,
   },
   initializingText: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
   errorText: {
-    fontSize: 16,
-    color: '#ef4444',
+    fontSize: 13,
+    color: 'rgba(255,100,100,0.8)',
     fontWeight: '500',
     textAlign: 'center',
     paddingHorizontal: 32,
     marginBottom: 20,
   },
   retryButton: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
   },
   retryButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    fontWeight: '500',
   },
   errorHint: {
-    fontSize: 14,
-    color: '#9ca3af',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
     textAlign: 'center',
     marginTop: 16,
     paddingHorizontal: 32,
   },
   settingsButton: {
-    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     paddingVertical: 12,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 20,
     marginTop: 12,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.4)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   settingsButtonText: {
-    fontSize: 14,
-    color: '#3b82f6',
-    fontWeight: '600',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
   },
   // ANDROID FIX: Explicit dimensions for RTCView wrapper to prevent 0-dimension crash
   rtcViewWrapper: {
@@ -1325,89 +1423,116 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 4,
+    borderRadius: 16,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusDotOn: {
-    backgroundColor: '#22C55E',
+    backgroundColor: 'rgba(255,255,255,0.5)',
   },
   statusDotOff: {
-    backgroundColor: '#DC2626',
+    backgroundColor: 'rgba(255,100,100,0.6)',
   },
   statusDotLive: {
-    backgroundColor: '#DC2626',
-    shadowColor: '#DC2626',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
+    backgroundColor: '#e53935',
   },
   statusTextContainer: {
     flexDirection: 'column',
   },
   statusText: {
-    fontSize: 13,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '600',
-    color: '#fff',
+    color: 'rgba(255,255,255,0.7)',
+    letterSpacing: 0.5,
   },
   partnerText: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12, // Accessibility: minimum 12sp
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
+  },
+  longPressHint: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   photoCount: {
     position: 'absolute',
     top: 16,
     right: 16,
     backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 12,
-    borderRadius: 4,
+    borderRadius: 16,
   },
   photoCountText: {
-    fontSize: 13,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '500',
-    color: '#fff',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 0.5,
   },
   commandOverlay: {
     position: 'absolute',
     top: '40%',
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(34, 197, 94, 0.9)',
-    paddingVertical: 16,
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: 'center',
   },
   commandText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 0.5,
   },
   toast: {
     position: 'absolute',
     bottom: 80,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    paddingVertical: 12,
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    paddingVertical: 10,
     paddingHorizontal: 16,
-    borderRadius: 4,
+    borderRadius: 8,
     alignItems: 'center',
   },
   toastText: {
-    fontSize: 14,
-    color: '#fff',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
   },
+  // Switch role toast
+  switchToast: {
+    position: 'absolute',
+    top: 100,
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(229, 57, 53, 0.95)',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  switchToastText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  switchToastSubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+  },
   controls: {
-    backgroundColor: '#000',
+    backgroundColor: '#0a0a0a',
     paddingBottom: 32,
   },
   connectionIndicator: {
@@ -1415,110 +1540,136 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   liveIndicator: {
-    paddingVertical: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
     paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   liveIndicatorActive: {
-    backgroundColor: 'rgba(220, 38, 38, 0.3)',
+    backgroundColor: 'rgba(229, 57, 53, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(229, 57, 53, 0.4)',
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e53935',
+  },
+  streamingHint: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    marginTop: 6,
+    textAlign: 'center',
   },
   liveIndicatorText: {
-    fontSize: 13,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '600',
-    color: '#fff',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 1,
   },
   captureRow: {
     alignItems: 'center',
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   bottomControls: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 48,
+    gap: 40,
     paddingTop: 8,
   },
   quickAction: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+    minWidth: 48, // Accessibility: minimum touch target
+    minHeight: 48, // Accessibility: minimum touch target
   },
   quickActionText: {
-    fontSize: 28,
-    color: '#fff',
+    fontSize: 20,
+    color: 'rgba(255,255,255,0.6)',
     marginBottom: 4,
     textAlign: 'center',
   },
   quickActionActive: {
-    color: '#22C55E',
+    color: 'rgba(255,255,255,0.9)',
   },
   quickActionLabel: {
-    fontSize: 12,
-    color: '#888',
+    fontSize: 12, // Accessibility: minimum 12sp
+    color: 'rgba(255,255,255,0.4)',
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
   // Small pill buttons (used by ActionButton component)
   actionBtn: {
     paddingVertical: 10,
     paddingHorizontal: 16,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   actionBtnActive: {
-    backgroundColor: 'rgba(34, 197, 94, 0.25)',
-    borderColor: 'rgba(34, 197, 94, 0.55)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   actionBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
   },
   actionBtnTextActive: {
-    color: '#22C55E',
+    color: 'rgba(255,255,255,0.9)',
   },
   connectPrompt: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     marginHorizontal: 20,
     marginTop: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
-    gap: 10,
+    paddingVertical: 14,
+    borderRadius: 24,
+    gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   connectPromptIcon: {
-    fontSize: 20,
+    fontSize: 14,
+    opacity: 0.6,
   },
   connectPromptText: {
-    fontSize: 16,
-    color: '#22C55E',
-    fontWeight: '600',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
   switchRolePrompt: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
     marginHorizontal: 20,
     marginTop: 16,
     paddingVertical: 14,
     borderRadius: 12,
-    gap: 8,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   switchRoleIcon: {
-    fontSize: 18,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
   },
   switchRoleText: {
-    fontSize: 15,
-    color: '#fff',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
     fontWeight: '500',
+    letterSpacing: 0.5,
   },
 })

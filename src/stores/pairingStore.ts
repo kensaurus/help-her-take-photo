@@ -196,7 +196,7 @@ export const usePairingStore = create<PairingState>((set, get) => ({
         connectionHistory,
       })
     } catch (e) {
-      console.error('Failed to load from storage:', e)
+      // Silent fail - storage might not be ready yet
     }
   },
 

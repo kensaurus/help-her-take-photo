@@ -44,6 +44,7 @@ type IconName =
   | 'dot'
   | 'loading'
   | 'download'
+  | 'external'
 
 interface IconProps {
   name: IconName
@@ -1289,6 +1290,68 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
                   height: stroke,
                   backgroundColor: iconColor,
                   transform: [{ rotate: '45deg' }],
+                },
+              ]}
+            />
+          </View>
+        )
+
+      case 'external':
+        return (
+          <View style={baseStyle}>
+            {/* Box */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: quarter + stroke,
+                  left: stroke * 2,
+                  right: stroke * 2,
+                  bottom: stroke * 2,
+                  borderWidth: stroke,
+                  borderColor: iconColor,
+                  borderRadius: stroke,
+                  borderTopRightRadius: 0,
+                },
+              ]}
+            />
+            {/* Arrow diagonal line */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke * 2,
+                  right: stroke * 2.5,
+                  width: half * 0.7,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  transform: [{ rotate: '-45deg' }],
+                },
+              ]}
+            />
+            {/* Arrow horizontal */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke * 2,
+                  right: stroke * 2,
+                  width: quarter,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                },
+              ]}
+            />
+            {/* Arrow vertical */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke * 2,
+                  right: stroke * 2,
+                  width: stroke,
+                  height: quarter,
+                  backgroundColor: iconColor,
                 },
               ]}
             />

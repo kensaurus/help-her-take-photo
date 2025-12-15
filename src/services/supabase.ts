@@ -1,55 +1,108 @@
 /**
  * Supabase client configuration
  * 
- * PRIVACY: All queries MUST filter by device_id
- * The API service enforces this at the application level
+ * SECURITY:
+ * - Uses Supabase Auth with anonymous sign-in
+ * - Device ID stored in SecureStore (encrypted)
+ * - Auth tokens auto-refresh with AppState listener
+ * - RLS policies enforce data isolation via auth.uid()
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { AppState, Platform } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import * as SecureStore from 'expo-secure-store'
+import { logger } from './logging'
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || ''
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('⚠️ Supabase credentials not configured')
+  logger.warn('Supabase credentials not configured')
 }
 
-// Device ID storage key
-const DEVICE_ID_KEY = 'device_id'
+// Device ID storage key (SecureStore)
+const DEVICE_ID_KEY = 'secure_device_id'
+const DEVICE_ID_LEGACY_KEY = 'device_id' // For migration from AsyncStorage
 
 // Global device ID cache
 let _deviceId: string | null = null
 
 /**
- * Get or create device ID
+ * Generate UUID v4
+ */
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+/**
+ * Get or create device ID from SecureStore
  * This is the unique identifier for privacy/data isolation
+ * Migrates from AsyncStorage if needed
  */
 export async function getDeviceId(): Promise<string> {
   if (_deviceId) return _deviceId
   
-  let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY)
-  
-  if (!deviceId) {
-    // Generate UUID v4
-    deviceId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0
-      const v = c === 'x' ? r : (r & 0x3) | 0x8
-      return v.toString(16)
-    })
-    await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId)
+  try {
+    // Try SecureStore first
+    let deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY)
+    
+    if (!deviceId) {
+      // Check for legacy AsyncStorage key and migrate
+      const legacyDeviceId = await AsyncStorage.getItem(DEVICE_ID_LEGACY_KEY)
+      
+      if (legacyDeviceId) {
+        // Migrate to SecureStore
+        await SecureStore.setItemAsync(DEVICE_ID_KEY, legacyDeviceId, {
+          keychainAccessible: SecureStore.WHEN_UNLOCKED,
+        })
+        // Clean up legacy storage
+        await AsyncStorage.removeItem(DEVICE_ID_LEGACY_KEY)
+        deviceId = legacyDeviceId
+        logger.info('Device ID migrated to SecureStore')
+      } else {
+        // Generate new UUID
+        deviceId = generateUUID()
+        await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId, {
+          keychainAccessible: SecureStore.WHEN_UNLOCKED,
+        })
+        logger.info('New device ID generated')
+      }
+    }
+    
+    _deviceId = deviceId
+    return deviceId
+  } catch (error) {
+    // Fallback to AsyncStorage if SecureStore fails (e.g., web platform)
+    logger.warn('SecureStore unavailable, falling back to AsyncStorage', { error })
+    
+    let deviceId = await AsyncStorage.getItem(DEVICE_ID_LEGACY_KEY)
+    if (!deviceId) {
+      deviceId = generateUUID()
+      await AsyncStorage.setItem(DEVICE_ID_LEGACY_KEY, deviceId)
+    }
+    
+    _deviceId = deviceId
+    return deviceId
   }
-  
-  _deviceId = deviceId
-  return deviceId
 }
 
 /**
  * Set device ID (for testing or migration)
  */
-export function setDeviceId(id: string) {
+export async function setDeviceId(id: string): Promise<void> {
   _deviceId = id
-  AsyncStorage.setItem(DEVICE_ID_KEY, id)
+  try {
+    await SecureStore.setItemAsync(DEVICE_ID_KEY, id, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED,
+    })
+  } catch {
+    await AsyncStorage.setItem(DEVICE_ID_LEGACY_KEY, id)
+  }
 }
 
 /**
@@ -59,8 +112,104 @@ export function getCachedDeviceId(): string | null {
   return _deviceId
 }
 
-// Supabase client
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+/**
+ * Clear device ID (for logout/reset)
+ */
+export async function clearDeviceId(): Promise<void> {
+  _deviceId = null
+  try {
+    await SecureStore.deleteItemAsync(DEVICE_ID_KEY)
+  } catch {
+    // Ignore
+  }
+  await AsyncStorage.removeItem(DEVICE_ID_LEGACY_KEY)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// Supabase Client with Auth Configuration
+// ─────────────────────────────────────────────────────────────────────────────────
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    // Use AsyncStorage for auth token persistence (required for React Native)
+    ...(Platform.OS !== 'web' ? { storage: AsyncStorage } : {}),
+    // Auto-refresh tokens before expiry
+    autoRefreshToken: true,
+    // Persist session across app restarts
+    persistSession: true,
+    // Don't detect session from URL (not applicable in React Native)
+    detectSessionInUrl: false,
+  },
+})
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// AppState Listener for Token Refresh
+// Tells Supabase Auth to continuously refresh the session automatically
+// if the app is in the foreground.
+// ─────────────────────────────────────────────────────────────────────────────────
+
+if (Platform.OS !== 'web') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh()
+    } else {
+      supabase.auth.stopAutoRefresh()
+    }
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// Anonymous Auth Helper
+// ─────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Ensure user is authenticated (anonymous if no account)
+ * This provides JWT-based security for RLS policies
+ */
+export async function ensureAuthenticated(): Promise<{ userId: string | null; error?: string }> {
+  try {
+    // Check for existing session
+    const { data: { session } } = await supabase.auth.getSession()
+    
+    if (session?.user) {
+      return { userId: session.user.id }
+    }
+    
+    // Sign in anonymously
+    const { data, error } = await supabase.auth.signInAnonymously()
+    
+    if (error) {
+      logger.error('Anonymous auth failed', error)
+      return { userId: null, error: error.message }
+    }
+    
+    if (data.user) {
+      logger.info('Anonymous auth successful', { userId: data.user.id.substring(0, 8) })
+      return { userId: data.user.id }
+    }
+    
+    return { userId: null, error: 'No user returned' }
+  } catch (error) {
+    logger.error('Auth error', error)
+    return { userId: null, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Get current auth user ID (for RLS policies)
+ */
+export async function getAuthUserId(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  return user?.id ?? null
+}
+
+/**
+ * Sign out and clear session
+ */
+export async function signOut(): Promise<void> {
+  await supabase.auth.signOut()
+  logger.info('User signed out')
+}
 
 // ─────────────────────────────────────────────────────────────────────────────────
 // Database Types

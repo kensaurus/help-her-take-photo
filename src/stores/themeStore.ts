@@ -1,5 +1,10 @@
 /**
  * Theme store with dark mode support
+ * 
+ * Zen-inspired design: calm, spacious, mindful
+ * - Softer contrasts for reduced eye strain
+ * - Muted accent colors for calm atmosphere
+ * - Warmer tones for comfort
  */
 
 import { create } from 'zustand'
@@ -27,48 +32,57 @@ interface ThemeColors {
   switchTrackOff: string
   switchTrackOn: string
   switchThumb: string
+  // Zen additions
+  zen: string       // Calming accent for zen moments
+  zenMuted: string  // Subtle zen background
 }
 
+// Light theme: Warm, paper-like, gentle on the eyes
 const lightTheme: ThemeColors = {
-  background: '#FAFAF8',
+  background: '#FAF9F6',     // Warm off-white (paper)
   surface: '#FFFFFF',
-  surfaceAlt: '#F5F5F3',
-  text: '#0A0A0A',
-  textSecondary: '#525252',
-  textMuted: '#A1A1A1',
-  border: '#E5E5E3',
-  borderLight: '#F0F0EE',
-  primary: '#0A0A0A',
+  surfaceAlt: '#F7F6F3',     // Warm gray
+  text: '#2C2C2C',           // Softer than pure black
+  textSecondary: '#5C5C5C',  // Warm gray
+  textMuted: '#9A9A9A',      // Muted
+  border: '#E8E6E1',         // Warm border
+  borderLight: '#F2F0EB',    // Very subtle
+  primary: '#3D3D3D',        // Soft black
   primaryText: '#FFFFFF',
-  accent: '#6366F1',
+  accent: '#7C8B9A',         // Muted blue-gray (calming)
   accentText: '#FFFFFF',
-  success: '#10B981',
-  error: '#EF4444',
-  overlay: 'rgba(250, 250, 248, 0.95)',
-  switchTrackOff: '#D1D5DB',
-  switchTrackOn: '#0A0A0A',
+  success: '#6B9080',        // Muted sage green
+  error: '#C17B7B',          // Muted rose
+  overlay: 'rgba(250, 249, 246, 0.97)',
+  switchTrackOff: '#D4D2CD',
+  switchTrackOn: '#7C8B9A',
   switchThumb: '#FFFFFF',
+  zen: '#A8B5A0',            // Sage green - zen accent
+  zenMuted: 'rgba(168, 181, 160, 0.1)',
 }
 
+// Dark theme: Deep, warm darkness, like night sky
 const darkTheme: ThemeColors = {
-  background: '#0A0A0A',
-  surface: '#141414',
-  surfaceAlt: '#1A1A1A',
-  text: '#FAFAFA',
-  textSecondary: '#A3A3A3',
-  textMuted: '#6B6B6B',
-  border: '#333333',
-  borderLight: '#252525',
-  primary: '#FAFAFA',
-  primaryText: '#0A0A0A',
-  accent: '#818CF8',
-  accentText: '#0A0A0A',
-  success: '#34D399',
-  error: '#F87171',
-  overlay: 'rgba(10, 10, 10, 0.95)',
-  switchTrackOff: '#404040',
-  switchTrackOn: '#818CF8',
-  switchThumb: '#FAFAFA',
+  background: '#121210',     // Warm black
+  surface: '#1A1918',        // Warm surface
+  surfaceAlt: '#222120',     // Warm alt
+  text: '#E8E6E1',           // Warm white
+  textSecondary: '#A8A6A1',  // Warm gray
+  textMuted: '#6B6965',      // Muted
+  border: '#2E2D2B',         // Warm border
+  borderLight: '#252422',    // Subtle
+  primary: '#E8E6E1',        // Warm white
+  primaryText: '#121210',
+  accent: '#8B9AA8',         // Muted steel blue
+  accentText: '#121210',
+  success: '#7AA08B',        // Muted sage
+  error: '#B08080',          // Muted rose
+  overlay: 'rgba(18, 18, 16, 0.97)',
+  switchTrackOff: '#3D3B39',
+  switchTrackOn: '#8B9AA8',
+  switchThumb: '#E8E6E1',
+  zen: '#8B9F7C',            // Muted sage - zen accent
+  zenMuted: 'rgba(139, 159, 124, 0.08)',
 }
 
 interface ThemeState {

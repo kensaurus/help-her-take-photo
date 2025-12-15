@@ -1,8 +1,12 @@
 /**
  * Feedback - Submit feature requests and bug reports
+ * 
+ * UX Enhancements:
+ * - Form data persistence (saved to AsyncStorage on changes)
+ * - Unsaved changes warning on navigation
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   View, 
   Text, 
@@ -13,8 +17,10 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  BackHandler,
 } from 'react-native'
-import { useRouter } from 'expo-router'
+import { useRouter, useNavigation } from 'expo-router'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, { 
   FadeIn,
@@ -125,8 +131,11 @@ function RatingButton({
   )
 }
 
+const FEEDBACK_STORAGE_KEY = 'feedback_draft'
+
 export default function FeedbackScreen() {
   const router = useRouter()
+  const navigation = useNavigation()
   const { colors } = useThemeStore()
   const { t } = useLanguageStore()
   const { myDeviceId } = usePairingStore()
@@ -136,6 +145,124 @@ export default function FeedbackScreen() {
   const [email, setEmail] = useState('')
   const [rating, setRating] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isLoaded, setIsLoaded] = useState(false)
+  
+  // Load saved draft on mount
+  useEffect(() => {
+    const loadDraft = async () => {
+      try {
+        const saved = await AsyncStorage.getItem(FEEDBACK_STORAGE_KEY)
+        if (saved) {
+          const draft = JSON.parse(saved)
+          if (draft.type) setType(draft.type)
+          if (draft.message) setMessage(draft.message)
+          if (draft.email) setEmail(draft.email)
+          if (draft.rating) setRating(draft.rating)
+        }
+      } catch (e) {
+        // Ignore errors
+      } finally {
+        setIsLoaded(true)
+      }
+    }
+    loadDraft()
+  }, [])
+  
+  // Save draft on changes (debounced)
+  useEffect(() => {
+    if (!isLoaded) return
+    
+    const saveDraft = async () => {
+      try {
+        if (message.length > 0 || email.length > 0 || rating !== null) {
+          await AsyncStorage.setItem(FEEDBACK_STORAGE_KEY, JSON.stringify({ type, message, email, rating }))
+          setHasUnsavedChanges(true)
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    const timer = setTimeout(saveDraft, 500)
+    return () => clearTimeout(timer)
+  }, [type, message, email, rating, isLoaded])
+  
+  // Clear draft after successful submission
+  const clearDraft = async () => {
+    try {
+      await AsyncStorage.removeItem(FEEDBACK_STORAGE_KEY)
+      setHasUnsavedChanges(false)
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+  
+  // Warn on back navigation if there are unsaved changes
+  useEffect(() => {
+    const beforeRemoveHandler = (e: any) => {
+      if (!hasUnsavedChanges || message.length === 0) return
+      
+      e.preventDefault()
+      
+      Alert.alert(
+        'Discard changes?',
+        'You have unsaved feedback. Are you sure you want to leave?',
+        [
+          { text: "Don't leave", style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              await clearDraft()
+              navigation.dispatch(e.data.action)
+            },
+          },
+          {
+            text: 'Save as draft',
+            onPress: () => {
+              // Already saved, just allow navigation
+              navigation.dispatch(e.data.action)
+            },
+          },
+        ]
+      )
+    }
+    
+    navigation.addListener('beforeRemove', beforeRemoveHandler)
+    return () => navigation.removeListener('beforeRemove', beforeRemoveHandler)
+  }, [hasUnsavedChanges, message.length, navigation])
+  
+  // Handle Android back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (hasUnsavedChanges && message.length > 0) {
+        Alert.alert(
+          'Discard changes?',
+          'You have unsaved feedback. Are you sure you want to leave?',
+          [
+            { text: "Don't leave", style: 'cancel' },
+            {
+              text: 'Discard',
+              style: 'destructive',
+              onPress: async () => {
+                await clearDraft()
+                router.back()
+              },
+            },
+            {
+              text: 'Save as draft',
+              onPress: () => router.back(),
+            },
+          ]
+        )
+        return true
+      }
+      return false
+    })
+    
+    return () => backHandler.remove()
+  }, [hasUnsavedChanges, message.length, router])
 
   const handleSubmit = async () => {
     if (message.length < 10) {
@@ -158,6 +285,10 @@ export default function FeedbackScreen() {
     setSubmitting(false)
 
     if (result.success) {
+      // Clear the draft on successful submission
+      await clearDraft()
+      setHasUnsavedChanges(false)
+      
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
       Alert.alert(
         'Thank you!',

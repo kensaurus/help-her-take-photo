@@ -37,6 +37,7 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { pairingApi, profileApi } from '../src/services/api'
 import { Icon } from '../src/components/ui/Icon'
+import { ZenLoader } from '../src/components/ui/ZenLoader'
 import { sessionLogger } from '../src/services/sessionLogger'
 
 // API timeout helper
@@ -720,9 +721,9 @@ export default function PairingScreen() {
             <CodeDisplay code={code} colors={colors} />
             
             <View style={styles.waitingInfo}>
-              <ActivityIndicator size="small" color={colors.textMuted} />
+              <ZenLoader variant="dots" size="small" />
               <Text style={[styles.waitingText, { color: colors.textMuted }]}>
-                Waiting for partner to connect...
+                Waiting for partner...
               </Text>
             </View>
             
@@ -770,81 +771,82 @@ export default function PairingScreen() {
   )
 }
 
+// Zen-inspired styles: generous whitespace, soft corners, calm typography
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { flexGrow: 1, paddingHorizontal: 20 },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 28 },  // Zen: more breathing room
   loadingCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { paddingTop: 8, paddingBottom: 20 },
-  backBtn: { paddingVertical: 8, marginBottom: 12 },
-  backBtnText: { fontSize: 16, fontWeight: '600' },
-  title: { fontWeight: '700', letterSpacing: -0.5, marginBottom: 12 },
-  myProfileCard: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, gap: 10 },
-  myProfileAvatar: { fontSize: 24 },
-  myProfileName: { flex: 1, fontSize: 15, fontWeight: '600' },
-  editProfile: { fontSize: 14, fontWeight: '600' },
+  header: { paddingTop: 16, paddingBottom: 28 },  // Zen: more space
+  backBtn: { paddingVertical: 10, marginBottom: 16 },
+  backBtnText: { fontSize: 16, fontWeight: '500' },  // Zen: lighter weight
+  title: { fontWeight: '600', letterSpacing: -0.3, marginBottom: 16 },  // Zen: softer
+  myProfileCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, borderWidth: 1, gap: 12 },  // Zen: softer corners
+  myProfileAvatar: { fontSize: 26 },
+  myProfileName: { flex: 1, fontSize: 15, fontWeight: '500' },
+  editProfile: { fontSize: 14, fontWeight: '500' },
   
-  // Profile Setup
-  profileSetup: { flex: 1, paddingTop: 40 },
-  setupTitle: { fontSize: 28, fontWeight: '700', marginBottom: 8 },
-  setupSubtitle: { fontSize: 15, lineHeight: 22, marginBottom: 32 },
-  labelText: { fontSize: 13, fontWeight: '600', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
-  avatarSection: { marginBottom: 28 },
-  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  avatarOption: { width: 52, height: 52, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  avatarEmoji: { fontSize: 26 },
-  nameSection: { marginBottom: 32 },
-  nameInput: { paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, borderWidth: 2, fontWeight: '600' },
-  continueBtn: { paddingVertical: 18, borderRadius: 12, alignItems: 'center' },
-  continueBtnText: { fontSize: 17, fontWeight: '700' },
+  // Profile Setup - Zen: spacious, calm
+  profileSetup: { flex: 1, paddingTop: 48 },
+  setupTitle: { fontSize: 26, fontWeight: '600', marginBottom: 12 },  // Zen: slightly smaller, lighter
+  setupSubtitle: { fontSize: 15, lineHeight: 24, marginBottom: 40 },  // Zen: more line height
+  labelText: { fontSize: 12, fontWeight: '500', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 0.8 },
+  avatarSection: { marginBottom: 36 },  // Zen: more space
+  avatarGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },  // Zen: more gap
+  avatarOption: { width: 56, height: 56, borderRadius: 16, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  avatarEmoji: { fontSize: 28 },
+  nameSection: { marginBottom: 40 },
+  nameInput: { paddingVertical: 18, paddingHorizontal: 18, borderRadius: 14, borderWidth: 1.5, fontWeight: '500', fontSize: 16 },
+  continueBtn: { paddingVertical: 20, borderRadius: 14, alignItems: 'center' },  // Zen: taller button
+  continueBtnText: { fontSize: 16, fontWeight: '600' },
 
-  // Connected Status - Clean design
-  connectedContainer: { flex: 1, paddingTop: 32, alignItems: 'center' },
-  successBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 20, borderRadius: 24, marginBottom: 32 },
+  // Connected Status - Zen: celebratory but calm
+  connectedContainer: { flex: 1, paddingTop: 40, alignItems: 'center' },
+  successBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 14, paddingHorizontal: 24, borderRadius: 28, marginBottom: 40 },
   successIcon: { fontSize: 18 },
-  successText: { fontSize: 15, fontWeight: '600' },
-  connectedCard: { borderRadius: 16, borderWidth: 1, padding: 28, marginBottom: 28, width: '100%' },
+  successText: { fontSize: 15, fontWeight: '500' },
+  connectedCard: { borderRadius: 20, borderWidth: 1, padding: 32, marginBottom: 32, width: '100%' },  // Zen: softer corners
   connectionVisual: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  deviceInfo: { alignItems: 'center', gap: 8 },
-  deviceAvatar: { fontSize: 40 },
-  deviceName: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
-  connectionLine: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, paddingHorizontal: 16 },
+  deviceInfo: { alignItems: 'center', gap: 10 },
+  deviceAvatar: { fontSize: 44 },
+  deviceName: { fontSize: 14, fontWeight: '500', textAlign: 'center' },
+  connectionLine: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, paddingHorizontal: 20 },
   connectionDot: { width: 10, height: 10, borderRadius: 5 },
-  connectionDash: { flex: 1, height: 3, borderRadius: 2 },
-  primaryBtn: { paddingVertical: 18, paddingHorizontal: 48, borderRadius: 12, marginBottom: 16 },
-  primaryBtnText: { fontSize: 17, fontWeight: '700' },
-  hintText: { fontSize: 14, textAlign: 'center' },
+  connectionDash: { flex: 1, height: 2, borderRadius: 1 },  // Zen: thinner line
+  primaryBtn: { paddingVertical: 20, paddingHorizontal: 52, borderRadius: 14, marginBottom: 20 },
+  primaryBtnText: { fontSize: 16, fontWeight: '600' },
+  hintText: { fontSize: 14, textAlign: 'center', lineHeight: 21 },
 
-  // Mode Select
+  // Mode Select - Zen: clear choices
   modeSelect: { flex: 1 },
-  optionCard: { padding: 20, borderRadius: 12, borderWidth: 1, alignItems: 'center', marginBottom: 12 },
-  optionEmoji: { fontSize: 32, marginBottom: 8 },
-  optionTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4 },
-  optionDesc: { fontSize: 14, textAlign: 'center' },
-  orDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
+  optionCard: { padding: 24, borderRadius: 16, borderWidth: 1, alignItems: 'center', marginBottom: 16 },  // Zen: more padding
+  optionEmoji: { fontSize: 36, marginBottom: 12 },
+  optionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 6 },
+  optionDesc: { fontSize: 14, textAlign: 'center', lineHeight: 21 },
+  orDivider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20 },  // Zen: more space
   orLine: { flex: 1, height: 1 },
-  orText: { paddingHorizontal: 16, fontSize: 13, fontWeight: '500' },
-  errorBox: { padding: 12, borderRadius: 8, marginTop: 16 },
-  errorText: { color: '#DC2626', fontSize: 14, fontWeight: '500', textAlign: 'center' },
+  orText: { paddingHorizontal: 20, fontSize: 13, fontWeight: '400' },  // Zen: lighter
+  errorBox: { padding: 14, borderRadius: 12, marginTop: 20 },
+  errorText: { color: '#C17B7B', fontSize: 14, fontWeight: '500', textAlign: 'center' },  // Zen: muted error color
 
-  // Code Section
-  codeSection: { flex: 1, alignItems: 'center', paddingTop: 24 },
-  codeLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 16 },
-  codeDisplay: { flexDirection: 'row', gap: 12, marginBottom: 32 },
-  codeChar: { borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  codeCharText: { fontWeight: '700', fontFamily: 'monospace' },
-  codeInputContainer: { marginBottom: 24 },
-  codeInputChar: { borderWidth: 2, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  codeInputCharText: { fontWeight: '700', fontFamily: 'monospace' },
+  // Code Section - Zen: focused, calm waiting
+  codeSection: { flex: 1, alignItems: 'center', paddingTop: 32 },
+  codeLabel: { fontSize: 12, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 20 },
+  codeDisplay: { flexDirection: 'row', gap: 14, marginBottom: 40 },
+  codeChar: { borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  codeCharText: { fontWeight: '600', fontFamily: 'monospace' },
+  codeInputContainer: { marginBottom: 28 },
+  codeInputChar: { borderWidth: 1.5, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  codeInputCharText: { fontWeight: '600', fontFamily: 'monospace' },
   hiddenInput: { position: 'absolute', opacity: 0, height: 0 },
-  waitingInfo: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 24 },
-  waitingText: { fontSize: 14 },
-  expiry: { alignItems: 'center', marginBottom: 32 },
-  expiryLabel: { fontSize: 12, marginBottom: 4 },
-  expiryTime: { fontSize: 24, fontWeight: '600', fontFamily: 'monospace' },
-  enterTitle: { fontSize: 20, fontWeight: '600', marginBottom: 4 },
-  enterHint: { fontSize: 14, marginBottom: 24 },
-  submitBtn: { paddingVertical: 16, paddingHorizontal: 40, borderRadius: 10, marginBottom: 16, minWidth: 180, alignItems: 'center' },
+  waitingInfo: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 },
+  waitingText: { fontSize: 14, fontWeight: '400' },
+  expiry: { alignItems: 'center', marginBottom: 40 },
+  expiryLabel: { fontSize: 12, marginBottom: 6 },
+  expiryTime: { fontSize: 22, fontWeight: '500', fontFamily: 'monospace' },
+  enterTitle: { fontSize: 20, fontWeight: '500', marginBottom: 6 },
+  enterHint: { fontSize: 14, marginBottom: 28, lineHeight: 21 },
+  submitBtn: { paddingVertical: 18, paddingHorizontal: 44, borderRadius: 14, marginBottom: 20, minWidth: 180, alignItems: 'center' },
   submitBtnText: { fontSize: 16, fontWeight: '600' },
-  cancelBtn: { paddingVertical: 12, paddingHorizontal: 24, borderWidth: 1, borderRadius: 8 },
-  cancelBtnText: { fontSize: 15, fontWeight: '500' },
+  cancelBtn: { paddingVertical: 14, paddingHorizontal: 28, borderWidth: 1, borderRadius: 12, minHeight: 48 },
+  cancelBtnText: { fontSize: 15, fontWeight: '400' },
 })

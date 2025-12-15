@@ -14,6 +14,7 @@ import type {
 } from './supabase'
 import { Platform } from 'react-native'
 import Constants from 'expo-constants'
+import { logger } from './logging'
 
 // Keep a single Presence subscription per (sessionId,myDeviceId).
 // Multiple screens (home/viewer/camera) were creating duplicate Presence channels,
@@ -77,13 +78,13 @@ export const pairingApi = {
         .single()
 
       if (error) {
-        console.error('Supabase error:', error)
+        logger.error('Supabase error', error)
         return { error: error.message }
       }
 
       return { code: data.code }
     } catch (error) {
-      console.error('Create pairing error:', error)
+      logger.error('Create pairing error', error)
       return { error: error instanceof Error ? error.message : 'Failed to create code' }
     }
   },
@@ -126,7 +127,7 @@ export const pairingApi = {
 
       return { partnerId: session.device_id, sessionId: session.id }
     } catch (error) {
-      console.error('Join pairing error:', error)
+      logger.error('Join pairing error', error)
       return { error: error instanceof Error ? error.message : 'Failed to join' }
     }
   },
@@ -996,7 +997,7 @@ export const connectionHistoryApi = {
             reconnectAttempt++
             const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 30000)
             
-            console.log(`[Presence] Reconnecting in ${delay}ms (attempt ${reconnectAttempt}/${maxReconnectAttempts})`)
+            logger.info('Presence reconnecting', { delayMs: delay, attempt: reconnectAttempt, maxAttempts: maxReconnectAttempts })
             
             if (reconnectTimeout) clearTimeout(reconnectTimeout)
             reconnectTimeout = setTimeout(() => {
@@ -1081,4 +1082,128 @@ export const feedbackApi = {
       }
     }
   },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// APP VERSION API
+// Check for updates and get download links
+// ─────────────────────────────────────────────────────────────────────────────────
+
+export interface AppVersionInfo {
+  latestVersion: string
+  latestBuild: string
+  downloadUrl: string
+  releaseNotes?: string
+  forceUpdate: boolean
+  minSupportedVersion: string
+}
+
+export const appVersionApi = {
+  /**
+   * Check if there's a newer version available
+   */
+  async checkForUpdate(currentVersion: string): Promise<{ 
+    updateAvailable: boolean
+    versionInfo?: AppVersionInfo
+    error?: string 
+  }> {
+    try {
+      const { data, error } = await supabase
+        .from('app_versions')
+        .select('*')
+        .eq('platform', Platform.OS)
+        .eq('is_latest', true)
+        .single()
+
+      if (error) {
+        // Table might not exist yet, return no update available
+        return { updateAvailable: false }
+      }
+
+      if (!data) {
+        return { updateAvailable: false }
+      }
+
+      const versionInfo: AppVersionInfo = {
+        latestVersion: data.version,
+        latestBuild: data.build_number || '',
+        downloadUrl: data.download_url || '',
+        releaseNotes: data.release_notes,
+        forceUpdate: data.force_update || false,
+        minSupportedVersion: data.min_supported_version || '1.0.0',
+      }
+
+      // Compare versions (simple semver comparison)
+      const isNewer = compareVersions(versionInfo.latestVersion, currentVersion) > 0
+
+      return { 
+        updateAvailable: isNewer, 
+        versionInfo 
+      }
+    } catch {
+      return { updateAvailable: false }
+    }
+  },
+
+  /**
+   * Get the download URL for the latest APK
+   */
+  async getDownloadUrl(): Promise<{ url?: string; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('app_versions')
+        .select('download_url')
+        .eq('platform', 'android')
+        .eq('is_latest', true)
+        .single()
+
+      if (error || !data?.download_url) {
+        // Fallback to hardcoded Expo artifact URL
+        return { url: 'https://expo.dev/accounts/kensaurus/projects/help-her-take-photo/builds' }
+      }
+
+      return { url: data.download_url }
+    } catch {
+      return { url: 'https://expo.dev/accounts/kensaurus/projects/help-her-take-photo/builds' }
+    }
+  },
+
+  /**
+   * Get partner's app version from their device profile
+   */
+  async getPartnerVersion(partnerDeviceId: string): Promise<{ version?: string; error?: string }> {
+    try {
+      const { data, error } = await supabase
+        .from('devices')
+        .select('app_version')
+        .eq('device_id', partnerDeviceId)
+        .single()
+
+      if (error || !data) {
+        return { error: 'Could not get partner version' }
+      }
+
+      return { version: data.app_version }
+    } catch {
+      return { error: 'Network error' }
+    }
+  },
+}
+
+/**
+ * Compare two semver version strings
+ * Returns: 1 if a > b, -1 if a < b, 0 if equal
+ */
+function compareVersions(a: string, b: string): number {
+  const partsA = a.split('.').map(Number)
+  const partsB = b.split('.').map(Number)
+  
+  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+    const numA = partsA[i] || 0
+    const numB = partsB[i] || 0
+    if (numA > numB) return 1
+    if (numA < numB) return -1
+  }
+  
+  return 0
 }

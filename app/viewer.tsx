@@ -1,6 +1,6 @@
 /**
- * Viewer / Director Mode - Where she takes control
- * Now with real WebRTC video streaming
+ * Viewer / Director Mode - Minimal Zen UI
+ * Clean, professional interface with subtle controls
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
@@ -10,8 +10,6 @@ import {
   StyleSheet, 
   Pressable, 
   Dimensions,
-  RefreshControl,
-  ScrollView,
   Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
@@ -22,45 +20,78 @@ import Animated, {
   useAnimatedStyle, 
   useSharedValue, 
   withSpring,
-  withSequence,
   withTiming,
-  withRepeat,
 } from 'react-native-reanimated'
 import * as Haptics from 'expo-haptics'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { profileApi, connectionHistoryApi } from '../src/services/api'
 
 // Dynamically import RTCView to handle Expo Go gracefully
 let RTCView: any = null
-let MediaStream: any = null
 try {
   const webrtc = require('react-native-webrtc')
   RTCView = webrtc.RTCView
-  MediaStream = webrtc.MediaStream
 } catch {
   // WebRTC not available (Expo Go)
 }
 import { useLanguageStore } from '../src/stores/languageStore'
 import { pairingApi } from '../src/services/api'
-import { sessionLogger, CAMERA_ERROR_MESSAGES } from '../src/services/sessionLogger'
+import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
-import { ConnectionDebugPanel } from '../src/components/ui/ConnectionDebugPanel'
-
-const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
-// Compact direction chip button
-function DirectionChip({ 
-  label, 
+// Minimal direction button with accessibility
+function DirectionButton({ 
   icon,
-  onPress 
+  onPress,
+  style,
+  label,
 }: { 
-  label: string
   icon: string
   onPress: () => void 
+  style?: any
+  label?: string
 }) {
+  const opacity = useSharedValue(1)
+  
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }))
+
+  const getDirectionLabel = () => {
+    if (label) return label
+    switch (icon) {
+      case '↑': return 'Move up'
+      case '↓': return 'Move down'
+      case '←': return 'Move left'
+      case '→': return 'Move right'
+      default: return 'Direction'
+    }
+  }
+
+  return (
+    <Pressable 
+      onPress={() => {
+        opacity.value = withTiming(0.5, { duration: 50 })
+        setTimeout(() => {
+          opacity.value = withTiming(1, { duration: 150 })
+        }, 50)
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        onPress()
+      }}
+      style={[styles.dirBtn, style]}
+      accessibilityLabel={getDirectionLabel()}
+      accessibilityRole="button"
+      accessibilityHint="Sends direction command to photographer"
+    >
+      <Animated.Text style={[styles.dirBtnText, animatedStyle]}>{icon}</Animated.Text>
+    </Pressable>
+  )
+}
+
+// Minimal capture button with accessibility
+function CaptureButton({ onPress }: { onPress: () => void }) {
   const scale = useSharedValue(1)
   
   const animatedStyle = useAnimatedStyle(() => ({
@@ -70,71 +101,50 @@ function DirectionChip({
   return (
     <Pressable 
       onPress={() => {
-        scale.value = withSequence(
-          withSpring(0.9, { damping: 15 }),
-          withSpring(1, { damping: 15 })
-        )
+        scale.value = withSpring(0.92, { damping: 15 })
+        setTimeout(() => {
+          scale.value = withSpring(1, { damping: 12 })
+        }, 100)
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
         onPress()
       }}
-      onPressIn={() => {
-        scale.value = withSpring(0.95, { damping: 15, stiffness: 400 })
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 15 })
-      }}
+      style={styles.captureBtn}
+      accessibilityLabel="Take photo"
+      accessibilityRole="button"
+      accessibilityHint="Sends capture command to photographer"
     >
-      <Animated.View style={[styles.directionChip, animatedStyle]}>
-        <Text style={styles.directionChipIcon}>{icon}</Text>
-        <Text style={styles.directionChipLabel}>{label}</Text>
+      <Animated.View style={[styles.captureBtnInner, animatedStyle]}>
+        <View style={styles.captureBtnRing} />
       </Animated.View>
     </Pressable>
   )
 }
 
-// Take photo button
-function TakePhotoButton({ onPress }: { onPress: () => void }) {
-  const scale = useSharedValue(1)
-  
-  // Subtle pulse
-  useEffect(() => {
-    scale.value = withRepeat(
-      withSequence(
-        withTiming(1.02, { duration: 1500 }),
-        withTiming(1, { duration: 1500 })
-      ),
-      -1
-    )
-  }, [scale])
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-
-  return (
-    <Pressable 
-      onPress={() => {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
-        onPress()
-      }}
-    >
-      <Animated.View style={[styles.takePhotoBtn, animatedStyle]}>
-        <Text style={styles.takePhotoBtnIcon}>📸</Text>
-        <Text style={styles.takePhotoBtnText}>Perfect! Take it!</Text>
-      </Animated.View>
-    </Pressable>
-  )
-}
-
-// Sent indicator
+// Sent indicator - minimal
 function SentIndicator({ message }: { message: string }) {
+  return (
+    <Animated.View 
+      entering={FadeIn.duration(150)} 
+      exiting={FadeOut.duration(150)}
+      style={styles.sentIndicator}
+    >
+      <Text style={styles.sentText}>{message}</Text>
+    </Animated.View>
+  )
+}
+
+// Toast notification for role switch request
+function RoleSwitchToast({ visible, partnerName }: { visible: boolean; partnerName: string }) {
+  if (!visible) return null
   return (
     <Animated.View 
       entering={FadeIn.duration(200)} 
       exiting={FadeOut.duration(200)}
-      style={styles.sentIndicator}
+      style={styles.switchToast}
     >
-      <Text style={styles.sentText}>✓ {message}</Text>
+      <Text style={styles.switchToastText}>
+        {partnerName} wants to be Director
+      </Text>
     </Animated.View>
   )
 }
@@ -143,61 +153,30 @@ export default function ViewerScreen() {
   const router = useRouter()
   const { isPaired, myDeviceId, pairedDeviceId, sessionId, clearPairing, partnerDisplayName, partnerAvatar, setPartnerInfo, setPartnerPresence } = usePairingStore()
   const { t } = useLanguageStore()
-  const autoDisconnectingRef = useRef(false)
   const partnerNameRef = useRef(partnerDisplayName)
 
-  // Update ref when store value changes
   useEffect(() => {
     partnerNameRef.current = partnerDisplayName
   }, [partnerDisplayName])
 
-  const disconnectAndUnpair = useCallback(async (reason: string, extra?: Record<string, unknown>) => {
-    if (autoDisconnectingRef.current) return
-    autoDisconnectingRef.current = true
-
-    sessionLogger.warn('auto_disconnect_start', {
-      reason,
-      role: 'director',
-      sessionId: sessionId?.substring(0, 8),
-      pairedDeviceId: pairedDeviceId?.substring(0, 8),
-      ...extra,
-    })
-
-    try {
-      // Stop WebRTC immediately
-      webrtcService.destroy()
-
-      // Mark any active connection records as disconnected (best-effort)
-      if (myDeviceId) {
-        await connectionHistoryApi.disconnectAll(myDeviceId)
-        await connectionHistoryApi.updateOnlineStatus(myDeviceId, false)
-      }
-
-      // Hard unpair so the other device also drops the session
-      if (myDeviceId) {
-        await pairingApi.unpair(myDeviceId)
-      }
-    } catch (e) {
-      sessionLogger.error('auto_disconnect_failed', e, { reason })
-    } finally {
-      clearPairing()
-      router.replace('/')
-    }
-  }, [clearPairing, myDeviceId, pairedDeviceId, router, sessionId])
-  
-  // Handle disconnect
   const handleDisconnect = async () => {
     Alert.alert(
-      'Disconnect',
-      'Clear current pairing and go back?',
+      'End Session',
+      'Disconnect and go back?',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
-          text: 'Disconnect', 
+          text: 'End', 
           style: 'destructive',
           onPress: async () => {
             sessionLogger.info('manual_disconnect')
-            await disconnectAndUnpair('manual')
+            webrtcService.destroy()
+            if (myDeviceId) {
+              await pairingApi.unpair(myDeviceId)
+              await connectionHistoryApi.disconnectAll(myDeviceId)
+            }
+            clearPairing()
+            router.replace('/')
           }
         },
       ]
@@ -211,10 +190,12 @@ export default function ViewerScreen() {
   const [webrtcError, setWebrtcError] = useState<string | null>(null)
   const [lastCommand, setLastCommand] = useState('')
   const [showSent, setShowSent] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
+  const [showSwitchToast, setShowSwitchToast] = useState(false)
+  
+  // Ref to track if we should poll for stream
+  const streamCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Initialize logging
   useEffect(() => {
     if (myDeviceId) {
       sessionLogger.init(myDeviceId, sessionId ?? undefined)
@@ -225,66 +206,76 @@ export default function ViewerScreen() {
     }
   }, [myDeviceId, sessionId, pairedDeviceId])
 
-  // Fetch partner profile if not available
   useEffect(() => {
     if (isPaired && pairedDeviceId && !partnerDisplayName) {
       profileApi.get(pairedDeviceId).then(({ profile }) => {
         if (profile) {
           setPartnerInfo(profile.display_name, profile.avatar_emoji)
-          sessionLogger.info('partner_profile_loaded', { 
-            partnerName: profile.display_name,
-            partnerDeviceId: pairedDeviceId 
-          })
         }
-      }).catch((err) => {
-        sessionLogger.warn('partner_profile_fetch_failed', { error: err?.message })
-      })
+      }).catch(() => {})
     }
   }, [isPaired, pairedDeviceId, partnerDisplayName, setPartnerInfo])
 
-  // Initialize WebRTC when paired
-  // ANDROID FIX: Add delay before init to allow previous role's cleanup to complete
+  // Periodic check for remote stream - workaround for callback not firing
+  useEffect(() => {
+    if (connectionState === 'connected' && !isReceiving) {
+      sessionLogger.info('starting_stream_poll', { connectionState, isReceiving })
+      
+      streamCheckIntervalRef.current = setInterval(() => {
+        const stream = webrtcService.getRemoteStream()
+        if (stream) {
+          const videoTracks = stream.getVideoTracks?.() ?? []
+          sessionLogger.info('poll_found_remote_stream', {
+            streamId: stream.id?.substring(0, 8),
+            videoTracks: videoTracks.length,
+            active: stream.active,
+          })
+          if (videoTracks.length > 0) {
+            setRemoteStream(stream)
+            setIsReceiving(true)
+            // Clear interval once stream is found
+            if (streamCheckIntervalRef.current) {
+              clearInterval(streamCheckIntervalRef.current)
+              streamCheckIntervalRef.current = null
+            }
+          }
+        }
+      }, 500)
+      
+      return () => {
+        if (streamCheckIntervalRef.current) {
+          clearInterval(streamCheckIntervalRef.current)
+          streamCheckIntervalRef.current = null
+        }
+      }
+    }
+  }, [connectionState, isReceiving])
+
   useEffect(() => {
     if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      // Check if WebRTC is available
       if (!webrtcAvailable) {
-        sessionLogger.warn('webrtc_not_available_viewer')
-        setWebrtcError('Video streaming requires a development build. Expo Go does not support WebRTC.')
-        setIsConnected(true) // Mark as "connected" for UI purposes
+        setWebrtcError('Video streaming requires a development build.')
+        setIsConnected(true)
         return
       }
 
-      sessionLogger.info('starting_webrtc_as_director', {
-        myDeviceId,
-        pairedDeviceId,
-        sessionId,
-      })
-      // Flush immediately so we can see this even if native code crashes
+      sessionLogger.info('starting_webrtc_as_director', { myDeviceId, pairedDeviceId, sessionId })
       sessionLogger.flush()
       setIsConnected(true)
       
-      // Track if effect is still active
       let isActive = true
       let initDelayId: ReturnType<typeof setTimeout> | null = null
       
-      // Record connection in history
       connectionHistoryApi.recordConnection({
         deviceId: myDeviceId,
         partnerDeviceId: pairedDeviceId,
         partnerDisplayName: partnerDisplayName || undefined,
-        partnerAvatar: partnerAvatar || '👤',
+        partnerAvatar: partnerAvatar || '•',
         sessionId,
         role: 'director',
         initiatedBy: 'self',
-      }).then(({ connection }) => {
-        if (connection) {
-          sessionLogger.info('connection_recorded', { connectionId: connection.id })
-        }
-      }).catch(() => {
-        // Silent fail for history
-      })
+      }).catch(() => {})
       
-      // Presence-based partner disconnect detection (works even on abrupt disconnects)
       const presenceSub = connectionHistoryApi.subscribeToSessionPresence({
         sessionId,
         myDeviceId,
@@ -293,29 +284,15 @@ export default function ViewerScreen() {
           sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
           setPartnerPresence(isOnline)
           setPartnerOnline(isOnline)
-          if (!isOnline) {
-            Alert.alert(
-              'Partner Disconnected',
-              `${partnerNameRef.current || 'Your partner'} has disconnected.`,
-              [{ text: 'OK', onPress: () => disconnectAndUnpair('partner_presence_offline') }]
-            )
-          }
         },
         onError: (message) => {
           sessionLogger.warn('presence_error', { message })
         },
       })
       
-      // ANDROID FIX: Small delay before init to allow any previous role's
-      // cleanup (especially from Photographer) to complete at native level.
-      sessionLogger.info('director_init_delay_start', { delayMs: 300 })
       initDelayId = setTimeout(() => {
-        if (!isActive) {
-          sessionLogger.info('director_init_cancelled_inactive_during_delay')
-          return
-        }
-        sessionLogger.info('director_init_delay_complete')
-
+        if (!isActive) return
+        
         webrtcService.init(
           myDeviceId,
           pairedDeviceId,
@@ -324,63 +301,57 @@ export default function ViewerScreen() {
           {
             onRemoteStream: (stream) => {
               if (!isActive) return
-              // Detailed logging for debugging blank screen issues
               const videoTracks = stream?.getVideoTracks?.() ?? []
-              const audioTracks = stream?.getAudioTracks?.() ?? []
-              
               sessionLogger.info('director_remote_stream_received', {
                 trackCount: stream?.getTracks?.()?.length ?? 0,
                 videoTrackCount: videoTracks.length,
-                audioTrackCount: audioTracks.length,
                 streamId: stream?.id?.substring(0, 8),
                 streamActive: stream?.active,
-                // Log first video track details if present
-                videoTrackEnabled: videoTracks[0]?.enabled,
-                videoTrackMuted: videoTracks[0]?.muted,
-                videoTrackReadyState: videoTracks[0]?.readyState,
               })
-              
-              // Validate stream has video tracks before setting
-              if (videoTracks.length === 0) {
-                sessionLogger.warn('director_no_video_tracks_in_stream', {
-                  message: 'Remote stream has no video tracks - will show blank screen',
-                })
-              }
-              
               setRemoteStream(stream)
               setIsReceiving(true)
             },
             onConnectionStateChange: (state) => {
               if (!isActive) return
-              sessionLogger.info('director_webrtc_state', { 
-                connectionState: state,
-                role: 'director',
-              })
+              sessionLogger.info('director_webrtc_state', { connectionState: state, role: 'director' })
               setConnectionState(state)
               if (state === 'failed' || state === 'disconnected') {
                 setIsReceiving(false)
-                setRemoteStream(null)
-                // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
               }
             },
             onError: (error) => {
               if (!isActive) return
-              sessionLogger.error('director_webrtc_error', error, {
-                role: 'director',
-                myDeviceId,
-                pairedDeviceId,
-              })
-              setWebrtcError(error.message)
+              sessionLogger.error('director_webrtc_error', error, { role: 'director' })
+              // Don't set error for harmless duplicate offer issues
+              if (!error.message?.includes('wrong state')) {
+                setWebrtcError(error.message)
+              }
             },
           }
-        )
+        ).then(() => {
+          webrtcService.onCommand((command, data) => {
+            if (!isActive) return
+            if (command === 'switch_role' && data?.newRole === 'photographer') {
+              sessionLogger.info('switch_role_received', { newRole: 'photographer' })
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+              // Show toast notification before switching
+              setShowSwitchToast(true)
+              setTimeout(() => {
+                webrtcService.destroy().then(() => {
+                  router.replace('/camera')
+                })
+              }, 1500)
+            }
+          })
+        })
       }, 300)
 
       return () => {
         isActive = false
-        if (initDelayId) {
-          clearTimeout(initDelayId)
-          initDelayId = null
+        if (initDelayId) clearTimeout(initDelayId)
+        if (streamCheckIntervalRef.current) {
+          clearInterval(streamCheckIntervalRef.current)
+          streamCheckIntervalRef.current = null
         }
         webrtcService.destroy()
         setIsConnected(false)
@@ -389,667 +360,572 @@ export default function ViewerScreen() {
         void presenceSub.unsubscribe()
       }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId])
-
-  // Quick Connect: Auto-disconnect when leaving viewer
-  useEffect(() => {
-    return () => {
-      // Cleanup function runs when component unmounts
-      (async () => {
-        try {
-          const quickConnectMode = await AsyncStorage.getItem(QUICK_CONNECT_KEY)
-          if (quickConnectMode === 'true' && myDeviceId) {
-            // Auto-disconnect for quick connect mode
-            await pairingApi.unpair(myDeviceId)
-            clearPairing()
-            await AsyncStorage.removeItem(QUICK_CONNECT_KEY)
-            sessionLogger.info('quick_connect_auto_disconnected')
-          }
-        } catch (error) {
-          sessionLogger.error('quick_connect_cleanup_error', error)
-        }
-      })()
-    }
-  }, [myDeviceId, clearPairing])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar, setPartnerPresence])
 
   const sendDirection = async (direction: keyof typeof t.viewer.directions) => {
     setLastCommand(t.viewer.directions[direction])
     setShowSent(true)
-    setTimeout(() => setShowSent(false), 1500)
-    
-    // Send command via WebRTC
+    setTimeout(() => setShowSent(false), 1200)
     await webrtcService.sendCommand('direction', { direction })
     sessionLogger.info('direction_sent', { direction })
   }
 
   const handleTakePhoto = async () => {
-    setLastCommand(t.viewer.takePhoto)
+    setLastCommand('Capture')
     setShowSent(true)
-    setTimeout(() => setShowSent(false), 2000)
-    
-    // Send capture command via WebRTC
+    setTimeout(() => setShowSent(false), 1500)
     await webrtcService.sendCommand('capture')
     sessionLogger.info('capture_command_sent')
   }
 
-  const handleRefresh = async () => {
-    setRefreshing(true)
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    sessionLogger.info('viewer_refresh_triggered')
-    
-    // Reconnect WebRTC
-    if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      try {
-        await webrtcService.destroy()
-        setIsReceiving(false)
-        setRemoteStream(null)
-        
-        // ANDROID FIX: Longer delay after destroy to ensure native cleanup
-        await new Promise(r => setTimeout(r, 800))
-        
-        await webrtcService.init(
-          myDeviceId,
-          pairedDeviceId,
-          sessionId,
-          'director',
-          {
-            onRemoteStream: (stream) => {
-              const videoTracks = stream?.getVideoTracks?.() ?? []
-              sessionLogger.info('director_remote_stream_received_refresh', {
-                trackCount: stream?.getTracks?.()?.length ?? 0,
-                videoTrackCount: videoTracks.length,
-                streamId: stream?.id?.substring(0, 8),
-                videoTrackEnabled: videoTracks[0]?.enabled,
-              })
-              setRemoteStream(stream)
-              setIsReceiving(true)
-            },
-            onConnectionStateChange: (state) => {
-              sessionLogger.info('director_webrtc_state_refresh', { 
-                connectionState: state,
-                role: 'director',
-              })
-              setConnectionState(state)
-            },
-            onError: (error) => {
-              sessionLogger.error('director_webrtc_error_refresh', error, {
-                role: 'director',
-              })
-              setWebrtcError(error.message)
-            },
-          }
-        )
-      } catch (error) {
-        sessionLogger.error('viewer_refresh_failed', error)
-        setWebrtcError(CAMERA_ERROR_MESSAGES.UnknownError)
-      }
-    }
-    
-    setRefreshing(false)
+  // Send flip camera command
+  const handleFlipCamera = async () => {
+    setLastCommand('Flip Camera')
+    setShowSent(true)
+    setTimeout(() => setShowSent(false), 1200)
+    await webrtcService.sendCommand('flip')
+    sessionLogger.info('flip_command_sent')
   }
 
-  // Funny waiting messages
-  const waitingMessages = [
-    "Waiting for his camera feed... 📡",
-    "He's probably holding it upside down",
-    "Connection buffering... like his brain",
-    "Any second now... (optimistic estimate)",
-  ]
-  const [waitingMsgIndex, setWaitingMsgIndex] = useState(0)
-  
-  useEffect(() => {
-    if (!isReceiving) {
-      const interval = setInterval(() => {
-        setWaitingMsgIndex(i => (i + 1) % waitingMessages.length)
-      }, 3000)
-      return () => clearInterval(interval)
-    }
-  }, [isReceiving, waitingMessages.length])
+  // Send flash toggle command
+  const handleToggleFlash = async () => {
+    setLastCommand('Toggle Flash')
+    setShowSent(true)
+    setTimeout(() => setShowSent(false), 1200)
+    await webrtcService.sendCommand('flash')
+    sessionLogger.info('flash_command_sent')
+  }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Simple back navigation */}
-      <View style={styles.headerNav}>
-        <Pressable 
-          style={styles.backButton}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-            router.back()
-          }}
-          accessibilityLabel="Go back"
-          accessibilityRole="button"
-        >
-          <Text style={styles.backButtonText}>← Back</Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor="#1a1a1a"
-          />
-        }
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{t.viewer.title}</Text>
-          <Text style={styles.subtitle}>{t.viewer.subtitle}</Text>
-          {isPaired && (
-            <View style={styles.partnerCard}>
-              <Text style={styles.partnerEmoji}>{partnerAvatar || '📸'}</Text>
-              <View style={styles.partnerInfo}>
-                <Text style={styles.partnerLabel}>
-                  Connected to {partnerDisplayName || 'Photographer'}
-                </Text>
-                <Text style={styles.partnerStatus}>
-                  {isReceiving ? '🟢 Streaming' : connectionState}
-                </Text>
+    <View style={styles.container}>
+      {/* Full screen video area */}
+      <View style={styles.videoContainer}>
+        {isConnected ? (
+          <>
+            {webrtcError ? (
+              <View style={styles.waitingContainer}>
+                <Text style={styles.waitingIcon}>!</Text>
+                <Text style={styles.waitingText}>{webrtcError}</Text>
               </View>
-            </View>
-          )}
-        </View>
-
-        {/* Preview area */}
-        <View style={styles.previewSection}>
-          <View style={styles.previewContainer}>
-            {isConnected ? (
-              <View style={styles.preview}>
-                {webrtcError ? (
-                  <View style={styles.waitingPreview}>
-                    <Text style={styles.waitingEmoji}>📱</Text>
-                    <Text style={styles.waitingText}>
-                      {webrtcError}
-                    </Text>
-                    <Text style={styles.connectionStatus}>
-                      Commands still work! Use the direction buttons below.
-                    </Text>
-                  </View>
-                ) : isReceiving && remoteStream && RTCView ? (
-                  <View style={styles.livePreview}>
-                    {/* 
-                      RTCView key prop forces re-render when stream changes
-                      This fixes blank screen issues where RTCView doesn't update
-                    */}
-                    <RTCView
-                      key={remoteStream?.id || 'remote-stream'}
-                      streamURL={remoteStream.toURL()}
-                      style={StyleSheet.absoluteFill}
-                      objectFit="cover"
-                      mirror={false}
-                      zOrder={0}
-                    />
-                    {/* Live indicator */}
-                    <View style={styles.liveOverlay}>
-                      <Text style={styles.liveLabel}>🔴 {t.viewer.livePreview}</Text>
-                    </View>
-                    
-                    {/* Overlay Quick Controls - Better UX */}
-                    <View style={styles.overlayControls}>
-                      {/* Direction controls in corners */}
-                      <View style={styles.overlayDirections}>
-                        <Pressable 
-                          style={styles.overlayBtn}
-                          onPress={() => sendDirection('left')}
-                        >
-                          <Text style={styles.overlayBtnText}>←</Text>
-                        </Pressable>
-                        <View style={styles.overlayVertical}>
-                          <Pressable 
-                            style={styles.overlayBtn}
-                            onPress={() => sendDirection('up')}
-                          >
-                            <Text style={styles.overlayBtnText}>↑</Text>
-                          </Pressable>
-                          <Pressable 
-                            style={styles.overlayBtn}
-                            onPress={() => sendDirection('down')}
-                          >
-                            <Text style={styles.overlayBtnText}>↓</Text>
-                          </Pressable>
-                        </View>
-                        <Pressable 
-                          style={styles.overlayBtn}
-                          onPress={() => sendDirection('right')}
-                        >
-                          <Text style={styles.overlayBtnText}>→</Text>
-                        </Pressable>
-                      </View>
-                      
-                      {/* Capture button at bottom center */}
-                      <Pressable 
-                        style={styles.overlayCaptureBtn}
-                        onPress={handleTakePhoto}
-                      >
-                        <Text style={styles.overlayCaptureIcon}>📸</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.waitingPreview}>
-                    <Text style={styles.waitingEmoji}>👀</Text>
-                    <Text style={styles.waitingText}>
-                      {waitingMessages[waitingMsgIndex]}
-                    </Text>
-                    <Text style={styles.connectionStatus}>
-                      Status: {connectionState}
-                    </Text>
-                  </View>
-                )}
+            ) : isReceiving && remoteStream && RTCView ? (
+              <View style={styles.videoWrapper}>
+                <RTCView
+                  key={remoteStream?.id || 'remote-stream'}
+                  streamURL={remoteStream.toURL()}
+                  style={styles.video}
+                  objectFit="cover"
+                  mirror={false}
+                  zOrder={1}
+                />
               </View>
             ) : (
-              <Pressable 
-                style={styles.connectPreview}
-                onPress={() => router.push('/pairing')}
-              >
-                <Text style={styles.connectEmoji}>🔗</Text>
-                <Text style={styles.connectText}>{t.viewer.notConnected}</Text>
-                <Text style={styles.connectHint}>{t.viewer.connectPrompt}</Text>
-              </Pressable>
+              <View style={styles.waitingContainer}>
+                <View style={styles.waitingRing}>
+                  <View style={[styles.waitingDot, partnerOnline === false && styles.waitingDotOff]} />
+                </View>
+                <Text style={styles.waitingText}>
+                  {partnerOnline === false 
+                    ? 'Partner offline'
+                    : connectionState === 'connected' 
+                      ? 'Receiving stream...'
+                      : 'Waiting for feed...'}
+                </Text>
+                <Text style={styles.waitingSubtext}>{connectionState}</Text>
+              </View>
             )}
-          </View>
+          </>
+        ) : (
+          <Pressable 
+            style={styles.connectContainer}
+            onPress={() => router.push('/pairing')}
+          >
+            <View style={styles.connectRing} />
+            <Text style={styles.connectText}>Not Connected</Text>
+            <Text style={styles.connectHint}>Tap to pair</Text>
+          </Pressable>
+        )}
+
+        {/* Top bar - back and end buttons on sides */}
+        <SafeAreaView style={styles.topBar} edges={['top']}>
+          <Pressable 
+            style={styles.topBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+              router.back()
+            }}
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+          >
+            <Text style={styles.topBtnText}>‹</Text>
+          </Pressable>
           
-          {/* Sent indicator */}
-          {showSent && <SentIndicator message={lastCommand} />}
+          {/* Spacer to push end button to right */}
+          <View style={styles.topSpacer} />
+          
+          <Pressable 
+            style={[styles.topBtn, styles.endBtn]}
+            onPress={handleDisconnect}
+            accessibilityLabel="End session"
+            accessibilityRole="button"
+          >
+            <Text style={styles.endBtnText}>×</Text>
+          </Pressable>
+        </SafeAreaView>
+
+        {/* Centered LIVE indicator - separate from top bar */}
+        <View style={styles.liveIndicatorContainer}>
+          <View style={styles.statusPill}>
+            <View style={[styles.statusDot, isReceiving && styles.statusDotLive]} />
+            <Text style={styles.statusText}>
+              {isReceiving ? 'LIVE' : connectionState.toUpperCase()}
+            </Text>
+          </View>
         </View>
 
-        {/* Direction controls - Compact chip-style */}
-        {isConnected && (
-          <Animated.View entering={FadeIn} style={styles.controlsSection}>
-            <Text style={styles.sectionLabel}>Quick Commands</Text>
-            
-            {/* Direction chips - horizontal scroll */}
-            <View style={styles.directionChipsRow}>
-              <DirectionChip 
-                label="Left" 
-                icon="←"
-                onPress={() => sendDirection('left')} 
-              />
-              <DirectionChip 
-                label="Right" 
-                icon="→"
-                onPress={() => sendDirection('right')} 
-              />
-              <DirectionChip 
-                label="Up" 
-                icon="↑"
-                onPress={() => sendDirection('up')} 
-              />
-              <DirectionChip 
-                label="Down" 
-                icon="↓"
-                onPress={() => sendDirection('down')} 
-              />
-            </View>
-
-            {/* Zoom chips */}
-            <View style={styles.directionChipsRow}>
-              <DirectionChip 
-                label="Closer" 
-                icon="🔍"
-                onPress={() => sendDirection('closer')} 
-              />
-              <DirectionChip 
-                label="Back" 
-                icon="🔎"
-                onPress={() => sendDirection('back')} 
-              />
-            </View>
-
-            {/* Take photo - prominent floating button */}
-            <TakePhotoButton onPress={handleTakePhoto} />
-          </Animated.View>
-        )}
-
-        {/* Switch role button - prominent action */}
-        {isPaired && (
-          <View style={styles.switchRoleSection}>
-            <Pressable 
-              style={styles.switchRoleBtn}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-                // ANDROID FIX: Await destroy and add delay before navigation
-                // to ensure native WebRTC resources are fully released.
-                // Without this, the Photographer screen's RTCPeerConnection
-                // creation can cause a native crash.
-                sessionLogger.info('switch_to_photographer_start')
-                ;(async () => {
-                  try {
-                    await webrtcService.destroy()
-                    sessionLogger.info('switch_to_photographer_destroy_complete')
-                    // Additional delay for native resource cleanup
-                    await new Promise(resolve => setTimeout(resolve, 300))
-                  } catch (e) {
-                    sessionLogger.warn('switch_to_photographer_destroy_error', { error: (e as Error)?.message })
-                  } finally {
-                    router.replace('/camera')
-                  }
-                })()
-              }}
-              accessibilityLabel="Switch to Photographer mode"
-              accessibilityHint="Change your role to take photos"
-              accessibilityRole="button"
-            >
-              <Text style={styles.switchRoleIcon}>📸</Text>
-              <Text style={styles.switchRoleText}>Switch to Photographer</Text>
-            </Pressable>
+        {/* Partner indicator */}
+        {isPaired && partnerDisplayName && (
+          <View style={styles.partnerPill}>
+            <Text style={styles.partnerText}>{partnerDisplayName}</Text>
           </View>
         )}
 
-        {/* Debug panel - tap to expand
-        <ConnectionDebugPanel
-          role="director"
-          sessionId={sessionId}
-          myDeviceId={myDeviceId}
-          partnerDeviceId={pairedDeviceId}
-          partnerOnline={partnerOnline}
-          webrtcState={connectionState}
-          isConnected={isConnected}
-          hasRemoteStream={!!remoteStream}
-        />
-        */}
-      </ScrollView>
-    </SafeAreaView>
+        {/* Sent indicator */}
+        {showSent && <SentIndicator message={lastCommand} />}
+        
+        {/* Role switch toast */}
+        <RoleSwitchToast visible={showSwitchToast} partnerName={partnerDisplayName || 'Partner'} />
+      </View>
+
+      {/* Controls - Minimal joypad layout */}
+      <SafeAreaView style={styles.controlsContainer} edges={['bottom']}>
+        <View style={styles.controls}>
+          {/* Camera controls row */}
+          <View style={styles.cameraControlsRow}>
+            <Pressable 
+              style={styles.cameraControlBtn}
+              onPress={handleFlipCamera}
+              accessibilityLabel="Flip camera"
+              accessibilityRole="button"
+            >
+              <Text style={styles.cameraControlIcon}>⟲</Text>
+              <Text style={styles.cameraControlLabel}>Flip</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={styles.cameraControlBtn}
+              onPress={handleToggleFlash}
+              accessibilityLabel="Toggle flash"
+              accessibilityRole="button"
+            >
+              <Text style={styles.cameraControlIcon}>⚡</Text>
+              <Text style={styles.cameraControlLabel}>Flash</Text>
+            </Pressable>
+          </View>
+
+          {/* Direction pad */}
+          <View style={styles.dpad}>
+            <DirectionButton icon="↑" onPress={() => sendDirection('up')} style={styles.dpadUp} />
+            <View style={styles.dpadMiddle}>
+              <DirectionButton icon="←" onPress={() => sendDirection('left')} />
+              <CaptureButton onPress={handleTakePhoto} />
+              <DirectionButton icon="→" onPress={() => sendDirection('right')} />
+            </View>
+            <DirectionButton icon="↓" onPress={() => sendDirection('down')} style={styles.dpadDown} />
+          </View>
+          
+          {/* Zoom controls */}
+          <View style={styles.zoomRow}>
+            <Pressable 
+              style={styles.zoomBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                sendDirection('closer')
+              }}
+              accessibilityLabel="Move closer"
+              accessibilityRole="button"
+            >
+              <Text style={styles.zoomText}>+ Closer</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={styles.zoomBtn}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+                sendDirection('back')
+              }}
+              accessibilityLabel="Move back"
+              accessibilityRole="button"
+            >
+              <Text style={styles.zoomText}>− Back</Text>
+            </Pressable>
+          </View>
+
+          {/* Switch role */}
+          <Pressable 
+            style={styles.switchBtn}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+              ;(async () => {
+                await webrtcService.sendCommand('switch_role', { newRole: 'director' })
+                sessionLogger.info('switch_role_command_sent', { partnerNewRole: 'director' })
+                await webrtcService.destroy()
+                router.replace('/camera')
+              })()
+            }}
+            accessibilityLabel="Switch to photographer mode"
+            accessibilityRole="button"
+          >
+            <Text style={styles.switchBtnText}>Switch to Photographer</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#0a0a0a',
   },
-  headerNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 8,
-  },
-  backButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-  },
-  backButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a1a',
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: '#666',
-  },
-  partnerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    marginTop: 12,
-  },
-  partnerEmoji: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  partnerInfo: {
+  
+  // Video area
+  videoContainer: {
     flex: 1,
-  },
-  partnerLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#333',
-  },
-  partnerStatus: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  previewSection: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
-  },
-  previewContainer: {
-    aspectRatio: 3 / 4,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  preview: {
-    flex: 1,
-  },
-  livePreview: {
-    flex: 1,
+    backgroundColor: '#111',
     position: 'relative',
   },
-  liveOverlay: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
+  videoWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
   },
-  liveLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-    backgroundColor: 'rgba(220, 38, 38, 0.9)',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 4,
+  video: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
-  connectionStatus: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 8,
-  },
-  waitingPreview: {
+  waitingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
-  waitingEmoji: {
-    fontSize: 48,
+  waitingRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  waitingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.4)',
+  },
+  waitingDotOff: {
+    backgroundColor: 'rgba(255,100,100,0.6)',
+  },
+  waitingIcon: {
+    fontSize: 32,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 12,
+    fontWeight: '300',
   },
   waitingText: {
-    fontSize: 15,
-    color: '#888',
-    textAlign: 'center',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
-  connectPreview: {
+  waitingSubtext: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  connectContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 24,
   },
-  connectEmoji: {
-    fontSize: 48,
-    marginBottom: 16,
+  connectRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    marginBottom: 20,
   },
   connectText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 8,
+    fontSize: 15,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 0.5,
   },
   connectHint: {
-    fontSize: 14,
-    color: '#888',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 6,
   },
+
+  // Top bar - just back and end buttons
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingTop: 4,
+  },
+  topSpacer: {
+    flex: 1,
+  },
+  topBtn: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topBtnText: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.7)',
+  },
+  endBtn: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 24,
+  },
+  endBtnText: {
+    fontSize: 24,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.6)',
+  },
+
+  // Centered LIVE indicator
+  liveIndicatorContainer: {
+    position: 'absolute',
+    top: 56, // Below safe area
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    gap: 8,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  statusDotLive: {
+    backgroundColor: '#e53935',
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 1,
+  },
+
+  // Partner indicator
+  partnerPill: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+  },
+  partnerText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+  },
+
+  // Sent indicator
   sentIndicator: {
     position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
-    backgroundColor: '#22C55E',
+    top: '45%',
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     paddingVertical: 12,
-    borderRadius: 4,
+    borderRadius: 8,
     alignItems: 'center',
   },
   sentText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  controlsSection: {
-    paddingHorizontal: 20,
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#999',
-    letterSpacing: 1,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  directionChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-    marginBottom: 16,
-  },
-  directionChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    borderRadius: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  directionChipIcon: {
-    fontSize: 16,
-    color: '#1a1a1a',
-  },
-  directionChipLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: 'rgba(255,255,255,0.8)',
+    letterSpacing: 0.5,
   },
-  takePhotoBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#22C55E',
-    paddingVertical: 18,
-    paddingHorizontal: 40,
-    borderRadius: 50,
-    gap: 12,
-    marginTop: 8,
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  takePhotoBtnIcon: {
-    fontSize: 22,
-  },
-  takePhotoBtnText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  switchRoleSection: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
-  switchRoleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1a1a1a',
-    paddingVertical: 16,
+
+  // Switch toast
+  switchToast: {
+    position: 'absolute',
+    top: 100,
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(229, 57, 53, 0.9)',
+    paddingVertical: 14,
     borderRadius: 12,
-    gap: 10,
-  },
-  switchRoleIcon: {
-    fontSize: 20,
-  },
-  switchRoleText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  // Overlay controls for director (on top of video feed)
-  overlayControls: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 20,
   },
-  overlayDirections: {
+  switchToastText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+
+  // Controls
+  controlsContainer: {
+    backgroundColor: '#0a0a0a',
+  },
+  controls: {
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
+
+  // Camera controls
+  cameraControlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+    marginBottom: 12,
+  },
+  cameraControlBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    minWidth: 64,
+    minHeight: 48,
+  },
+  cameraControlIcon: {
+    fontSize: 20,
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 2,
+  },
+  cameraControlLabel: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    fontWeight: '500',
+  },
+  
+  // D-pad
+  dpad: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dpadUp: {
+    marginBottom: 4,
+  },
+  dpadDown: {
+    marginTop: 4,
+  },
+  dpadMiddle: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 'auto',
-    marginBottom: 20,
+    gap: 4,
   },
-  overlayVertical: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  overlayBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+  dirBtn: {
+    width: 52,
+    height: 52,
+    minWidth: 48,
+    minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  overlayBtnText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#1a1a1a',
+  dirBtnText: {
+    fontSize: 18,
+    fontWeight: '300',
+    color: 'rgba(255,255,255,0.7)',
   },
-  overlayCaptureBtn: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#22C55E',
+  
+  // Capture button
+  captureBtn: {
+    width: 68,
+    height: 68,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#22C55E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-    marginBottom: 10,
+    marginHorizontal: 8,
   },
-  overlayCaptureIcon: {
-    fontSize: 28,
+  captureBtnInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  captureBtnRing: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+  },
+
+  // Zoom buttons
+  zoomRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 12,
+  },
+  zoomBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  zoomText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+    letterSpacing: 0.5,
+  },
+
+  // Switch role button
+  switchBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  switchBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 0.5,
   },
 })

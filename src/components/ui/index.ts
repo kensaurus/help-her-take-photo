@@ -18,3 +18,6 @@ export { EnhancedRefreshControl, RefreshIndicator } from './PullToRefresh'
 // Form components
 export { ValidatedInput, CodeInput } from './ValidatedInput'
 
+// Debug (dev only)
+export { DebugMenu } from './DebugMenu'
+

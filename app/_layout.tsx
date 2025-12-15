@@ -10,6 +10,27 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { Alert } from 'react-native'
 import * as SplashScreen from 'expo-splash-screen'
+import * as Sentry from '@sentry/react-native'
+import Constants from 'expo-constants'
+
+// Initialize Sentry early (required for Sentry.wrap to work)
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  debug: true, // Show Sentry logs in console
+  enabled: true, // Temporarily enabled for testing (change back to !__DEV__ for production)
+  environment: __DEV__ ? 'development' : 'production',
+  release: Constants.expoConfig?.version ?? '1.0.0',
+  tracesSampleRate: 0.2,
+  beforeSend(event) {
+    // Scrub sensitive data
+    if (event.request?.headers) {
+      delete event.request.headers['Authorization']
+      delete event.request.headers['authorization']
+    }
+    return event
+  },
+})
+
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { useOnboardingStore } from '../src/stores/onboardingStore'
@@ -20,13 +41,17 @@ import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { connectionManager, type ConnectionEvent } from '../src/services/connectionManager'
+import { initErrorTracking, setUser as setErrorUser } from '../src/services/errorTracking'
+import { ensureAuthenticated } from '../src/services/supabase'
+import { AuthProvider } from '../src/contexts/AuthContext'
 import { AppUpdatePrompt } from '../src/components/ui/AppUpdatePrompt'
+import { DebugMenu } from '../src/components/ui/DebugMenu'
 import { ErrorBoundary } from '../src/components/ErrorBoundary'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
 
-export default function RootLayout() {
+export default Sentry.wrap(function RootLayout() {
   const router = useRouter()
   const segments = useSegments()
   const { t, loadLanguage } = useLanguageStore()
@@ -69,6 +94,9 @@ export default function RootLayout() {
     const init = async () => {
       logger.info('App starting...')
 
+      // Initialize error tracking (Sentry) first
+      await initErrorTracking()
+
       // Global JS error handler (captures red-screen crashes into Supabase logs)
       try {
         const ErrorUtilsAny = (globalThis as any)?.ErrorUtils
@@ -104,6 +132,13 @@ export default function RootLayout() {
         loadStats(),
         loadPairing(),
       ])
+      
+      // Ensure anonymous authentication for RLS
+      const { userId } = await ensureAuthenticated()
+      if (userId) {
+        setErrorUser({ id: userId })
+        logger.info('Anonymous auth successful', { userId: userId.substring(0, 8) })
+      }
       
       // Set device ID in stats store for Supabase sync
       const pairingState = usePairingStore.getState()
@@ -191,9 +226,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <ErrorBoundary onReset={handleErrorReset}>
-          <AppUpdatePrompt />
-          <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+        <AuthProvider>
+          <ErrorBoundary onReset={handleErrorReset}>
+            <AppUpdatePrompt />
+            <DebugMenu />
+            <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
           <Stack
           screenOptions={{
             headerShown: true,
@@ -247,9 +284,8 @@ export default function RootLayout() {
             name="viewer" 
             options={{ 
               title: t.viewer.title,
-              headerStyle: {
-                backgroundColor: colors.background,
-              },
+              headerShown: false,
+              gestureEnabled: false,
             }} 
           />
           <Stack.Screen 
@@ -282,9 +318,10 @@ export default function RootLayout() {
               title: "What's New",
             }} 
           />
-        </Stack>
-        </ErrorBoundary>
+          </Stack>
+          </ErrorBoundary>
+        </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )
-}
+});

@@ -483,6 +483,7 @@ const styles = StyleSheet.create({
   skipButton: {
     paddingVertical: 12,
     paddingHorizontal: 16,
+    minHeight: 48, // Accessibility: minimum touch target
   },
   skipText: {
     fontSize: 16,
@@ -492,10 +493,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
+    minHeight: 48, // Accessibility: minimum touch target
   },
   languageButtonText: {
     fontSize: 14,
@@ -564,7 +566,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   badgeText: {
-    fontSize: 13,
+    fontSize: 12, // Accessibility: consistent minimum
     fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',

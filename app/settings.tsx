@@ -33,9 +33,10 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
 import { getBuildInfo } from '../src/config/build'
 import { Icon } from '../src/components/ui/Icon'
-import { profileApi } from '../src/services/api'
+import { profileApi, appVersionApi } from '../src/services/api'
 import { connectionManager } from '../src/services/connectionManager'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { getNativeVersion } from '../src/config/build'
 
 function SettingRow({ 
   label, 
@@ -191,12 +192,77 @@ export default function SettingsScreen() {
     partnerOnline,
     partnerLastSeenAt,
     sessionId,
+    pairedDeviceId,
     connectionHistory,
     setConnectionHistory,
   } = usePairingStore()
   const { language, setLanguage, t } = useLanguageStore()
   const [showLanguageModal, setShowLanguageModal] = useState(false)
   const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [updateAvailable, setUpdateAvailable] = useState(false)
+  const [downloadUrl, setDownloadUrl] = useState<string>('https://expo.dev/accounts/kensaurus/projects/help-her-take-photo/builds')
+  const [partnerVersion, setPartnerVersion] = useState<string | null>(null)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false)
+
+  // Check for updates and get download URL on mount
+  useEffect(() => {
+    const checkUpdate = async () => {
+      const currentVersion = getNativeVersion()
+      const { updateAvailable: hasUpdate, versionInfo } = await appVersionApi.checkForUpdate(currentVersion)
+      setUpdateAvailable(hasUpdate)
+      if (versionInfo?.downloadUrl) {
+        setDownloadUrl(versionInfo.downloadUrl)
+      } else {
+        // Get fallback download URL
+        const { url } = await appVersionApi.getDownloadUrl()
+        if (url) setDownloadUrl(url)
+      }
+    }
+    checkUpdate()
+  }, [])
+
+  // Get partner's app version
+  useEffect(() => {
+    if (!pairedDeviceId) {
+      setPartnerVersion(null)
+      return
+    }
+    const getPartnerVer = async () => {
+      const { version } = await appVersionApi.getPartnerVersion(pairedDeviceId)
+      setPartnerVersion(version || null)
+    }
+    getPartnerVer()
+  }, [pairedDeviceId])
+
+  // Manual update check
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+    try {
+      const currentVersion = getNativeVersion()
+      const { updateAvailable: hasUpdate, versionInfo } = await appVersionApi.checkForUpdate(currentVersion)
+      setUpdateAvailable(hasUpdate)
+      if (versionInfo?.downloadUrl) {
+        setDownloadUrl(versionInfo.downloadUrl)
+      }
+      if (hasUpdate) {
+        Alert.alert(
+          'Update Available',
+          `A new version (${versionInfo?.latestVersion}) is available!`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Download', onPress: () => Linking.openURL(downloadUrl) }
+          ]
+        )
+      } else {
+        Alert.alert('Up to Date', 'You have the latest version!')
+      }
+    } catch {
+      Alert.alert('Error', 'Could not check for updates')
+    } finally {
+      setIsCheckingUpdate(false)
+    }
+  }
 
   // Hydrate missing connection history display names/avatars (improves UX)
   useEffect(() => {
@@ -317,6 +383,11 @@ export default function SettingsScreen() {
                       <Text style={[styles.statusBadgeText, { color: partnerOnline ? '#22C55E' : colors.textMuted }]}>
                         {partnerOnline ? 'Online' : 'Offline'}
                       </Text>
+                      {partnerVersion && (
+                        <Text style={[styles.partnerVersionText, { color: colors.textMuted }]}>
+                          · v{partnerVersion}
+                        </Text>
+                      )}
                     </View>
                     {!partnerOnline && (
                       <Text style={[styles.connectionStatusDesc, { color: colors.textMuted, marginTop: 6 }]}>
@@ -611,8 +682,65 @@ export default function SettingsScreen() {
           </View>
         </Animated.View>
 
+        {/* Updates & Downloads */}
+        <Animated.View entering={FadeIn.delay(240).duration(200)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            UPDATES
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            {/* Check for Updates */}
+            <Pressable 
+              style={styles.actionRow} 
+              onPress={handleCheckUpdate}
+              disabled={isCheckingUpdate}
+            >
+              <View style={styles.updateRowContent}>
+                <View style={[styles.iconContainer, { backgroundColor: updateAvailable ? `${colors.success}15` : colors.surfaceAlt }]}>
+                  <Icon name="refresh" size={14} color={updateAvailable ? colors.success : colors.text} />
+                </View>
+                <View style={styles.updateInfo}>
+                  <Text style={[styles.settingLabel, { color: colors.text }]}>
+                    {isCheckingUpdate ? 'Checking...' : (updateAvailable ? 'Update Available!' : 'Check for Updates')}
+                  </Text>
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                    Current: v{getNativeVersion()}
+                  </Text>
+                </View>
+                {updateAvailable && (
+                  <View style={[styles.updateBadge, { backgroundColor: colors.success }]}>
+                    <Text style={styles.updateBadgeText}>NEW</Text>
+                  </View>
+                )}
+              </View>
+            </Pressable>
+            
+            <View style={[styles.divider, { backgroundColor: colors.borderLight }]} />
+            
+            {/* Download Link */}
+            <Pressable 
+              style={styles.actionRow} 
+              onPress={() => Linking.openURL(downloadUrl)}
+            >
+              <View style={styles.updateRowContent}>
+                <View style={[styles.iconContainer, { backgroundColor: `${colors.accent}15` }]}>
+                  <Icon name="download" size={14} color={colors.accent} />
+                </View>
+                <View style={styles.updateInfo}>
+                  <Text style={[styles.settingLabel, { color: colors.text }]}>
+                    Download APK
+                  </Text>
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                    Share with partner or reinstall
+                  </Text>
+                </View>
+                <Icon name="external" size={14} color={colors.textMuted} />
+              </View>
+            </Pressable>
+          </View>
+        </Animated.View>
+
         {/* About */}
-        <Animated.View entering={FadeIn.delay(250).duration(200)} style={styles.footer}>
+        <Animated.View entering={FadeIn.delay(270).duration(200)} style={styles.footer}>
           <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
           <Pressable onPress={() => router.push('/changelog')}>
             <Text style={[styles.version, { color: colors.accent }]}>
@@ -776,7 +904,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '600',
     letterSpacing: 1,
     marginBottom: 8,
@@ -803,6 +931,7 @@ const styles = StyleSheet.create({
   },
   settingRow: {
     minHeight: 56,
+    justifyContent: 'center',
   },
   settingRowInner: {
     flexDirection: 'row',
@@ -965,7 +1094,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   creditText: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '500',
     letterSpacing: 0.5,
   },
@@ -1056,7 +1185,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   historyItemMeta: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     marginTop: 2,
   },
   historyStatusDot: {
@@ -1138,7 +1267,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   historyMetaLabel: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '500',
     marginBottom: 2,
   },
@@ -1153,5 +1282,29 @@ const styles = StyleSheet.create({
   },
   resetInfo: {
     flex: 1,
+  },
+  partnerVersionText: {
+    fontSize: 12,
+    fontWeight: '400',
+    marginLeft: 4,
+  },
+  updateRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  updateInfo: {
+    flex: 1,
+  },
+  updateBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  updateBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
 })

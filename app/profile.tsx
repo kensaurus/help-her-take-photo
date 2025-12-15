@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   progressText: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     marginTop: 8,
     fontWeight: '600',
     letterSpacing: 0.3,
@@ -330,7 +330,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   statLabel: {
-    fontSize: 9,
+    fontSize: 10, // Keep slightly smaller for card layout but readable
     marginTop: 4,
     textAlign: 'center',
     fontWeight: '600',
@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '600',
     letterSpacing: 1,
     marginBottom: 8,
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   creditText: {
-    fontSize: 11,
+    fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '500',
     letterSpacing: 0.5,
   },

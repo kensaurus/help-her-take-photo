@@ -94,13 +94,40 @@ export const webrtcAvailable = isWebRTCAvailable
 const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || ''
 const METERED_API_URL = process.env.EXPO_PUBLIC_METERED_API_URL || 'https://kenji.metered.live/api/v1/turn/credentials'
 
-// Fallback STUN servers (used if TURN fetch fails)
+// STUN servers (for NAT traversal discovery - always included)
+const STUN_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+]
+
+// Free public TURN servers (always included as fallback even if Metered works)
+// These are free relay servers for when direct P2P fails
+const FREE_TURN_SERVERS = [
+  // OpenRelay by Metered (free public TURN)
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  // Twilio free STUN (no TURN without account)
+  { urls: 'stun:global.stun.twilio.com:3478' },
+]
+
+// Full fallback config (used if Metered API fails)
 const FALLBACK_ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
+  iceServers: [...STUN_SERVERS, ...FREE_TURN_SERVERS],
   iceCandidatePoolSize: 10,
 }
 
@@ -147,21 +174,30 @@ async function getIceServers(): Promise<RTCConfiguration> {
       throw new Error(`Metered API error: ${response.status} ${response.statusText}`)
     }
 
-    const iceServers = await response.json()
+    const meteredServers = await response.json()
+    
+    // Merge Metered servers with STUN and free TURN as backup
+    // This ensures we always have fallback relay servers
+    const mergedServers = [
+      ...STUN_SERVERS,           // Google/Cloudflare STUN
+      ...meteredServers,         // Metered TURN (primary)
+      ...FREE_TURN_SERVERS,      // Free TURN (backup)
+    ]
     
     sessionLogger.logWebRTC('turn_credentials_fetched', {
-      serverCount: iceServers?.length ?? 0,
-      hasSTUN: iceServers?.some((s: { urls: string | string[] }) => 
+      meteredCount: meteredServers?.length ?? 0,
+      totalCount: mergedServers.length,
+      hasSTUN: mergedServers.some((s: { urls: string | string[] }) => 
         (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u: string) => u.startsWith('stun:'))
       ),
-      hasTURN: iceServers?.some((s: { urls: string | string[] }) => 
+      hasTURN: mergedServers.some((s: { urls: string | string[] }) => 
         (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u: string) => u.startsWith('turn:'))
       ),
     })
 
-    // Cache the result
+    // Cache the merged result
     cachedIceServers = {
-      iceServers,
+      iceServers: mergedServers,
       iceCandidatePoolSize: 10,
     }
     cacheTimestamp = now
@@ -208,6 +244,10 @@ class WebRTCService {
   
   // Mutex for cleanup operations - prevents concurrent init/destroy race conditions
   private cleanupPromise: Promise<void> | null = null
+  
+  // Guard against handling duplicate offers (race condition fix)
+  private isHandlingOffer = false
+  private lastOfferTime = 0
   
   // ICE timeout monitoring - detects stuck "checking" state
   private iceCheckingStartTime: number | null = null
@@ -681,6 +721,9 @@ class WebRTCService {
 
   /**
    * Handle received offer (director side)
+   * 
+   * RACE CONDITION FIX: Guards against duplicate offers that can arrive
+   * when the camera sends multiple offers in quick succession
    */
   private async handleOffer(offer: RTCSessionDescriptionInit) {
     if (!this.peerConnection) {
@@ -688,10 +731,39 @@ class WebRTCService {
       return
     }
 
+    const signalingState = this.peerConnection.signalingState
+    const now = Date.now()
+    
+    // RACE CONDITION FIX: Ignore duplicate offers
+    // - If we're already handling an offer, skip this one
+    // - If signaling state is 'stable' and we received an offer < 2s ago, skip (duplicate)
+    // - If signaling state is 'have-remote-offer', we're mid-negotiation
+    if (this.isHandlingOffer) {
+      sessionLogger.warn('ignoring_duplicate_offer', {
+        reason: 'already_handling_offer',
+        signalingState,
+        timeSinceLastOffer: now - this.lastOfferTime,
+      })
+      return
+    }
+    
+    if (signalingState === 'stable' && this.lastOfferTime > 0 && (now - this.lastOfferTime) < 2000) {
+      sessionLogger.warn('ignoring_duplicate_offer', {
+        reason: 'recent_offer_already_processed',
+        signalingState,
+        timeSinceLastOffer: now - this.lastOfferTime,
+      })
+      return
+    }
+
+    this.isHandlingOffer = true
+    this.lastOfferTime = now
+
     sessionLogger.logWebRTC('handling_offer', { 
       role: this.role,
       offerType: offer.type,
       hasSdp: !!offer.sdp,
+      signalingState,
     })
 
     try {
@@ -722,8 +794,16 @@ class WebRTCService {
         codecPreference: 'VP8',
       })
     } catch (error) {
-      sessionLogger.error('webrtc_answer_failed', error, { role: this.role })
-      this.callbacks.onError?.(error as Error)
+      sessionLogger.error('webrtc_answer_failed', error, { 
+        role: this.role,
+        signalingState: this.peerConnection?.signalingState,
+      })
+      // Don't propagate duplicate offer errors to UI - they're harmless
+      if (!(error as Error)?.message?.includes('wrong state')) {
+        this.callbacks.onError?.(error as Error)
+      }
+    } finally {
+      this.isHandlingOffer = false
     }
   }
 
@@ -770,11 +850,26 @@ class WebRTCService {
     // ICE candidate generated - send to peer
     this.peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
+        // Candidate types: 'host' (local), 'srflx' (STUN), 'relay' (TURN)
+        // If all candidates are host/srflx and no 'relay', TURN is not working
+        const candidateType = event.candidate.type || 'unknown'
+        const isRelay = candidateType === 'relay'
+        
         sessionLogger.logWebRTC('ice_candidate_generated', {
-          type: event.candidate.type, // 'host', 'srflx' (STUN), 'relay' (TURN)
-          protocol: event.candidate.protocol,
+          candidateType,           // 'host', 'srflx', 'relay'
+          isRelay,                 // true = TURN is working
+          protocol: event.candidate.protocol || 'unknown',
           address: event.candidate.address?.substring(0, 10) + '...',
         })
+        
+        // Log specifically when we get a TURN relay candidate (good sign!)
+        if (isRelay) {
+          sessionLogger.info('turn_relay_candidate_found', {
+            message: 'TURN server is working - relay candidate available',
+            protocol: event.candidate.protocol,
+          })
+        }
+        
         this.sendSignal({
           type: 'ice-candidate',
           data: event.candidate.toJSON(),
@@ -801,6 +896,12 @@ class WebRTCService {
         
         if (state === 'connected') {
           sessionLogger.logConnectionState('connected', this.peerDeviceId ?? undefined)
+          
+          // ANDROID FIX: ontrack may not fire on some devices
+          // Force check for remote streams after connection is established
+          if (this.role === 'director' && !this.remoteStream) {
+            this.pollForRemoteStream()
+          }
         } else if (state === 'failed') {
           // Connection failed - try ICE restart
           sessionLogger.logConnectionState('failed', this.peerDeviceId ?? undefined, { 
@@ -1068,6 +1169,89 @@ class WebRTCService {
   }
 
   /**
+   * ANDROID FIX: Poll for remote stream when ontrack doesn't fire
+   * Some Android devices/builds have a bug where ontrack never fires
+   * even though the remote track is received
+   */
+  private pollForRemoteStream() {
+    if (!this.peerConnection) return
+    
+    let pollCount = 0
+    const maxPolls = 10
+    const pollInterval = 500 // 500ms between polls
+    
+    const poll = () => {
+      pollCount++
+      
+      if (!this.peerConnection || this.remoteStream) {
+        sessionLogger.logWebRTC('poll_remote_stream_stopped', {
+          reason: this.remoteStream ? 'stream_found' : 'no_peer_connection',
+          pollCount,
+        })
+        return
+      }
+      
+      // Try to get receivers and extract stream
+      try {
+        const receivers = this.peerConnection.getReceivers?.()
+        
+        if (receivers && receivers.length > 0) {
+          sessionLogger.logWebRTC('poll_found_receivers', {
+            receiverCount: receivers.length,
+            pollCount,
+          })
+          
+          // Find video receiver
+          for (const receiver of receivers) {
+            const track = receiver.track
+            if (track && track.kind === 'video') {
+              sessionLogger.logWebRTC('poll_found_video_track', {
+                trackId: track.id?.substring(0, 8),
+                enabled: track.enabled,
+                readyState: track.readyState,
+                muted: track.muted,
+              })
+              
+              // Create MediaStream from track
+              if (MediaStream) {
+                const stream = new MediaStream([track])
+                this.remoteStream = stream
+                
+                sessionLogger.logWebRTC('poll_created_remote_stream', {
+                  streamId: stream.id?.substring(0, 8),
+                  videoTracks: stream.getVideoTracks().length,
+                })
+                
+                this.callbacks.onRemoteStream?.(stream)
+                return
+              }
+            }
+          }
+        }
+      } catch (error) {
+        sessionLogger.warn('poll_remote_stream_error', {
+          error: (error as Error)?.message,
+          pollCount,
+        })
+      }
+      
+      // Continue polling if not found
+      if (pollCount < maxPolls) {
+        setTimeout(poll, pollInterval)
+      } else {
+        sessionLogger.warn('poll_remote_stream_exhausted', {
+          message: 'Could not find remote video stream after polling',
+          maxPolls,
+        })
+      }
+    }
+    
+    // Start polling after a short delay
+    sessionLogger.logWebRTC('poll_remote_stream_start', { maxPolls, pollInterval })
+    setTimeout(poll, pollInterval)
+  }
+
+  /**
    * Attempt ICE restart when connection fails
    */
   private async attemptIceRestart() {
@@ -1232,6 +1416,10 @@ class WebRTCService {
       hasRemoteStream: !!this.remoteStream,
       role: this.role,
     })
+    
+    // Reset offer handling state
+    this.isHandlingOffer = false
+    this.lastOfferTime = 0
     
     // Clear ICE timeout and health monitoring
     this.clearIceTimeout()

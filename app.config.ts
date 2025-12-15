@@ -113,6 +113,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     [
+      '@sentry/react-native/expo',
+      {
+        url: 'https://sentry.io/',
+        project: 'help-her-take-photo',
+        organization: 'sakuramoto',
+      },
+    ],
+    [
       'expo-camera',
       {
         cameraPermission: 'Allow HelpHer to access your camera',
