@@ -21,7 +21,7 @@ const BUILD_TIMESTAMP = generateBuildTimestamp()
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: 'HelpHer',
+  name: 'Help Her Take Photo',
   slug: 'help-her-take-photo',
   description:
     "Stop the bad photos! Real-time camera guidance app for couples. Connect devices so your partner can see and direct your camera framing live. Features: live video streaming, direction controls, photo capture, multi-language support (EN/TH/ZH/JA), gamification stats, shared gallery. Save your relationship one photo at a time!",

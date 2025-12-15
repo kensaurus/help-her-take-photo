@@ -16,6 +16,7 @@ import {
   Alert,
   RefreshControl,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native'
 import { FlashList, ListRenderItemInfo } from '@shopify/flash-list'
 import { Image } from 'expo-image'
@@ -35,6 +36,7 @@ import Animated, {
 import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler'
 import * as Haptics from 'expo-haptics'
 import * as MediaLibrary from 'expo-media-library'
+import * as ImagePicker from 'expo-image-picker'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
@@ -302,10 +304,93 @@ export default function GalleryScreen() {
   const [isLoading, setIsLoading] = useState(true)
 
   const [photos, setPhotos] = useState<Photo[]>([])
-  const { myDeviceId } = usePairingStore()
+  const [isAdding, setIsAdding] = useState(false)
+  const { myDeviceId, sessionId, pairedDeviceId } = usePairingStore()
   
   // Calculate responsive photo size
   const photoSize = (screenWidth - GAP * (COLUMN_COUNT + 1)) / COLUMN_COUNT
+
+  // Add photos from device gallery
+  const handleAddFromGallery = async () => {
+    try {
+      setIsAdding(true)
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      
+      // Request permissions
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+      if (status !== 'granted') {
+        Alert.alert(
+          t.common.error, 
+          'We need gallery access to import photos'
+        )
+        return
+      }
+
+      // Launch image picker (allow multiple selection)
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.9,
+        selectionLimit: 10,
+      })
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return
+      }
+
+      sessionLogger.info('gallery_import_started', { count: result.assets.length })
+
+      // Add each selected photo to the gallery
+      const newPhotos: Photo[] = []
+      for (const asset of result.assets) {
+        // Create a capture record in Supabase
+        if (myDeviceId) {
+          const { capture, error } = await capturesApi.create({
+            camera_device_id: myDeviceId,
+            viewer_device_id: pairedDeviceId || undefined,
+            session_id: sessionId || undefined,
+            storage_path: asset.uri,
+            captured_by: 'camera',
+            width: asset.width,
+            height: asset.height,
+          })
+
+          if (capture && !error) {
+            newPhotos.push({
+              id: capture.id,
+              uri: asset.uri,
+              byMe: true,
+              timestamp: new Date(),
+            })
+          }
+        } else {
+          // If not connected, just add locally
+          newPhotos.push({
+            id: `local-${Date.now()}-${Math.random()}`,
+            uri: asset.uri,
+            byMe: true,
+            timestamp: new Date(),
+          })
+        }
+      }
+
+      setPhotos(prev => [...newPhotos, ...prev])
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+      sessionLogger.info('gallery_import_complete', { count: newPhotos.length })
+      
+      if (newPhotos.length > 0) {
+        Alert.alert(
+          t.common.success, 
+          `Added ${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''} to gallery!`
+        )
+      }
+    } catch (err) {
+      sessionLogger.error('gallery_import_error', err)
+      Alert.alert(t.common.error, 'Failed to import photos')
+    } finally {
+      setIsAdding(false)
+    }
+  }
 
   // Load photos from Supabase
   const loadPhotos = useCallback(async () => {
@@ -517,6 +602,22 @@ export default function GalleryScreen() {
           t={t}
         />
       )}
+
+      {/* Floating Add Button */}
+      <Pressable
+        style={[styles.addButton, { backgroundColor: colors.primary }]}
+        onPress={handleAddFromGallery}
+        disabled={isAdding}
+        accessibilityLabel="Add photos from gallery"
+        accessibilityHint="Opens your photo library to select photos to add"
+        accessibilityRole="button"
+      >
+        {isAdding ? (
+          <ActivityIndicator size="small" color={colors.primaryText} />
+        ) : (
+          <Icon name="plus" size={24} color={colors.primaryText} />
+        )}
+      </Pressable>
     </SafeAreaView>
   )
 }
@@ -652,5 +753,20 @@ const styles = StyleSheet.create({
   },
   actionButtonTextDanger: {
     color: '#FCA5A5',
+  },
+  addButton: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
 })
