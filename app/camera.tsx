@@ -312,9 +312,10 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
   const [facing, setFacing] = useState<CameraType>('back')
-  // If we're already paired when this screen mounts, default to "sharing" immediately
-  // so we never render CameraView at the same time as WebRTC getUserMedia().
-  const [isSharing, setIsSharing] = useState(() => isPaired && webrtcAvailable)
+  // IMPORTANT: Don't auto-start WebRTC on mount. If pairing state is stale or partner isn't online yet,
+  // auto-starting WebRTC frequently results in an Android "blank screen" (getUserMedia hangs / RTCView black).
+  // We only start sharing once Presence confirms partner is online (or user explicitly retries).
+  const [isSharing, setIsSharing] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [localStream, setLocalStream] = useState<any>(null)
   const [photoCount, setPhotoCount] = useState(0)
@@ -363,10 +364,22 @@ export default function CameraScreen() {
     }
   }, [permission])
 
+  // Auto-start sharing only when we know the partner is online.
+  useEffect(() => {
+    if (!isPaired) return
+    if (!webrtcAvailable) return
+    if (!permission?.granted) return
+    if (cameraError) return
+    if (partnerOnline !== true) return
+    if (isSharing) return
+    setIsSharing(true)
+  }, [cameraError, isPaired, isSharing, partnerOnline, permission?.granted])
+
   // Initialize WebRTC when paired AND permission is granted AND sharing is requested.
   // IMPORTANT:
   // - Don't include "webrtcInitialized" as a dependency (it caused init/cleanup loops).
   // - Only attach command listeners AFTER init() so the channel exists.
+  // - ANDROID FIX: Add delay before init to allow previous role's cleanup to complete.
   useEffect(() => {
     if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) return
     if (!permission?.granted) return
@@ -383,12 +396,16 @@ export default function CameraScreen() {
 
     // Track if component is still mounted
     let isMounted = true
+    let initDelayId: ReturnType<typeof setTimeout> | null = null
 
     sessionLogger.info('starting_webrtc_as_photographer', {
       myDeviceId,
       pairedDeviceId,
       sessionId,
     })
+    
+    // Flush immediately so we can see this log even if native code crashes
+    sessionLogger.flush()
     
     // Record connection in history
     connectionHistoryApi.recordConnection({
@@ -418,18 +435,25 @@ export default function CameraScreen() {
         pairedDeviceId: pairedDeviceId?.substring(0, 8),
         isMounted,
       })
+      
+      // Flush logs immediately so we can see init started even if app crashes
+      sessionLogger.flush()
 
-      // Set up timeout
+      // Set up timeout - IMPORTANT: Also handles case where native code crashes
       const timeoutId = setTimeout(() => {
         initTimedOut = true
         sessionLogger.logCamera('init_failed', {
           reason: 'timeout',
           timeoutMs: INIT_TIMEOUT_MS,
           role: 'photographer',
+          note: 'WebRTC init did not complete in time - may indicate native crash',
         })
+        sessionLogger.flush()
         if (isMounted) {
           setCameraError(CAMERA_ERROR_MESSAGES.TimeoutError)
           setIsSharing(false)
+          // Attempt cleanup in case init is stuck
+          void webrtcService.destroy().catch(() => {})
         }
       }, INIT_TIMEOUT_MS)
       
@@ -542,6 +566,7 @@ export default function CameraScreen() {
             })
             setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
             setIsSharing(false)
+            void webrtcService.destroy()
           }
         } else if (!stream) {
           sessionLogger.logCamera('stream_failed', {
@@ -551,6 +576,7 @@ export default function CameraScreen() {
           })
           setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
           setIsSharing(false)
+          void webrtcService.destroy()
         }
       } catch (error) {
         // Clear timeout on error
@@ -574,14 +600,30 @@ export default function CameraScreen() {
         setIsConnected(false)
         setIsSharing(false)
         setCameraError(userMessage)
+        void webrtcService.destroy()
       }
     }
     
-    // Call async function
-    initWebRTC()
+    // ANDROID FIX: Small delay before starting init to ensure any previous
+    // role's cleanup (especially from Director) has completed at the native level.
+    // This prevents native crashes when RTCPeerConnection is created too quickly
+    // after the previous one was destroyed.
+    sessionLogger.info('photographer_init_delay_start', { delayMs: 300 })
+    initDelayId = setTimeout(() => {
+      if (!isMounted) {
+        sessionLogger.info('photographer_init_cancelled_unmounted_during_delay')
+        return
+      }
+      sessionLogger.info('photographer_init_delay_complete')
+      initWebRTC()
+    }, 300)
 
     return () => {
       isMounted = false
+      if (initDelayId) {
+        clearTimeout(initDelayId)
+        initDelayId = null
+      }
       sessionLogger.info('webrtc_cleanup', { 
         reason: 'component_unmount',
         hadLocalStream: !!localStream,
@@ -753,7 +795,7 @@ export default function CameraScreen() {
         uri: photo?.uri?.substring(0, 50),
         width: (photo as any)?.width,
         height: (photo as any)?.height,
-        captureDurationMs: captureEndTime - Date.now(),
+        captureDurationMs: captureEndTime - captureStartTime,
       })
 
       // Save if enabled
@@ -779,7 +821,7 @@ export default function CameraScreen() {
       await incrementPhotos()
       await incrementScoldingsSaved(1)
       showRandomEncouragement()
-      sessionLogger.logPerformance('photo_capture', Date.now() - captureEndTime, true, {
+      sessionLogger.logPerformance('photo_capture', captureEndTime - captureStartTime, true, {
         photoCount: photoCount + 1,
       })
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
@@ -879,6 +921,9 @@ export default function CameraScreen() {
           <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
             <Text style={styles.initializingEmoji}>📷</Text>
             <Text style={styles.initializingText}>Connecting camera...</Text>
+            {partnerOnline === false && (
+              <Text style={styles.initializingText}>Partner is offline — showing local camera only</Text>
+            )}
           </View>
         ) : cameraError ? (
           // Camera error state - show error message with retry option
@@ -942,8 +987,8 @@ export default function CameraScreen() {
             onMountError={(error) => {
               const userMessage = getCameraErrorMessage(error)
               sessionLogger.logCamera('error', {
-                errorName: error.name,
-                errorMessage: error.message,
+                errorName: (error as any)?.name ?? 'CameraMountError',
+                errorMessage: (error as any)?.message ?? String(error),
                 userMessage,
                 facing,
                 source: 'expo-camera',
@@ -1047,8 +1092,13 @@ export default function CameraScreen() {
             style={styles.switchRolePrompt}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-              webrtcService.destroy()
-              router.replace('/viewer')
+              ;(async () => {
+                try {
+                  await webrtcService.destroy()
+                } finally {
+                  router.replace('/viewer')
+                }
+              })()
             }}
             accessibilityLabel="Switch to Director mode"
           >

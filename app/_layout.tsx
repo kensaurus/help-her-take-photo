@@ -3,11 +3,12 @@
  * Handles onboarding flow and initializes services
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { Alert } from 'react-native'
 import * as SplashScreen from 'expo-splash-screen'
 import { useLanguageStore } from '../src/stores/languageStore'
 import { useThemeStore } from '../src/stores/themeStore'
@@ -18,7 +19,9 @@ import { usePairingStore } from '../src/stores/pairingStore'
 import { logger } from '../src/services/logging'
 import { notificationService } from '../src/services/notifications'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { connectionManager, type ConnectionEvent } from '../src/services/connectionManager'
 import { AppUpdatePrompt } from '../src/components/ui/AppUpdatePrompt'
+import { ErrorBoundary } from '../src/components/ErrorBoundary'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
@@ -33,6 +36,34 @@ export default function RootLayout() {
   const { loadStats, setDeviceId: setStatsDeviceId } = useStatsStore()
   const { loadFromStorage: loadPairing, myDeviceId } = usePairingStore()
   const [isReady, setIsReady] = useState(false)
+
+  // Handle connection manager events
+  const handleConnectionEvent = useCallback((event: ConnectionEvent) => {
+    switch (event.type) {
+      case 'session_expired':
+        // Session is no longer valid, show alert and redirect
+        Alert.alert(
+          'Session Expired',
+          'Your pairing session has expired. Please pair again.',
+          [{ text: 'OK', onPress: () => router.replace('/') }]
+        )
+        break
+      
+      case 'fatal_error':
+        if (!event.recoverable) {
+          Alert.alert(
+            'Connection Error',
+            event.error,
+            [{ text: 'OK' }]
+          )
+        }
+        break
+      
+      case 'reconnect_failed':
+        sessionLogger.warn('reconnect_failed_alert', { reason: event.reason })
+        break
+    }
+  }, [router])
 
   useEffect(() => {
     const init = async () => {
@@ -85,6 +116,25 @@ export default function RootLayout() {
         })
       }
       
+      // Initialize connection manager for network/lifecycle monitoring
+      connectionManager.initialize()
+      
+      // Subscribe to connection events
+      const unsubscribe = connectionManager.subscribe(handleConnectionEvent)
+      
+      // Validate session if we have one (clears stale sessions)
+      if (pairingState.isPaired && pairingState.sessionId) {
+        sessionLogger.info('validating_existing_session', {
+          sessionId: pairingState.sessionId.substring(0, 8),
+        })
+        // Don't await - let it run in background
+        connectionManager.validateSession().then((isValid) => {
+          if (!isValid) {
+            sessionLogger.warn('existing_session_invalid_on_startup')
+          }
+        })
+      }
+      
       // Register for push notifications (non-blocking)
       notificationService.registerForPushNotifications()
         .then((token) => {
@@ -103,9 +153,14 @@ export default function RootLayout() {
         SplashScreen.hideAsync()
         logger.info('App ready')
       }, 400)
+      
+      // Cleanup function
+      return () => {
+        unsubscribe()
+      }
     }
     init()
-  }, [loadLanguage, loadTheme, loadOnboardingState, loadSettings, loadStats, loadPairing])
+  }, [loadLanguage, loadTheme, loadOnboardingState, loadSettings, loadStats, loadPairing, handleConnectionEvent])
 
   // Handle onboarding navigation
   useEffect(() => {
@@ -127,12 +182,19 @@ export default function RootLayout() {
     logger.trackNavigation('RootLayout mounted')
   }, [])
 
+  // Handle error boundary reset
+  const handleErrorReset = useCallback(() => {
+    // Navigate to home after reset
+    router.replace('/')
+  }, [router])
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <AppUpdatePrompt />
-        <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
-        <Stack
+        <ErrorBoundary onReset={handleErrorReset}>
+          <AppUpdatePrompt />
+          <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+          <Stack
           screenOptions={{
             headerShown: true,
             headerStyle: {
@@ -221,6 +283,7 @@ export default function RootLayout() {
             }} 
           />
         </Stack>
+        </ErrorBoundary>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

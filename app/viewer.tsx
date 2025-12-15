@@ -243,6 +243,7 @@ export default function ViewerScreen() {
   }, [isPaired, pairedDeviceId, partnerDisplayName, setPartnerInfo])
 
   // Initialize WebRTC when paired
+  // ANDROID FIX: Add delay before init to allow previous role's cleanup to complete
   useEffect(() => {
     if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
       // Check if WebRTC is available
@@ -258,7 +259,13 @@ export default function ViewerScreen() {
         pairedDeviceId,
         sessionId,
       })
+      // Flush immediately so we can see this even if native code crashes
+      sessionLogger.flush()
       setIsConnected(true)
+      
+      // Track if effect is still active
+      let isActive = true
+      let initDelayId: ReturnType<typeof setTimeout> | null = null
       
       // Record connection in history
       connectionHistoryApi.recordConnection({
@@ -299,63 +306,82 @@ export default function ViewerScreen() {
         },
       })
       
-      webrtcService.init(
-        myDeviceId,
-        pairedDeviceId,
-        sessionId,
-        'director',
-        {
-          onRemoteStream: (stream) => {
-            // Detailed logging for debugging blank screen issues
-            const videoTracks = stream?.getVideoTracks?.() ?? []
-            const audioTracks = stream?.getAudioTracks?.() ?? []
-            
-            sessionLogger.info('director_remote_stream_received', {
-              trackCount: stream?.getTracks?.()?.length ?? 0,
-              videoTrackCount: videoTracks.length,
-              audioTrackCount: audioTracks.length,
-              streamId: stream?.id?.substring(0, 8),
-              streamActive: stream?.active,
-              // Log first video track details if present
-              videoTrackEnabled: videoTracks[0]?.enabled,
-              videoTrackMuted: videoTracks[0]?.muted,
-              videoTrackReadyState: videoTracks[0]?.readyState,
-            })
-            
-            // Validate stream has video tracks before setting
-            if (videoTracks.length === 0) {
-              sessionLogger.warn('director_no_video_tracks_in_stream', {
-                message: 'Remote stream has no video tracks - will show blank screen',
-              })
-            }
-            
-            setRemoteStream(stream)
-            setIsReceiving(true)
-          },
-          onConnectionStateChange: (state) => {
-            sessionLogger.info('director_webrtc_state', { 
-              connectionState: state,
-              role: 'director',
-            })
-            setConnectionState(state)
-            if (state === 'failed' || state === 'disconnected') {
-              setIsReceiving(false)
-              setRemoteStream(null)
-              // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
-            }
-          },
-          onError: (error) => {
-            sessionLogger.error('director_webrtc_error', error, {
-              role: 'director',
-              myDeviceId,
-              pairedDeviceId,
-            })
-            setWebrtcError(error.message)
-          },
+      // ANDROID FIX: Small delay before init to allow any previous role's
+      // cleanup (especially from Photographer) to complete at native level.
+      sessionLogger.info('director_init_delay_start', { delayMs: 300 })
+      initDelayId = setTimeout(() => {
+        if (!isActive) {
+          sessionLogger.info('director_init_cancelled_inactive_during_delay')
+          return
         }
-      )
+        sessionLogger.info('director_init_delay_complete')
+
+        webrtcService.init(
+          myDeviceId,
+          pairedDeviceId,
+          sessionId,
+          'director',
+          {
+            onRemoteStream: (stream) => {
+              if (!isActive) return
+              // Detailed logging for debugging blank screen issues
+              const videoTracks = stream?.getVideoTracks?.() ?? []
+              const audioTracks = stream?.getAudioTracks?.() ?? []
+              
+              sessionLogger.info('director_remote_stream_received', {
+                trackCount: stream?.getTracks?.()?.length ?? 0,
+                videoTrackCount: videoTracks.length,
+                audioTrackCount: audioTracks.length,
+                streamId: stream?.id?.substring(0, 8),
+                streamActive: stream?.active,
+                // Log first video track details if present
+                videoTrackEnabled: videoTracks[0]?.enabled,
+                videoTrackMuted: videoTracks[0]?.muted,
+                videoTrackReadyState: videoTracks[0]?.readyState,
+              })
+              
+              // Validate stream has video tracks before setting
+              if (videoTracks.length === 0) {
+                sessionLogger.warn('director_no_video_tracks_in_stream', {
+                  message: 'Remote stream has no video tracks - will show blank screen',
+                })
+              }
+              
+              setRemoteStream(stream)
+              setIsReceiving(true)
+            },
+            onConnectionStateChange: (state) => {
+              if (!isActive) return
+              sessionLogger.info('director_webrtc_state', { 
+                connectionState: state,
+                role: 'director',
+              })
+              setConnectionState(state)
+              if (state === 'failed' || state === 'disconnected') {
+                setIsReceiving(false)
+                setRemoteStream(null)
+                // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
+              }
+            },
+            onError: (error) => {
+              if (!isActive) return
+              sessionLogger.error('director_webrtc_error', error, {
+                role: 'director',
+                myDeviceId,
+                pairedDeviceId,
+              })
+              setWebrtcError(error.message)
+            },
+          }
+        )
+      }, 300)
 
       return () => {
+        isActive = false
+        if (initDelayId) {
+          clearTimeout(initDelayId)
+          initDelayId = null
+        }
         webrtcService.destroy()
         setIsConnected(false)
         setIsReceiving(false)
@@ -413,44 +439,50 @@ export default function ViewerScreen() {
     
     // Reconnect WebRTC
     if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      await webrtcService.destroy()
-      setIsReceiving(false)
-      setRemoteStream(null)
-      
-      // Small delay before reconnecting
-      await new Promise(r => setTimeout(r, 500))
-      
-      webrtcService.init(
-        myDeviceId,
-        pairedDeviceId,
-        sessionId,
-        'director',
-        {
-          onRemoteStream: (stream) => {
-            const videoTracks = stream?.getVideoTracks?.() ?? []
-            sessionLogger.info('director_remote_stream_received_refresh', {
-              trackCount: stream?.getTracks?.()?.length ?? 0,
-              videoTrackCount: videoTracks.length,
-              streamId: stream?.id?.substring(0, 8),
-              videoTrackEnabled: videoTracks[0]?.enabled,
-            })
-            setRemoteStream(stream)
-            setIsReceiving(true)
-          },
-          onConnectionStateChange: (state) => {
-            sessionLogger.info('director_webrtc_state_refresh', { 
-              connectionState: state,
-              role: 'director',
-            })
-            setConnectionState(state)
-          },
-          onError: (error) => {
-            sessionLogger.error('director_webrtc_error_refresh', error, {
-              role: 'director',
-            })
-          },
-        }
-      )
+      try {
+        await webrtcService.destroy()
+        setIsReceiving(false)
+        setRemoteStream(null)
+        
+        // ANDROID FIX: Longer delay after destroy to ensure native cleanup
+        await new Promise(r => setTimeout(r, 800))
+        
+        await webrtcService.init(
+          myDeviceId,
+          pairedDeviceId,
+          sessionId,
+          'director',
+          {
+            onRemoteStream: (stream) => {
+              const videoTracks = stream?.getVideoTracks?.() ?? []
+              sessionLogger.info('director_remote_stream_received_refresh', {
+                trackCount: stream?.getTracks?.()?.length ?? 0,
+                videoTrackCount: videoTracks.length,
+                streamId: stream?.id?.substring(0, 8),
+                videoTrackEnabled: videoTracks[0]?.enabled,
+              })
+              setRemoteStream(stream)
+              setIsReceiving(true)
+            },
+            onConnectionStateChange: (state) => {
+              sessionLogger.info('director_webrtc_state_refresh', { 
+                connectionState: state,
+                role: 'director',
+              })
+              setConnectionState(state)
+            },
+            onError: (error) => {
+              sessionLogger.error('director_webrtc_error_refresh', error, {
+                role: 'director',
+              })
+              setWebrtcError(error.message)
+            },
+          }
+        )
+      } catch (error) {
+        sessionLogger.error('viewer_refresh_failed', error)
+        setWebrtcError(CAMERA_ERROR_MESSAGES.UnknownError)
+      }
     }
     
     setRefreshing(false)
@@ -679,8 +711,23 @@ export default function ViewerScreen() {
               style={styles.switchRoleBtn}
               onPress={() => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-                webrtcService.destroy()
-                router.replace('/camera')
+                // ANDROID FIX: Await destroy and add delay before navigation
+                // to ensure native WebRTC resources are fully released.
+                // Without this, the Photographer screen's RTCPeerConnection
+                // creation can cause a native crash.
+                sessionLogger.info('switch_to_photographer_start')
+                ;(async () => {
+                  try {
+                    await webrtcService.destroy()
+                    sessionLogger.info('switch_to_photographer_destroy_complete')
+                    // Additional delay for native resource cleanup
+                    await new Promise(resolve => setTimeout(resolve, 300))
+                  } catch (e) {
+                    sessionLogger.warn('switch_to_photographer_destroy_error', { error: (e as Error)?.message })
+                  } finally {
+                    router.replace('/camera')
+                  }
+                })()
               }}
               accessibilityLabel="Switch to Photographer mode"
               accessibilityHint="Change your role to take photos"

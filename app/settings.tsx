@@ -13,6 +13,7 @@ import {
   FlatList,
   ScrollView,
   Linking,
+  Alert,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -33,6 +34,8 @@ import { Language, languageNames } from '../src/i18n/translations'
 import { getBuildInfo } from '../src/config/build'
 import { Icon } from '../src/components/ui/Icon'
 import { profileApi } from '../src/services/api'
+import { connectionManager } from '../src/services/connectionManager'
+import { sessionLogger } from '../src/services/sessionLogger'
 
 function SettingRow({ 
   label, 
@@ -249,6 +252,34 @@ export default function SettingsScreen() {
     setLanguage(lang)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
     setShowLanguageModal(false)
+  }
+
+  // Handle full app reset (for recovery from fatal errors)
+  const handleResetApp = () => {
+    Alert.alert(
+      'Reset App',
+      'This will clear all connection state and return the app to its initial state. Use this if you are experiencing persistent connection issues.\n\nYour settings and profile will be preserved.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+            sessionLogger.warn('manual_reset_initiated')
+            
+            try {
+              await connectionManager.forceReset()
+              Alert.alert('Reset Complete', 'The app has been reset. You can now pair with a partner again.')
+              router.replace('/')
+            } catch (error) {
+              sessionLogger.error('manual_reset_failed', error)
+              Alert.alert('Reset Failed', 'Could not reset the app. Please try closing and reopening the app.')
+            }
+          },
+        },
+      ]
+    )
   }
 
   const languages: { code: Language; name: string }[] = [
@@ -553,8 +584,35 @@ export default function SettingsScreen() {
           </Pressable>
         </Animated.View>
 
+        {/* Troubleshooting */}
+        <Animated.View entering={FadeIn.delay(220).duration(200)} style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>
+            TROUBLESHOOTING
+          </Text>
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Pressable 
+              style={styles.actionRow} 
+              onPress={handleResetApp}
+            >
+              <View style={styles.resetRowContent}>
+                <View style={[styles.iconContainer, { backgroundColor: `${colors.error}15` }]}>
+                  <Icon name="refresh" size={14} color={colors.error} />
+                </View>
+                <View style={styles.resetInfo}>
+                  <Text style={[styles.settingLabel, { color: colors.error }]}>
+                    Reset Connection State
+                  </Text>
+                  <Text style={[styles.settingDesc, { color: colors.textMuted }]}>
+                    Use if experiencing persistent issues
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          </View>
+        </Animated.View>
+
         {/* About */}
-        <Animated.View entering={FadeIn.delay(230).duration(200)} style={styles.footer}>
+        <Animated.View entering={FadeIn.delay(250).duration(200)} style={styles.footer}>
           <Text style={[styles.appName, { color: colors.text }]}>{t.appName}</Text>
           <Pressable onPress={() => router.push('/changelog')}>
             <Text style={[styles.version, { color: colors.accent }]}>
@@ -1087,5 +1145,13 @@ const styles = StyleSheet.create({
   historyMetaValue: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  resetRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  resetInfo: {
+    flex: 1,
   },
 })

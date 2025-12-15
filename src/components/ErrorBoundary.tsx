@@ -1,116 +1,157 @@
 /**
- * ErrorBoundary - Catch and recover from errors gracefully
- * Prevents screen freezes and allows users to retry or go back
+ * Error Boundary - Global error handling with recovery UI
+ * 
+ * Catches JavaScript errors and provides:
+ * - User-friendly error display
+ * - Option to retry
+ * - Option to reset app state
+ * - Automatic error logging
  */
 
-import React, { Component, ReactNode } from 'react'
+import React, { Component, ErrorInfo, ReactNode } from 'react'
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ScrollView,
+  Dimensions,
 } from 'react-native'
-import { router } from 'expo-router'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import * as Haptics from 'expo-haptics'
+import { sessionLogger } from '../services/sessionLogger'
+import { connectionManager } from '../services/connectionManager'
 
 interface Props {
   children: ReactNode
-  fallback?: ReactNode
-  onError?: (error: Error, errorInfo: React.ErrorInfo) => void
+  onReset?: () => void
 }
 
 interface State {
   hasError: boolean
   error: Error | null
-  errorInfo: string
+  errorInfo: ErrorInfo | null
+  isResetting: boolean
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props)
-    this.state = { hasError: false, error: null, errorInfo: '' }
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      isResetting: false,
+    }
   }
 
-  static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error, errorInfo: error.message }
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error }
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log error to console and optionally to callback
-    console.error('[ErrorBoundary] Caught error:', error, errorInfo)
-    this.props.onError?.(error, errorInfo)
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Log to session logger
+    sessionLogger.error('error_boundary_caught', error, {
+      componentStack: errorInfo.componentStack?.substring(0, 1000),
+    })
+    
+    this.setState({ errorInfo })
+    
+    // Report to connection manager
+    connectionManager.reportFatalError(error, true)
   }
 
   handleRetry = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
-    this.setState({ hasError: false, error: null, errorInfo: '' })
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+    })
   }
 
-  handleGoBack = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    if (router.canGoBack()) {
-      router.back()
-    } else {
-      router.replace('/')
+  handleReset = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    this.setState({ isResetting: true })
+    
+    try {
+      // Force reset all connection state
+      await connectionManager.forceReset()
+      
+      // Call parent reset handler if provided
+      this.props.onReset?.()
+      
+      // Clear error state
+      this.setState({
+        hasError: false,
+        error: null,
+        errorInfo: null,
+        isResetting: false,
+      })
+    } catch (resetError) {
+      sessionLogger.error('error_boundary_reset_failed', resetError)
+      this.setState({ isResetting: false })
     }
-  }
-
-  handleGoHome = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    router.replace('/')
   }
 
   render() {
     if (this.state.hasError) {
-      // Custom fallback if provided
-      if (this.props.fallback) {
-        return this.props.fallback
-      }
-
-      // Default error UI
       return (
-        <View style={styles.container}>
-          <ScrollView 
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.emoji}>😵</Text>
-            <Text style={styles.title}>Something went wrong</Text>
-            <Text style={styles.message}>
-              The app encountered an unexpected error. You can try again or go back.
-            </Text>
-            
-            {__DEV__ && this.state.error && (
-              <View style={styles.errorDetails}>
-                <Text style={styles.errorTitle}>Error Details (Dev Only):</Text>
-                <Text style={styles.errorText} numberOfLines={5}>
-                  {this.state.error.name}: {this.state.error.message}
-                </Text>
-                {this.state.error.stack && (
-                  <Text style={styles.stackTrace} numberOfLines={8}>
-                    {this.state.error.stack}
+        <SafeAreaView style={styles.container}>
+          <ScrollView contentContainerStyle={styles.scrollContent}>
+            <View style={styles.content}>
+              {/* Error Icon */}
+              <Text style={styles.errorIcon}>⚠️</Text>
+              
+              {/* Title */}
+              <Text style={styles.title}>Something went wrong</Text>
+              
+              {/* Description */}
+              <Text style={styles.description}>
+                The app encountered an unexpected error. You can try again or reset the app to its initial state.
+              </Text>
+              
+              {/* Error Details (collapsed by default) */}
+              {__DEV__ && this.state.error && (
+                <View style={styles.errorDetails}>
+                  <Text style={styles.errorName}>{this.state.error.name}</Text>
+                  <Text style={styles.errorMessage}>{this.state.error.message}</Text>
+                  {this.state.error.stack && (
+                    <Text style={styles.errorStack} numberOfLines={10}>
+                      {this.state.error.stack}
+                    </Text>
+                  )}
+                </View>
+              )}
+              
+              {/* Action Buttons */}
+              <View style={styles.actions}>
+                <Pressable
+                  style={[styles.button, styles.retryButton]}
+                  onPress={this.handleRetry}
+                  disabled={this.state.isResetting}
+                >
+                  <Text style={styles.retryButtonText}>Try Again</Text>
+                </Pressable>
+                
+                <Pressable
+                  style={[styles.button, styles.resetButton]}
+                  onPress={this.handleReset}
+                  disabled={this.state.isResetting}
+                >
+                  <Text style={styles.resetButtonText}>
+                    {this.state.isResetting ? 'Resetting...' : 'Reset App'}
                   </Text>
-                )}
+                </Pressable>
               </View>
-            )}
-
-            <View style={styles.buttonRow}>
-              <Pressable style={styles.primaryButton} onPress={this.handleRetry}>
-                <Text style={styles.primaryButtonText}>Try Again</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.buttonRow}>
-              <Pressable style={styles.secondaryButton} onPress={this.handleGoBack}>
-                <Text style={styles.secondaryButtonText}>Go Back</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={this.handleGoHome}>
-                <Text style={styles.secondaryButtonText}>Go Home</Text>
-              </Pressable>
+              
+              {/* Help Text */}
+              <Text style={styles.helpText}>
+                If the problem persists, try closing and reopening the app.
+              </Text>
             </View>
           </ScrollView>
-        </View>
+        </SafeAreaView>
       )
     }
 
@@ -118,96 +159,98 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 }
 
+const { width } = Dimensions.get('window')
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f0f0f',
+    backgroundColor: '#1a1a1a',
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 24,
   },
   content: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
-    minHeight: '100%',
   },
-  emoji: {
+  errorIcon: {
     fontSize: 64,
-    marginBottom: 16,
+    marginBottom: 24,
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#ffffff',
+    color: '#fff',
+    textAlign: 'center',
     marginBottom: 12,
-    textAlign: 'center',
   },
-  message: {
+  description: {
     fontSize: 16,
-    color: '#888888',
+    color: '#9ca3af',
     textAlign: 'center',
-    marginBottom: 32,
     lineHeight: 24,
-    maxWidth: 300,
+    marginBottom: 24,
+    maxWidth: width * 0.8,
   },
   errorDetails: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#262626',
     borderRadius: 8,
     padding: 16,
     marginBottom: 24,
     width: '100%',
-    maxWidth: 350,
+    maxWidth: width * 0.9,
   },
-  errorTitle: {
-    fontSize: 12,
+  errorName: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#ff6b6b',
-    marginBottom: 8,
-    textTransform: 'uppercase',
+    color: '#ef4444',
+    marginBottom: 4,
   },
-  errorText: {
+  errorMessage: {
     fontSize: 13,
-    color: '#ff8787',
-    fontFamily: 'monospace',
+    color: '#f87171',
+    marginBottom: 8,
   },
-  stackTrace: {
+  errorStack: {
     fontSize: 10,
-    color: '#666666',
+    color: '#6b7280',
     fontFamily: 'monospace',
-    marginTop: 8,
   },
-  buttonRow: {
-    flexDirection: 'row',
+  actions: {
+    flexDirection: 'column',
     gap: 12,
-    marginBottom: 12,
+    width: '100%',
+    maxWidth: 280,
+    marginBottom: 24,
   },
-  primaryButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-    minWidth: 140,
+  button: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  primaryButtonText: {
-    color: '#ffffff',
+  retryButton: {
+    backgroundColor: '#22c55e',
+  },
+  retryButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    textAlign: 'center',
+    color: '#fff',
   },
-  secondaryButton: {
-    backgroundColor: '#262626',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+  resetButton: {
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#404040',
+    borderColor: '#374151',
   },
-  secondaryButtonText: {
-    color: '#888888',
-    fontSize: 14,
-    fontWeight: '500',
+  resetButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#9ca3af',
+  },
+  helpText: {
+    fontSize: 13,
+    color: '#6b7280',
     textAlign: 'center',
   },
 })
-
-export default ErrorBoundary
-

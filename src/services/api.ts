@@ -900,6 +900,8 @@ export const connectionHistoryApi = {
    * Presence-based disconnect detection (recommended).
    * Unlike `is_online` column updates, Realtime Presence detects abrupt disconnects.
    * Includes grace period to handle race conditions where one user joins before the other.
+   * 
+   * ENHANCED: Auto-reconnection on channel errors with exponential backoff.
    */
   subscribeToSessionPresence(params: {
     sessionId: string
@@ -908,8 +910,11 @@ export const connectionHistoryApi = {
     onPartnerOnlineChange: (isOnline: boolean) => void
     onError?: (message: string) => void
     gracePeriodMs?: number
+    maxReconnectAttempts?: number
   }) {
     const subKey = `${params.sessionId}:${params.myDeviceId}`
+    const gracePeriodMs = params.gracePeriodMs || 10000 // 10s default
+    const maxReconnectAttempts = params.maxReconnectAttempts || 5
 
     // If we already have a presence subscription for this device+session, replace it.
     const existing = activePresenceSubs.get(subKey)
@@ -918,78 +923,119 @@ export const connectionHistoryApi = {
       activePresenceSubs.delete(subKey)
     }
 
-    const channel = supabase.channel(`presence:${params.sessionId}`, {
-      config: {
-        presence: { key: params.myDeviceId },
-      },
-    })
-
     let lastPartnerOnline: boolean | null = null
     let hasSeenPartner = false
     let connectTimeout: NodeJS.Timeout | null = null
+    let reconnectTimeout: NodeJS.Timeout | null = null
     let isSubscribed = false
-    const gracePeriodMs = params.gracePeriodMs || 10000 // 10s default
+    let reconnectAttempt = 0
+    let isDestroyed = false
+    let currentChannel: ReturnType<typeof supabase.channel> | null = null
 
-    channel.on('presence', { event: 'sync' }, () => {
-      const state = channel.presenceState() as Record<string, unknown>
-      const isOnline = Object.prototype.hasOwnProperty.call(state, params.partnerDeviceId)
+    const createChannel = () => {
+      if (isDestroyed) return null
+      
+      const channel = supabase.channel(`presence:${params.sessionId}`, {
+        config: {
+          presence: { key: params.myDeviceId },
+        },
+      })
 
-      if (isOnline) {
-        hasSeenPartner = true
-        if (connectTimeout) {
-          clearTimeout(connectTimeout)
-          connectTimeout = null
-        }
-      }
+      channel.on('presence', { event: 'sync' }, () => {
+        if (isDestroyed) return
+        
+        const state = channel.presenceState() as Record<string, unknown>
+        const isOnline = Object.prototype.hasOwnProperty.call(state, params.partnerDeviceId)
 
-      // Only report status changes if:
-      // 1. We have seen them online at least once (real disconnect)
-      // 2. OR they are currently online (connection established)
-      // 3. We ignore initial "offline" state until timeout fires (race condition protection)
-      if (hasSeenPartner) {
-        if (lastPartnerOnline !== isOnline) {
-          lastPartnerOnline = isOnline
-          params.onPartnerOnlineChange(isOnline)
-        }
-      } else if (isOnline) {
-        // First time seeing them
-        lastPartnerOnline = true
-        params.onPartnerOnlineChange(true)
-      }
-    })
-
-    channel.subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        isSubscribed = true
-        channel.track({ online_at: new Date().toISOString() })
-
-        // Start grace timer ONLY after we're actually subscribed.
-        // If Realtime can't subscribe (TIMED_OUT), we should not force a false "offline".
-        if (connectTimeout) clearTimeout(connectTimeout)
-        connectTimeout = setTimeout(() => {
-          // Only report "offline" if we are subscribed but never saw partner.
-          // If subscription is unhealthy, treat partner status as unknown instead.
-          if (isSubscribed && !hasSeenPartner) {
-            params.onPartnerOnlineChange(false)
+        if (isOnline) {
+          hasSeenPartner = true
+          reconnectAttempt = 0 // Reset on successful connection
+          if (connectTimeout) {
+            clearTimeout(connectTimeout)
+            connectTimeout = null
           }
-        }, gracePeriodMs)
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        isSubscribed = false
-        params.onError?.(`presence_subscribe_${status.toLowerCase()}`)
-      }
-    })
+        }
+
+        // Only report status changes if:
+        // 1. We have seen them online at least once (real disconnect)
+        // 2. OR they are currently online (connection established)
+        // 3. We ignore initial "offline" state until timeout fires (race condition protection)
+        if (hasSeenPartner) {
+          if (lastPartnerOnline !== isOnline) {
+            lastPartnerOnline = isOnline
+            params.onPartnerOnlineChange(isOnline)
+          }
+        } else if (isOnline) {
+          // First time seeing them
+          lastPartnerOnline = true
+          params.onPartnerOnlineChange(true)
+        }
+      })
+
+      channel.subscribe((status) => {
+        if (isDestroyed) return
+        
+        if (status === 'SUBSCRIBED') {
+          isSubscribed = true
+          reconnectAttempt = 0 // Reset on successful subscribe
+          channel.track({ online_at: new Date().toISOString() })
+
+          // Start grace timer ONLY after we're actually subscribed.
+          if (connectTimeout) clearTimeout(connectTimeout)
+          connectTimeout = setTimeout(() => {
+            if (isSubscribed && !hasSeenPartner && !isDestroyed) {
+              params.onPartnerOnlineChange(false)
+            }
+          }, gracePeriodMs)
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          isSubscribed = false
+          params.onError?.(`presence_subscribe_${status.toLowerCase()}`)
+          
+          // Attempt reconnection with exponential backoff
+          if (!isDestroyed && reconnectAttempt < maxReconnectAttempts) {
+            reconnectAttempt++
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), 30000)
+            
+            console.log(`[Presence] Reconnecting in ${delay}ms (attempt ${reconnectAttempt}/${maxReconnectAttempts})`)
+            
+            if (reconnectTimeout) clearTimeout(reconnectTimeout)
+            reconnectTimeout = setTimeout(() => {
+              if (!isDestroyed) {
+                // Remove old channel and create new one
+                supabase.removeChannel(channel).catch(() => {})
+                currentChannel = createChannel()
+              }
+            }, delay)
+          } else if (reconnectAttempt >= maxReconnectAttempts) {
+            params.onError?.('presence_max_reconnect_attempts')
+          }
+        } else if (status === 'CLOSED') {
+          isSubscribed = false
+        }
+      })
+
+      return channel
+    }
+
+    currentChannel = createChannel()
 
     const unsubscribe = async () => {
+      isDestroyed = true
       if (connectTimeout) clearTimeout(connectTimeout)
-      await supabase.removeChannel(channel)
+      if (reconnectTimeout) clearTimeout(reconnectTimeout)
+      
+      if (currentChannel) {
+        await supabase.removeChannel(currentChannel)
+      }
+      
       const current = activePresenceSubs.get(subKey)
-      if (current?.channel === channel) {
+      if (current?.channel === currentChannel) {
         activePresenceSubs.delete(subKey)
       }
     }
 
     const handle: PresenceSubHandle = {
-      channel,
+      channel: currentChannel!,
       unsubscribe,
     }
 

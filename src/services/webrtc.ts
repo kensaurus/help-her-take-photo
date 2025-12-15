@@ -16,6 +16,21 @@ import { supabase } from './supabase'
 import { sessionLogger, CAMERA_ERROR_MESSAGES } from './sessionLogger'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, name = 'TimeoutError'): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(`Timed out after ${timeoutMs}ms`)
+      ;(err as Error).name = name
+      reject(err)
+    }, timeoutMs)
+  })
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
+}
+
 // Helper to parse media errors
 function parseMediaError(error: Error | unknown): string {
   if (!(error instanceof Error)) return 'UnknownError'
@@ -23,6 +38,8 @@ function parseMediaError(error: Error | unknown): string {
   const errorName = error.name
   
   switch (errorName) {
+    case 'TimeoutError':
+      return 'TimeoutError'
     case 'NotAllowedError':
     case 'PermissionDeniedError':
       return 'NotAllowedError'
@@ -119,7 +136,12 @@ async function getIceServers(): Promise<RTCConfiguration> {
       url: METERED_API_URL.replace(METERED_API_KEY, '***') 
     })
 
-    const response = await fetch(`${METERED_API_URL}?apiKey=${METERED_API_KEY}`)
+    // Avoid hanging init on slow/captive networks (common on Android).
+    const controller = new AbortController()
+    const abortId = setTimeout(() => controller.abort(), 8000)
+    const response = await fetch(`${METERED_API_URL}?apiKey=${METERED_API_KEY}`, {
+      signal: controller.signal,
+    }).finally(() => clearTimeout(abortId))
     
     if (!response.ok) {
       throw new Error(`Metered API error: ${response.status} ${response.statusText}`)
@@ -186,6 +208,16 @@ class WebRTCService {
   
   // Mutex for cleanup operations - prevents concurrent init/destroy race conditions
   private cleanupPromise: Promise<void> | null = null
+  
+  // ICE timeout monitoring - detects stuck "checking" state
+  private iceCheckingStartTime: number | null = null
+  private iceTimeoutTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly ICE_CHECKING_TIMEOUT_MS = 20000 // 20 seconds max in "checking" state
+  
+  // Connection health monitoring
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null
+  private lastStatsTime: number = 0
+  private consecutiveFailedStatsChecks = 0
 
   /**
    * Check if WebRTC is available
@@ -197,6 +229,9 @@ class WebRTCService {
   /**
    * Initialize WebRTC service
    * Returns a promise that resolves when initialization is complete
+   * 
+   * ANDROID FIX: Added delays and defensive try/catch around RTCPeerConnection
+   * to prevent native crashes when switching roles quickly.
    */
   async init(
     deviceId: string,
@@ -247,6 +282,12 @@ class WebRTCService {
           previousRole: this.role,
         })
         await this.cleanupInternal()
+        
+        // ANDROID FIX: After cleanup, wait for native resources to fully release.
+        // On Android, RTCPeerConnection.close() is async at native level and
+        // creating a new connection immediately can cause a native crash.
+        sessionLogger.logWebRTC('init_post_cleanup_delay', { role, delayMs: 500 })
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
 
       // Set initialization lock and ID
@@ -272,21 +313,61 @@ class WebRTCService {
       sessionLogger.logWebRTC('fetching_ice_servers', { role, initId: currentInitId })
       const iceServersConfig = await getIceServers()
       
+      sessionLogger.logWebRTC('ice_servers_received', { 
+        role, 
+        initId: currentInitId,
+        serverCount: iceServersConfig.iceServers?.length ?? 0,
+      })
+      
       // Check if init was cancelled during credential fetch
       if (this.initializationId !== currentInitId) {
         sessionLogger.logWebRTC('init_cancelled_during_ice_fetch', { initId: currentInitId })
         return
       }
 
-      // Create peer connection with fetched ICE servers
+      // ANDROID FIX: Wrap RTCPeerConnection creation in explicit try/catch.
+      // On some Android devices/builds, the constructor can throw or cause native crash.
       sessionLogger.logWebRTC('creating_peer_connection', { 
         role, 
         initId: currentInitId,
         iceServerCount: iceServersConfig.iceServers?.length ?? 0,
       })
-      this.peerConnection = new RTCPeerConnection(iceServersConfig)
+      
+      let peerConnection: RTCPeerConnection | null = null
+      try {
+        peerConnection = new RTCPeerConnection(iceServersConfig)
+      } catch (pcError) {
+        sessionLogger.error('rtc_peer_connection_constructor_failed', pcError, {
+          role,
+          initId: currentInitId,
+          iceServerCount: iceServersConfig.iceServers?.length ?? 0,
+          errorName: (pcError as Error)?.name,
+          errorMessage: (pcError as Error)?.message,
+        })
+        this.isInitializing = false
+        const userError = new Error('Failed to initialize video connection. Please try again.')
+        userError.name = 'RTCPeerConnectionError'
+        callbacks.onError?.(userError)
+        return
+      }
+      
+      if (!peerConnection) {
+        sessionLogger.error('rtc_peer_connection_null', new Error('RTCPeerConnection constructor returned null'), {
+          role,
+          initId: currentInitId,
+        })
+        this.isInitializing = false
+        const userError = new Error('Failed to initialize video connection. Please try again.')
+        userError.name = 'RTCPeerConnectionError'
+        callbacks.onError?.(userError)
+        return
+      }
+      
+      this.peerConnection = peerConnection
+      sessionLogger.logWebRTC('peer_connection_created_successfully', { role, initId: currentInitId })
+      
       this.setupPeerConnectionHandlers()
-      sessionLogger.logWebRTC('peer_connection_created', { role, initId: currentInitId })
+      sessionLogger.logWebRTC('peer_connection_handlers_attached', { role, initId: currentInitId })
 
       // Subscribe to signaling channel
       sessionLogger.logWebRTC('subscribing_to_signaling', { role, initId: currentInitId })
@@ -331,7 +412,7 @@ class WebRTCService {
         role,
         deviceId: deviceId?.substring(0, 8),
         errorMessage: (error as Error)?.message,
-        errorStack: (error as Error)?.stack?.substring(0, 200),
+        errorStack: (error as Error)?.stack?.substring(0, 500),
       })
       this.isInitializing = false
       callbacks.onError?.(error as Error)
@@ -392,47 +473,53 @@ class WebRTCService {
 
         sessionLogger.logWebRTC('requesting_user_media', { constraints, attempt })
 
-        const stream = await mediaDevices.getUserMedia(constraints)
+        // getUserMedia can hang indefinitely on some Android devices/builds.
+        // Force a timeout so the UI can fall back to expo-camera instead of blank screen.
+        const stream = (await withTimeout(
+          mediaDevices.getUserMedia(constraints),
+          12000,
+          'TimeoutError'
+        )) as unknown as MediaStream
 
-      if (!stream) {
-        throw new Error('getUserMedia returned null stream')
-      }
-
-      // Verify we got video tracks
-      const videoTracks = stream.getVideoTracks()
-      if (videoTracks.length === 0) {
-        throw new Error('No video tracks in stream')
-      }
-
-      // Log track settings for debugging
-      const trackSettings = videoTracks[0].getSettings?.() || {}
-      sessionLogger.logWebRTC('local_stream_track_settings', {
-        width: trackSettings.width,
-        height: trackSettings.height,
-        frameRate: trackSettings.frameRate,
-        facingMode: trackSettings.facingMode,
-        deviceId: trackSettings.deviceId?.substring(0, 8),
-      })
-
-      this.localStream = stream
-
-      // Add tracks to peer connection
-      // IMPORTANT: Must add tracks BEFORE creating offer
-      stream.getTracks().forEach((track) => {
-        if (this.peerConnection) {
-          this.peerConnection.addTrack(track, stream)
-          sessionLogger.logWebRTC('track_added_to_peer_connection', {
-            kind: track.kind,
-            enabled: track.enabled,
-            readyState: track.readyState,
-          })
+        if (!stream) {
+          throw new Error('getUserMedia returned null stream')
         }
-      })
+
+        // Verify we got video tracks
+        const videoTracks = (stream as any).getVideoTracks?.() as unknown[] | undefined
+        if (!videoTracks || videoTracks.length === 0) {
+          throw new Error('No video tracks in stream')
+        }
+
+        // Log track settings for debugging
+        const trackSettings = (videoTracks[0] as any)?.getSettings?.() || {}
+        sessionLogger.logWebRTC('local_stream_track_settings', {
+          width: trackSettings.width,
+          height: trackSettings.height,
+          frameRate: trackSettings.frameRate,
+          facingMode: trackSettings.facingMode,
+          deviceId: trackSettings.deviceId?.substring(0, 8),
+        })
+
+        this.localStream = stream
+
+        // Add tracks to peer connection
+        // IMPORTANT: Must add tracks BEFORE creating offer
+        ;(stream as any).getTracks?.().forEach((track: any) => {
+          if (this.peerConnection) {
+            this.peerConnection.addTrack(track, stream as any)
+            sessionLogger.logWebRTC('track_added_to_peer_connection', {
+              kind: track.kind,
+              enabled: track.enabled,
+              readyState: track.readyState,
+            })
+          }
+        })
 
         sessionLogger.logWebRTC('local_stream_started', {
-          tracks: stream.getTracks().length,
+          tracks: ((stream as any).getTracks?.() ?? []).length,
           videoTracks: videoTracks.length,
-          streamId: stream.id?.substring(0, 8),
+          streamId: (stream as any).id?.substring(0, 8),
           attempt,
         })
 
@@ -744,12 +831,30 @@ class WebRTCService {
         role: this.role,
       })
 
-      // Log warning if stuck at checking (common cause of blank screen)
+      // ICE timeout monitoring
       if (iceState === 'checking') {
+        // Start timeout if not already started
+        if (!this.iceCheckingStartTime) {
+          this.iceCheckingStartTime = Date.now()
+          this.startIceTimeout()
+        }
+        
         sessionLogger.warn('ice_checking', {
           message: 'ICE is checking - if stuck here, STUN/TURN servers may not be working',
           role: this.role,
+          timeoutMs: this.ICE_CHECKING_TIMEOUT_MS,
         })
+      } else {
+        // Clear timeout when state changes from "checking"
+        this.clearIceTimeout()
+        this.iceCheckingStartTime = null
+      }
+      
+      // Start health monitoring on connected
+      if (iceState === 'connected' || iceState === 'completed') {
+        this.startHealthMonitoring()
+      } else if (iceState === 'disconnected' || iceState === 'failed' || iceState === 'closed') {
+        this.stopHealthMonitoring()
       }
 
       // Attempt ICE restart on failure
@@ -757,6 +862,9 @@ class WebRTCService {
         sessionLogger.error('ice_failed', new Error('ICE connection failed'), {
           message: 'ICE failed - likely need TURN servers for this network',
           role: this.role,
+          checkingDuration: this.iceCheckingStartTime 
+            ? Date.now() - this.iceCheckingStartTime 
+            : null,
         })
         this.attemptIceRestart()
       }
@@ -819,10 +927,16 @@ class WebRTCService {
         })
         
         if (!this.remoteStream) {
+          if (!MediaStream) {
+            sessionLogger.warn('no_mediastream_constructor', {
+              message: 'MediaStream constructor not available; cannot build fallback stream',
+            })
+            return
+          }
           this.remoteStream = new MediaStream()
         }
-        this.remoteStream.addTrack(event.track)
-        this.callbacks.onRemoteStream?.(this.remoteStream)
+        ;(this.remoteStream as any).addTrack?.(event.track)
+        this.callbacks.onRemoteStream?.(this.remoteStream as any)
       }
     }
 
@@ -832,6 +946,124 @@ class WebRTCService {
         role: this.role,
         signalingState: this.peerConnection?.signalingState,
       })
+    }
+  }
+
+  /**
+   * Start ICE checking timeout - fails if stuck in "checking" too long
+   */
+  private startIceTimeout() {
+    this.clearIceTimeout()
+    
+    this.iceTimeoutTimer = setTimeout(() => {
+      const iceState = this.peerConnection?.iceConnectionState
+      
+      if (iceState === 'checking') {
+        const duration = this.iceCheckingStartTime 
+          ? Date.now() - this.iceCheckingStartTime 
+          : this.ICE_CHECKING_TIMEOUT_MS
+        
+        sessionLogger.error('ice_checking_timeout', new Error('ICE checking timeout'), {
+          duration,
+          role: this.role,
+          message: 'ICE stuck in checking state - STUN/TURN servers may not be reachable',
+        })
+        
+        // Notify callback about the failure
+        const error = new Error('Connection timed out. Please check your network and try again.')
+        error.name = 'ICETimeoutError'
+        this.callbacks.onError?.(error)
+        
+        // Try ICE restart as last resort
+        this.attemptIceRestart()
+      }
+    }, this.ICE_CHECKING_TIMEOUT_MS)
+  }
+
+  /**
+   * Clear ICE timeout timer
+   */
+  private clearIceTimeout() {
+    if (this.iceTimeoutTimer) {
+      clearTimeout(this.iceTimeoutTimer)
+      this.iceTimeoutTimer = null
+    }
+  }
+
+  /**
+   * Start connection health monitoring
+   */
+  private startHealthMonitoring() {
+    this.stopHealthMonitoring()
+    
+    // Check connection stats every 10 seconds
+    this.healthCheckTimer = setInterval(() => {
+      this.checkConnectionHealth()
+    }, 10000)
+    
+    sessionLogger.logWebRTC('health_monitoring_started', { role: this.role })
+  }
+
+  /**
+   * Stop connection health monitoring
+   */
+  private stopHealthMonitoring() {
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer)
+      this.healthCheckTimer = null
+    }
+  }
+
+  /**
+   * Check connection health using WebRTC stats
+   */
+  private async checkConnectionHealth() {
+    if (!this.peerConnection) return
+    
+    try {
+      const stats = await this.peerConnection.getStats()
+      const now = Date.now()
+      
+      let hasActiveConnection = false
+      let bytesReceived = 0
+      let bytesSent = 0
+      
+      stats.forEach((report) => {
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          hasActiveConnection = true
+          bytesReceived = report.bytesReceived || 0
+          bytesSent = report.bytesSent || 0
+        }
+      })
+      
+      if (hasActiveConnection) {
+        this.consecutiveFailedStatsChecks = 0
+        
+        // Log stats periodically (every 30 seconds)
+        if (now - this.lastStatsTime > 30000) {
+          this.lastStatsTime = now
+          sessionLogger.logWebRTC('connection_stats', {
+            role: this.role,
+            bytesReceived,
+            bytesSent,
+            connectionState: this.peerConnection.connectionState,
+            iceConnectionState: this.peerConnection.iceConnectionState,
+          })
+        }
+      } else {
+        this.consecutiveFailedStatsChecks++
+        
+        if (this.consecutiveFailedStatsChecks >= 3) {
+          sessionLogger.warn('connection_health_degraded', {
+            role: this.role,
+            consecutiveFailures: this.consecutiveFailedStatsChecks,
+            message: 'Connection may be unhealthy',
+          })
+        }
+      }
+    } catch (error) {
+      // Stats API may not be available on all platforms
+      sessionLogger.warn('connection_stats_error', { error: (error as Error)?.message })
     }
   }
 
@@ -988,28 +1220,64 @@ class WebRTCService {
   /**
    * Internal cleanup (doesn't reset initialization state)
    * Made defensive to handle concurrent calls safely
+   * 
+   * ANDROID FIX: Added more granular logging and explicit nulling of event handlers
+   * to prevent stale callbacks from firing on the next peer connection.
    */
   private async cleanupInternal() {
+    sessionLogger.logWebRTC('cleanup_internal_start', {
+      hasLocalStream: !!this.localStream,
+      hasPeerConnection: !!this.peerConnection,
+      hasChannel: !!this.channel,
+      hasRemoteStream: !!this.remoteStream,
+      role: this.role,
+    })
+    
+    // Clear ICE timeout and health monitoring
+    this.clearIceTimeout()
+    this.stopHealthMonitoring()
+    this.iceCheckingStartTime = null
+    this.consecutiveFailedStatsChecks = 0
+    
     // Stop local tracks
     try {
-      this.localStream?.getTracks().forEach((track) => {
-        try {
-          track.stop()
-        } catch {
-          // Track may already be stopped
-        }
-      })
-    } catch {
-      // Ignore errors stopping tracks
+      if (this.localStream) {
+        const tracks = this.localStream.getTracks?.() ?? []
+        sessionLogger.logWebRTC('cleanup_stopping_tracks', { trackCount: tracks.length })
+        tracks.forEach((track: { stop: () => void; kind?: string; id?: string }) => {
+          try {
+            track.stop()
+          } catch {
+            // Track may already be stopped
+          }
+        })
+      }
+    } catch (e) {
+      sessionLogger.warn('cleanup_stop_tracks_error', { error: (e as Error)?.message })
     }
     this.localStream = null
 
-    // Close peer connection
+    // ANDROID FIX: Clear event handlers BEFORE closing to prevent stale callbacks
+    // from the old connection interfering with the new one
     if (this.peerConnection) {
       try {
-        this.peerConnection.close()
+        // Explicitly null out handlers to prevent them from firing during/after close
+        this.peerConnection.onicecandidate = null
+        this.peerConnection.onconnectionstatechange = null
+        this.peerConnection.oniceconnectionstatechange = null
+        this.peerConnection.onicegatheringstatechange = null
+        this.peerConnection.ontrack = null
+        this.peerConnection.onnegotiationneeded = null
+        sessionLogger.logWebRTC('cleanup_handlers_cleared', { role: this.role })
       } catch {
-        // Connection may already be closed
+        // Handlers may not be settable
+      }
+      
+      try {
+        this.peerConnection.close()
+        sessionLogger.logWebRTC('cleanup_peer_connection_closed', { role: this.role })
+      } catch (e) {
+        sessionLogger.warn('cleanup_close_error', { error: (e as Error)?.message })
       }
       this.peerConnection = null
     }
@@ -1021,6 +1289,7 @@ class WebRTCService {
     if (channelToRemove) {
       try {
         await supabase.removeChannel(channelToRemove)
+        sessionLogger.logWebRTC('cleanup_channel_removed', { role: this.role })
       } catch (error) {
         // Channel may already be removed or invalid
         sessionLogger.warn('cleanup_channel_error', { 
@@ -1030,25 +1299,48 @@ class WebRTCService {
     }
 
     this.remoteStream = null
+    sessionLogger.logWebRTC('cleanup_internal_complete', { role: this.role })
+    
+    // Flush logs immediately so we can see cleanup state even if app crashes next
+    sessionLogger.flush()
   }
 
   /**
    * Cleanup and disconnect
+   * 
+   * ANDROID FIX: Enhanced logging and explicit state clearing to prevent
+   * race conditions when switching between camera/director roles.
    */
   async destroy() {
+    const destroyStartTime = Date.now()
+    const previousRole = this.role
+    
     sessionLogger.logWebRTC('destroying', { 
       isInitializing: this.isInitializing,
       role: this.role,
+      destroyStartTime,
     })
 
     // If init is in progress, just increment the ID to cancel it
     if (this.isInitializing) {
       sessionLogger.logWebRTC('destroy_during_init', { 
         message: 'Cancelling initialization',
+        initializationId: this.initializationId,
       })
       this.initializationId++
       this.isInitializing = false
     }
+
+    // Clear role and IDs early to prevent stale event handlers from using them
+    // This ensures any events that fire during cleanup see null values
+    const oldDeviceId = this.deviceId
+    const oldPeerDeviceId = this.peerDeviceId
+    const oldSessionId = this.sessionId
+    
+    this.deviceId = null
+    this.peerDeviceId = null
+    this.sessionId = null
+    this.role = null
 
     // Track cleanup as a promise so init() can wait for it
     this.cleanupPromise = this.cleanupInternal().finally(() => {
@@ -1061,10 +1353,16 @@ class WebRTCService {
       sessionLogger.error('destroy_cleanup_error', error)
     }
 
-    this.deviceId = null
-    this.peerDeviceId = null
-    this.sessionId = null
-    this.role = null
+    sessionLogger.logWebRTC('destroy_complete', { 
+      previousRole,
+      durationMs: Date.now() - destroyStartTime,
+      oldDeviceId: oldDeviceId?.substring(0, 8),
+      oldPeerDeviceId: oldPeerDeviceId?.substring(0, 8),
+      oldSessionId: oldSessionId?.substring(0, 8),
+    })
+    
+    // Flush logs so destroy state is visible even if next operation crashes
+    sessionLogger.flush()
   }
 }
 
