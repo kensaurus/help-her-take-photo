@@ -13,8 +13,38 @@
  */
 
 import { supabase } from './supabase'
-import { sessionLogger } from './sessionLogger'
+import { sessionLogger, CAMERA_ERROR_MESSAGES } from './sessionLogger'
 import type { RealtimeChannel } from '@supabase/supabase-js'
+
+// Helper to parse media errors
+function parseMediaError(error: Error | unknown): string {
+  if (!(error instanceof Error)) return 'UnknownError'
+  
+  const errorName = error.name
+  
+  switch (errorName) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'NotAllowedError'
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'NotFoundError'
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'NotReadableError'
+    case 'OverconstrainedError':
+    case 'ConstraintNotSatisfiedError':
+      return 'OverconstrainedError'
+    case 'AbortError':
+      return 'AbortError'
+    case 'SecurityError':
+      return 'SecurityError'
+    case 'TypeError':
+      return 'TypeError'
+    default:
+      return 'UnknownError'
+  }
+}
 
 // Dynamically import WebRTC to handle Expo Go gracefully
 let RTCPeerConnection: any
@@ -175,12 +205,17 @@ class WebRTCService {
     role: WebRTCRole,
     callbacks: WebRTCCallbacks
   ): Promise<void> {
+    const initStartTime = Date.now()
+    
     // Log at the very start to track if init is called
-    sessionLogger.logWebRTC('init_called', { 
+    sessionLogger.logCamera('init_start', { 
       role,
       deviceId: deviceId?.substring(0, 8),
+      peerDeviceId: peerDeviceId?.substring(0, 8),
+      sessionId: sessionId?.substring(0, 8),
       isWebRTCAvailable,
       hasPendingCleanup: !!this.cleanupPromise,
+      initStartTime,
     })
 
     // Check if WebRTC is available (requires development build)
@@ -310,40 +345,54 @@ class WebRTCService {
    * - Use lower resolution for better performance and battery
    * - Avoid mandatory constraints that can fail
    * - Use 'ideal' constraints to let the device choose optimal settings
+   * 
+   * ANDROID FIX: Added retry logic and better error handling for camera acquisition
    */
   async startLocalStream(): Promise<MediaStream | null> {
-    try {
-      // First enumerate devices to find the back camera
-      const devices = await mediaDevices.enumerateDevices()
-      const videoDevices = devices.filter((d: { kind: string }) => d.kind === 'videoinput')
-      const backCamera = videoDevices.find((d: { facing?: string }) => d.facing === 'environment')
-      
-      sessionLogger.logWebRTC('available_video_devices', {
-        count: videoDevices.length,
-        devices: videoDevices.map((d: { deviceId: string; label: string; facing?: string }) => ({
-          id: d.deviceId?.substring(0, 8),
-          label: d.label,
-          facing: d.facing,
-        })),
-      })
+    const MAX_RETRIES = 2
+    let lastError: Error | null = null
 
-      // Video constraints optimized for mobile
-      // Using 'ideal' allows fallback if exact values aren't supported
-      const constraints = {
-        video: {
-          facingMode: { ideal: 'environment' }, // 'environment' = back camera
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          frameRate: { ideal: 30, min: 15 },
-          // Optional: specify device if found
-          ...(backCamera?.deviceId && { deviceId: { ideal: backCamera.deviceId } }),
-        },
-        audio: false, // No audio needed
-      }
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          sessionLogger.logWebRTC('stream_retry', { attempt, maxRetries: MAX_RETRIES })
+          // Small delay before retry to allow camera resource release
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
 
-      sessionLogger.logWebRTC('requesting_user_media', { constraints })
+        // First enumerate devices to find the back camera
+        const devices = await mediaDevices.enumerateDevices()
+        const videoDevices = devices.filter((d: { kind: string }) => d.kind === 'videoinput')
+        const backCamera = videoDevices.find((d: { facing?: string }) => d.facing === 'environment')
+        
+        sessionLogger.logWebRTC('available_video_devices', {
+          count: videoDevices.length,
+          devices: videoDevices.map((d: { deviceId: string; label: string; facing?: string }) => ({
+            id: d.deviceId?.substring(0, 8),
+            label: d.label,
+            facing: d.facing,
+          })),
+          attempt,
+        })
 
-      const stream = await mediaDevices.getUserMedia(constraints)
+        // Video constraints optimized for mobile
+        // Using 'ideal' allows fallback if exact values aren't supported
+        // ANDROID FIX: Lowered resolution for better compatibility on more devices
+        const constraints = {
+          video: {
+            facingMode: { ideal: 'environment' }, // 'environment' = back camera
+            width: { ideal: 1280, min: 320 }, // Lowered min for better device support
+            height: { ideal: 720, min: 240 },  // Lowered min for better device support
+            frameRate: { ideal: 30, min: 10 }, // Lowered min framerate
+            // Optional: specify device if found
+            ...(backCamera?.deviceId && { deviceId: { ideal: backCamera.deviceId } }),
+          },
+          audio: false, // No audio needed
+        }
+
+        sessionLogger.logWebRTC('requesting_user_media', { constraints, attempt })
+
+        const stream = await mediaDevices.getUserMedia(constraints)
 
       if (!stream) {
         throw new Error('getUserMedia returned null stream')
@@ -380,21 +429,63 @@ class WebRTCService {
         }
       })
 
-      sessionLogger.logWebRTC('local_stream_started', {
-        tracks: stream.getTracks().length,
-        videoTracks: videoTracks.length,
-        streamId: stream.id?.substring(0, 8),
-      })
+        sessionLogger.logWebRTC('local_stream_started', {
+          tracks: stream.getTracks().length,
+          videoTracks: videoTracks.length,
+          streamId: stream.id?.substring(0, 8),
+          attempt,
+        })
 
-      return stream
-    } catch (error) {
-      sessionLogger.error('webrtc_local_stream_failed', error, {
-        errorName: (error as Error)?.name,
-        errorMessage: (error as Error)?.message,
-      })
-      this.callbacks.onError?.(error as Error)
-      return null
+        return stream
+      } catch (error) {
+        lastError = error as Error
+        const errorType = parseMediaError(lastError)
+        
+        sessionLogger.logCameraError(errorType as any, lastError, {
+          attempt,
+          maxRetries: MAX_RETRIES,
+          role: this.role,
+        })
+        
+        // Don't retry for permission errors or device not found
+        if (errorType === 'NotAllowedError' || errorType === 'NotFoundError' || errorType === 'SecurityError') {
+          sessionLogger.logCamera('init_failed', {
+            reason: 'non_retryable_error',
+            errorType,
+            attempt,
+          })
+          break
+        }
+        
+        // For NotReadableError (camera occupied), wait longer before retry
+        if (errorType === 'NotReadableError') {
+          sessionLogger.warn('camera_occupied_detected', {
+            message: 'Camera may be used by another app',
+            attempt,
+            waitBeforeRetry: '1000ms',
+          })
+          await new Promise(resolve => setTimeout(resolve, 1000))
+        }
+      }
     }
+
+    // All retries exhausted
+    const finalErrorType = parseMediaError(lastError) as keyof typeof CAMERA_ERROR_MESSAGES
+    const userMessage = CAMERA_ERROR_MESSAGES[finalErrorType] || CAMERA_ERROR_MESSAGES.UnknownError
+    
+    sessionLogger.logCamera('init_failed', {
+      errorType: finalErrorType,
+      userMessage,
+      retriesExhausted: true,
+      totalAttempts: MAX_RETRIES + 1,
+    })
+    
+    // Create error with user-friendly message
+    const finalError = new Error(userMessage)
+    finalError.name = finalErrorType
+    
+    this.callbacks.onError?.(finalError)
+    return null
   }
 
   /**

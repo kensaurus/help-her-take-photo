@@ -43,8 +43,9 @@ try {
 }
 import { useLanguageStore } from '../src/stores/languageStore'
 import { pairingApi } from '../src/services/api'
-import { sessionLogger } from '../src/services/sessionLogger'
+import { sessionLogger, CAMERA_ERROR_MESSAGES } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
+import { ConnectionDebugPanel } from '../src/components/ui/ConnectionDebugPanel'
 
 const QUICK_CONNECT_KEY = 'quick_connect_mode'
 
@@ -211,6 +212,7 @@ export default function ViewerScreen() {
   const [lastCommand, setLastCommand] = useState('')
   const [showSent, setShowSent] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
 
   // Initialize logging
   useEffect(() => {
@@ -283,6 +285,7 @@ export default function ViewerScreen() {
         onPartnerOnlineChange: (isOnline) => {
           sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
           setPartnerPresence(isOnline)
+          setPartnerOnline(isOnline)
           if (!isOnline) {
             Alert.alert(
               'Partner Disconnected',
@@ -291,7 +294,9 @@ export default function ViewerScreen() {
             )
           }
         },
-        onError: (message) => sessionLogger.warn('presence_error', { message }),
+        onError: (message) => {
+          sessionLogger.warn('presence_error', { message })
+        },
       })
       
       webrtcService.init(
@@ -686,6 +691,19 @@ export default function ViewerScreen() {
             </Pressable>
           </View>
         )}
+
+        {/* Debug panel - tap to expand
+        <ConnectionDebugPanel
+          role="director"
+          sessionId={sessionId}
+          myDeviceId={myDeviceId}
+          partnerDeviceId={pairedDeviceId}
+          partnerOnline={partnerOnline}
+          webrtcState={connectionState}
+          isConnected={isConnected}
+          hasRemoteStream={!!remoteStream}
+        />
+        */}
       </ScrollView>
     </SafeAreaView>
   )

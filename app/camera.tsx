@@ -13,6 +13,7 @@ import {
   Alert,
   Linking,
   useWindowDimensions,
+  Platform,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -36,9 +37,18 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { Icon } from '../src/components/ui/Icon'
 import { CaptureButton } from '../src/components/CaptureButton'
+import { ConnectionDebugPanel } from '../src/components/ui/ConnectionDebugPanel'
 import { pairingApi, connectionHistoryApi } from '../src/services/api'
-import { sessionLogger } from '../src/services/sessionLogger'
+import { sessionLogger, CAMERA_ERROR_MESSAGES, type CameraErrorType } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
+
+// Helper to get user-friendly error message
+function getCameraErrorMessage(error: Error | unknown): string {
+  if (!(error instanceof Error)) return CAMERA_ERROR_MESSAGES.UnknownError
+  
+  const errorName = error.name as CameraErrorType
+  return CAMERA_ERROR_MESSAGES[errorName] || error.message || CAMERA_ERROR_MESSAGES.UnknownError
+}
 
 // Dynamically import RTCView
 let RTCView: any = null
@@ -280,6 +290,7 @@ export default function CameraScreen() {
       onPartnerOnlineChange: (isOnline) => {
         sessionLogger.info('partner_presence_changed', { partnerDeviceId: pairedDeviceId, isOnline })
         setPartnerPresence(isOnline)
+        setPartnerOnline(isOnline)
         if (!isOnline) {
           Alert.alert(
             'Director Disconnected',
@@ -288,7 +299,9 @@ export default function CameraScreen() {
           )
         }
       },
-      onError: (message) => sessionLogger.warn('presence_error', { message }),
+      onError: (message) => {
+        sessionLogger.warn('presence_error', { message })
+      },
     })
 
     return () => {
@@ -299,7 +312,9 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null)
   const [permission, requestPermission] = useCameraPermissions()
   const [facing, setFacing] = useState<CameraType>('back')
-  const [isSharing, setIsSharing] = useState(false)
+  // If we're already paired when this screen mounts, default to "sharing" immediately
+  // so we never render CameraView at the same time as WebRTC getUserMedia().
+  const [isSharing, setIsSharing] = useState(() => isPaired && webrtcAvailable)
   const [isConnected, setIsConnected] = useState(false)
   const [localStream, setLocalStream] = useState<any>(null)
   const [photoCount, setPhotoCount] = useState(0)
@@ -308,23 +323,35 @@ export default function CameraScreen() {
   const [encouragement, setEncouragement] = useState('')
   const [lastCommand, setLastCommand] = useState<string | null>(null)
   const [isLoadingPermission, setIsLoadingPermission] = useState(true)
-  const [webrtcInitialized, setWebrtcInitialized] = useState(false)
+  const [webrtcState, setWebrtcState] = useState<string>('idle')
+  const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
+  const [cameraError, setCameraError] = useState<string | null>(null)
+  const [streamReady, setStreamReady] = useState(false) // Track if stream has active video
   
   const encouragements = t.camera.encouragements
 
-  // Initialize logging
+  // Initialize logging with detailed device info
   useEffect(() => {
     if (myDeviceId) {
       sessionLogger.init(myDeviceId, sessionId ?? undefined)
-      sessionLogger.info('camera_screen_opened', { 
+      sessionLogger.logCamera('init_start', { 
         role: 'photographer',
         isPaired,
-        pairedDeviceId,
+        pairedDeviceId: pairedDeviceId?.substring(0, 8),
         webrtcAvailable,
+        screenMounted: true,
+      })
+      
+      // Log device info for debugging
+      sessionLogger.logDeviceInfo({
+        osVersion: `${Platform.OS} ${Platform.Version}`,
       })
     }
     return () => {
-      sessionLogger.info('camera_screen_closed')
+      sessionLogger.logCamera('cleanup', { 
+        role: 'photographer',
+        reason: 'screen_unmount',
+      })
       sessionLogger.flush()
     }
   }, [myDeviceId, sessionId, isPaired, pairedDeviceId])
@@ -336,14 +363,14 @@ export default function CameraScreen() {
     }
   }, [permission])
 
-  // Initialize WebRTC when paired AND permission is granted
-  // IMPORTANT: Only init WebRTC, don't use expo-camera when streaming
-  // Uses mounted ref to prevent state updates after unmount
+  // Initialize WebRTC when paired AND permission is granted AND sharing is requested.
+  // IMPORTANT:
+  // - Don't include "webrtcInitialized" as a dependency (it caused init/cleanup loops).
+  // - Only attach command listeners AFTER init() so the channel exists.
   useEffect(() => {
-    // Don't init if already initialized or not ready
-    if (webrtcInitialized) return
     if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) return
     if (!permission?.granted) return
+    if (!isSharing) return
     
     // Check if WebRTC is available
     if (!webrtcAvailable) {
@@ -381,12 +408,30 @@ export default function CameraScreen() {
     })
     
     // Initialize WebRTC and handle errors properly
+    // ANDROID FIX: Add timeout to prevent indefinite hang on camera init
+    const INIT_TIMEOUT_MS = 15000 // 15 second timeout
+    let initTimedOut = false
+
     const initWebRTC = async () => {
       sessionLogger.info('photographer_calling_webrtc_init', {
         myDeviceId: myDeviceId?.substring(0, 8),
         pairedDeviceId: pairedDeviceId?.substring(0, 8),
         isMounted,
       })
+
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        initTimedOut = true
+        sessionLogger.logCamera('init_failed', {
+          reason: 'timeout',
+          timeoutMs: INIT_TIMEOUT_MS,
+          role: 'photographer',
+        })
+        if (isMounted) {
+          setCameraError(CAMERA_ERROR_MESSAGES.TimeoutError)
+          setIsSharing(false)
+        }
+      }, INIT_TIMEOUT_MS)
       
       try {
         await webrtcService.init(
@@ -404,6 +449,7 @@ export default function CameraScreen() {
                 connectionState: state,
                 role: 'camera',
               })
+              setWebrtcState(state)
               setIsConnected(state === 'connected')
               
               // If connection failed or disconnected, notify user
@@ -425,6 +471,17 @@ export default function CameraScreen() {
           }
         )
         
+        // Clear timeout on successful init
+        clearTimeout(timeoutId)
+
+        // Check if timed out during init
+        if (initTimedOut) {
+          sessionLogger.warn('photographer_init_completed_after_timeout', {
+            message: 'Init completed but timeout already fired',
+          })
+          return
+        }
+
         sessionLogger.info('photographer_webrtc_init_returned', { isMounted })
         
         // Check if still mounted after async init
@@ -434,52 +491,94 @@ export default function CameraScreen() {
           })
           return
         }
+
+        // NOW that the channel exists, attach command listener (direction/capture/etc.)
+        webrtcService.onCommand((command, data) => {
+          if (!isMounted) return
+          sessionLogger.info('command_received', { command, data })
+          setLastCommand(command)
+          handleRemoteCommand(command, data)
+          setTimeout(() => setLastCommand(null), 2000)
+        })
+        sessionLogger.info('photographer_command_listener_attached')
         
         // Get local stream for preview AFTER init completes
         const stream = webrtcService.getLocalStream()
         if (stream && isMounted) {
-          setLocalStream(stream)
-          sessionLogger.info('photographer_local_stream_ready', {
-            trackCount: stream.getTracks().length,
-            videoTracks: stream.getVideoTracks().length,
-            streamId: stream.id?.substring(0, 8),
-          })
+          // Validate stream has active video tracks before rendering
+          const videoTracks = stream.getVideoTracks()
+          const hasActiveVideo = videoTracks.length > 0 && videoTracks.some(
+            (track: { readyState: string; enabled: boolean }) => track.readyState === 'live' && track.enabled
+          )
+          
+          if (hasActiveVideo) {
+            setLocalStream(stream)
+            setStreamReady(true)
+            setCameraError(null)
+            sessionLogger.logCamera('stream_ready', {
+              trackCount: stream.getTracks().length,
+              videoTracks: videoTracks.length,
+              streamId: stream.id?.substring(0, 8),
+              hasActiveVideo,
+              role: 'photographer',
+              trackDetails: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string; label?: string }) => ({
+                readyState: t.readyState,
+                enabled: t.enabled,
+                id: t.id?.substring(0, 8),
+                label: t.label,
+              })),
+            })
+          } else {
+            sessionLogger.logCamera('stream_failed', {
+              reason: 'no_active_video_tracks',
+              trackCount: stream.getTracks().length,
+              videoTracksCount: videoTracks.length,
+              trackStates: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string }) => ({
+                readyState: t.readyState,
+                enabled: t.enabled,
+                id: t.id?.substring(0, 8),
+              })),
+              role: 'photographer',
+            })
+            setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
+            setIsSharing(false)
+          }
         } else if (!stream) {
-          sessionLogger.warn('photographer_no_local_stream', {
-            message: 'WebRTC init completed but no local stream available',
+          sessionLogger.logCamera('stream_failed', {
+            reason: 'no_stream_returned',
             isMounted,
+            role: 'photographer',
           })
+          setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
+          setIsSharing(false)
         }
       } catch (error) {
-        // Log ANY error from init, even if unmounted
-        sessionLogger.error('photographer_webrtc_init_failed', error, {
-          errorMessage: (error as Error)?.message,
+        // Clear timeout on error
+        clearTimeout(timeoutId)
+
+        // Get user-friendly error message
+        const userMessage = getCameraErrorMessage(error)
+
+        // Log detailed error for debugging
+        sessionLogger.logCamera('init_failed', {
           errorName: (error as Error)?.name,
-          errorStack: (error as Error)?.stack?.substring(0, 300),
+          errorMessage: (error as Error)?.message,
+          errorStack: (error as Error)?.stack?.substring(0, 500),
+          userMessage,
           isMounted,
+          initTimedOut,
+          role: 'photographer',
         })
         
-        if (!isMounted) return
+        if (!isMounted || initTimedOut) return
         setIsConnected(false)
         setIsSharing(false)
+        setCameraError(userMessage)
       }
     }
     
-    // Set state before async call
-    setWebrtcInitialized(true)
-    setIsSharing(true)
-    
     // Call async function
     initWebRTC()
-
-    // Listen for commands from director
-    webrtcService.onCommand((command, data) => {
-      if (!isMounted) return
-      sessionLogger.info('command_received', { command, data })
-      setLastCommand(command)
-      handleRemoteCommand(command, data)
-      setTimeout(() => setLastCommand(null), 2000)
-    })
 
     return () => {
       isMounted = false
@@ -487,13 +586,12 @@ export default function CameraScreen() {
         reason: 'component_unmount',
         hadLocalStream: !!localStream,
       })
-      webrtcService.destroy()
-      setIsConnected(false)
-      setIsSharing(false)
-      setLocalStream(null)
-      setWebrtcInitialized(false)
+      // Reset stream state on cleanup
+      setStreamReady(false)
+      // Best-effort cleanup; don't set state here (avoids effect loops).
+      void webrtcService.destroy()
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, webrtcInitialized])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, isSharing])
 
   // Handle commands from director
   const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
@@ -594,12 +692,17 @@ export default function CameraScreen() {
   }, [encouragements])
 
   const handleCapture = async () => {
-    sessionLogger.info('capture_requested', {
+    const captureStartTime = Date.now()
+    
+    sessionLogger.logCamera('capture_start', {
       isPaired,
       isConnected,
       hasCameraRef: !!cameraRef.current,
       hasLocalStream: !!localStream,
       webrtcPreview: useWebRTCPreview,
+      cameraReady,
+      facing,
+      captureStartTime,
     })
 
     if (useWebRTCPreview) {
@@ -607,12 +710,12 @@ export default function CameraScreen() {
       // take a photo via expo-camera, then resume WebRTC.
       sessionLogger.info('capture_webrtc_pause_start')
       try {
-        webrtcService.destroy()
+        void webrtcService.destroy()
       } catch {}
       setLocalStream(null)
+      setStreamReady(false)
       setIsConnected(false)
       setIsSharing(false)
-      setWebrtcInitialized(false)
 
       // Give the native camera a moment to release + CameraView to mount
       await new Promise<void>((resolve) => setTimeout(resolve, 500))
@@ -629,32 +732,45 @@ export default function CameraScreen() {
 
     try {
       if (!cameraRef.current) {
-        sessionLogger.error('capture_failed_no_camera_ref', new Error('cameraRef is null'))
+        sessionLogger.logCamera('capture_failed', {
+          reason: 'no_camera_ref',
+          cameraReady,
+          useWebRTCPreview,
+        })
         Alert.alert('Camera not ready', 'Please wait a second and try again.')
         return
       }
 
-      sessionLogger.info('capture_taking_photo')
+      sessionLogger.logCamera('capture_start', { phase: 'taking_picture' })
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.9,
         exif: false,
         skipProcessing: false,
       })
 
-      sessionLogger.info('capture_photo_taken', {
-        uri: photo?.uri,
+      const captureEndTime = Date.now()
+      sessionLogger.logCamera('capture_success', {
+        uri: photo?.uri?.substring(0, 50),
         width: (photo as any)?.width,
         height: (photo as any)?.height,
+        captureDurationMs: captureEndTime - Date.now(),
       })
 
       // Save if enabled
       if (settings.autoSave && photo?.uri) {
+        sessionLogger.info('capture_saving_to_library', { autoSave: true })
         const permission = await MediaLibrary.requestPermissionsAsync()
         if (permission.status === 'granted') {
           const asset = await MediaLibrary.createAssetAsync(photo.uri)
-          sessionLogger.info('capture_saved_to_library', { assetUri: asset?.uri })
+          sessionLogger.info('capture_saved_to_library', { 
+            assetUri: asset?.uri?.substring(0, 50),
+            success: true,
+          })
         } else {
-          sessionLogger.warn('capture_media_permission_denied')
+          sessionLogger.logCamera('permission_denied', { 
+            type: 'media_library',
+            action: 'save_photo',
+          })
         }
       }
 
@@ -663,19 +779,24 @@ export default function CameraScreen() {
       await incrementPhotos()
       await incrementScoldingsSaved(1)
       showRandomEncouragement()
-      sessionLogger.info('capture_success')
+      sessionLogger.logPerformance('photo_capture', Date.now() - captureEndTime, true, {
+        photoCount: photoCount + 1,
+      })
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
     } catch (error) {
-      sessionLogger.error('capture_failed', error, {
-        message: (error as Error)?.message,
+      sessionLogger.logCamera('capture_failed', {
+        errorName: (error as Error)?.name,
+        errorMessage: (error as Error)?.message,
+        errorStack: (error as Error)?.stack?.substring(0, 300),
+        cameraReady,
+        hasCameraRef: !!cameraRef.current,
       })
-      Alert.alert('Capture failed', 'Please try again.')
+      Alert.alert('Capture failed', getCameraErrorMessage(error))
     } finally {
       // Resume WebRTC after capture if we're paired
       if (isPaired && myDeviceId && pairedDeviceId && sessionId && permission?.granted && webrtcAvailable) {
         sessionLogger.info('capture_webrtc_resume_requested')
-        // Let the normal effect re-init WebRTC
-        setWebrtcInitialized(false)
+        // Trigger re-init by requesting sharing again.
         setIsSharing(true)
       }
     }
@@ -710,11 +831,13 @@ export default function CameraScreen() {
   }
 
   // Determine which camera view to show
-  // If paired + WebRTC available + has local stream → show RTCView
+  // If paired + WebRTC available + has local stream with active video → show RTCView
   // If paired but WebRTC is initializing (no stream yet) → show loading placeholder
   // Otherwise → show expo-camera CameraView
-  const useWebRTCPreview = isPaired && webrtcAvailable && localStream && RTCView
-  const webrtcIsInitializing = isPaired && webrtcAvailable && !localStream && (isSharing || webrtcInitialized)
+  // 
+  // ANDROID FIX: Ensure stream is validated before rendering RTCView to avoid blank screen
+  const useWebRTCPreview = isPaired && webrtcAvailable && localStream && RTCView && streamReady
+  const webrtcIsInitializing = isPaired && webrtcAvailable && !localStream && isSharing && !cameraError
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -736,20 +859,69 @@ export default function CameraScreen() {
         {useWebRTCPreview ? (
           // WebRTC local stream preview (when paired and stream ready)
           // Key prop forces re-render when stream changes - fixes blank screen
-          <RTCView
-            key={localStream?.id || 'local-stream'}
-            streamURL={localStream.toURL()}
-            style={StyleSheet.absoluteFill}
-            objectFit="cover"
-            mirror={facing === 'front'}
-            zOrder={0}
-          />
+          // ANDROID FIX: 
+          // - zOrder={1} brings RTCView to front (0 can render behind other views)
+          // - Explicit width/height prevents 0-dimension crash on Android
+          // - Added wrapper View with flex:1 to ensure proper layout
+          <View style={styles.rtcViewWrapper}>
+            <RTCView
+              key={localStream?.id || 'local-stream'}
+              streamURL={localStream.toURL()}
+              style={styles.rtcView}
+              objectFit="cover"
+              mirror={facing === 'front'}
+              zOrder={1}
+            />
+          </View>
         ) : webrtcIsInitializing ? (
           // WebRTC is initializing - show placeholder to avoid camera conflict
           // Do NOT render CameraView here or it will fight with getUserMedia()
           <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
             <Text style={styles.initializingEmoji}>📷</Text>
             <Text style={styles.initializingText}>Connecting camera...</Text>
+          </View>
+        ) : cameraError ? (
+          // Camera error state - show error message with retry option
+          <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
+            <Text style={styles.initializingEmoji}>⚠️</Text>
+            <Text style={styles.errorText}>{cameraError}</Text>
+            <Pressable
+              style={styles.retryButton}
+              onPress={() => {
+                sessionLogger.logCamera('init_start', {
+                  reason: 'user_retry',
+                  previousError: cameraError,
+                  isPaired,
+                  webrtcAvailable,
+                })
+                setCameraError(null)
+                setCameraReady(false)
+                setStreamReady(false)
+                if (isPaired && webrtcAvailable) {
+                  setIsSharing(true)
+                }
+              }}
+            >
+              <Text style={styles.retryButtonText}>Try Again</Text>
+            </Pressable>
+            
+            {/* Show additional help for specific errors */}
+            {cameraError === CAMERA_ERROR_MESSAGES.NotReadableError && (
+              <Text style={styles.errorHint}>
+                💡 Tip: Close other camera apps and try again
+              </Text>
+            )}
+            {cameraError === CAMERA_ERROR_MESSAGES.NotAllowedError && (
+              <Pressable 
+                style={styles.settingsButton}
+                onPress={() => {
+                  sessionLogger.info('user_opened_settings', { reason: 'permission_denied' })
+                  Linking.openSettings()
+                }}
+              >
+                <Text style={styles.settingsButtonText}>Open Settings</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           // expo-camera preview (when not paired OR after WebRTC gives up camera)
@@ -759,7 +931,24 @@ export default function CameraScreen() {
             facing={facing}
             onCameraReady={() => {
               setCameraReady(true)
-              sessionLogger.info('camera_ready')
+              setCameraError(null)
+              sessionLogger.logCamera('ready', {
+                facing,
+                isPaired,
+                isSharing,
+                source: 'expo-camera',
+              })
+            }}
+            onMountError={(error) => {
+              const userMessage = getCameraErrorMessage(error)
+              sessionLogger.logCamera('error', {
+                errorName: error.name,
+                errorMessage: error.message,
+                userMessage,
+                facing,
+                source: 'expo-camera',
+              })
+              setCameraError(userMessage)
             }}
           />
         )}
@@ -866,6 +1055,25 @@ export default function CameraScreen() {
             <Text style={styles.switchRoleIcon}>👁️</Text>
             <Text style={styles.switchRoleText}>Switch to Director</Text>
           </Pressable>
+        )}
+
+        {/* Debug panel - tap to expand (only visible in __DEV__ mode) */}
+        {__DEV__ && (
+          <ConnectionDebugPanel
+            role="photographer"
+            sessionId={sessionId}
+            myDeviceId={myDeviceId}
+            partnerDeviceId={pairedDeviceId}
+            partnerOnline={partnerOnline}
+            webrtcState={webrtcState}
+            isConnected={isConnected}
+            isSharing={isSharing}
+            hasLocalStream={!!localStream}
+            cameraError={cameraError}
+            streamReady={streamReady}
+            cameraReady={cameraReady}
+            facing={facing}
+          />
         )}
       </View>
     </SafeAreaView>
@@ -981,6 +1189,60 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#888',
     fontWeight: '500',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ef4444',
+    fontWeight: '500',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  errorHint: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textAlign: 'center',
+    marginTop: 16,
+    paddingHorizontal: 32,
+  },
+  settingsButton: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.4)',
+  },
+  settingsButtonText: {
+    fontSize: 14,
+    color: '#3b82f6',
+    fontWeight: '600',
+  },
+  // ANDROID FIX: Explicit dimensions for RTCView wrapper to prevent 0-dimension crash
+  rtcViewWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000',
+  },
+  rtcView: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   gridOverlay: {
     position: 'absolute',

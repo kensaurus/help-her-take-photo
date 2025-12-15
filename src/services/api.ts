@@ -15,6 +15,12 @@ import type {
 import { Platform } from 'react-native'
 import Constants from 'expo-constants'
 
+// Keep a single Presence subscription per (sessionId,myDeviceId).
+// Multiple screens (home/viewer/camera) were creating duplicate Presence channels,
+// leading to TIMEOUTs + duplicate callbacks + false "partner offline" disconnects.
+type PresenceSubHandle = { channel: ReturnType<typeof supabase.channel>; unsubscribe: () => Promise<void> }
+const activePresenceSubs = new Map<string, PresenceSubHandle>()
+
 /**
  * Generate a random 4-digit code
  */
@@ -903,6 +909,15 @@ export const connectionHistoryApi = {
     onError?: (message: string) => void
     gracePeriodMs?: number
   }) {
+    const subKey = `${params.sessionId}:${params.myDeviceId}`
+
+    // If we already have a presence subscription for this device+session, replace it.
+    const existing = activePresenceSubs.get(subKey)
+    if (existing) {
+      void existing.unsubscribe().catch(() => {})
+      activePresenceSubs.delete(subKey)
+    }
+
     const channel = supabase.channel(`presence:${params.sessionId}`, {
       config: {
         presence: { key: params.myDeviceId },
@@ -912,14 +927,8 @@ export const connectionHistoryApi = {
     let lastPartnerOnline: boolean | null = null
     let hasSeenPartner = false
     let connectTimeout: NodeJS.Timeout | null = null
+    let isSubscribed = false
     const gracePeriodMs = params.gracePeriodMs || 10000 // 10s default
-
-    // Start connection timeout - if partner doesn't appear within grace period, report offline
-    connectTimeout = setTimeout(() => {
-      if (!hasSeenPartner) {
-        params.onPartnerOnlineChange(false)
-      }
-    }, gracePeriodMs)
 
     channel.on('presence', { event: 'sync' }, () => {
       const state = channel.presenceState() as Record<string, unknown>
@@ -951,19 +960,41 @@ export const connectionHistoryApi = {
 
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        isSubscribed = true
         channel.track({ online_at: new Date().toISOString() })
+
+        // Start grace timer ONLY after we're actually subscribed.
+        // If Realtime can't subscribe (TIMED_OUT), we should not force a false "offline".
+        if (connectTimeout) clearTimeout(connectTimeout)
+        connectTimeout = setTimeout(() => {
+          // Only report "offline" if we are subscribed but never saw partner.
+          // If subscription is unhealthy, treat partner status as unknown instead.
+          if (isSubscribed && !hasSeenPartner) {
+            params.onPartnerOnlineChange(false)
+          }
+        }, gracePeriodMs)
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        isSubscribed = false
         params.onError?.(`presence_subscribe_${status.toLowerCase()}`)
       }
     })
 
-    return {
-      channel,
-      unsubscribe: async () => {
-        if (connectTimeout) clearTimeout(connectTimeout)
-        await supabase.removeChannel(channel)
-      },
+    const unsubscribe = async () => {
+      if (connectTimeout) clearTimeout(connectTimeout)
+      await supabase.removeChannel(channel)
+      const current = activePresenceSubs.get(subKey)
+      if (current?.channel === channel) {
+        activePresenceSubs.delete(subKey)
+      }
     }
+
+    const handle: PresenceSubHandle = {
+      channel,
+      unsubscribe,
+    }
+
+    activePresenceSubs.set(subKey, handle)
+    return handle
   },
 }
 
