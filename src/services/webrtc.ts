@@ -91,7 +91,7 @@ export const webrtcAvailable = isWebRTCAvailable
 // Get your API key from https://www.metered.ca/stun-turn
 // NOTE: EXPO_PUBLIC_ vars require native rebuild - OTA won't update them
 // Using fallback for testing until native rebuild
-const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || '692e88ad36749006f9f653eb3d40989da0d8'
+const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || ''
 const METERED_API_URL = process.env.EXPO_PUBLIC_METERED_API_URL || 'https://kenji.metered.live/api/v1/turn/credentials'
 
 // Fallback STUN servers (used if TURN fetch fails)

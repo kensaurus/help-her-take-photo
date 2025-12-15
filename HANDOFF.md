@@ -171,12 +171,14 @@ User needs to **force close and reopen** the app to get updates.
 WebRTC requires a **development build** - it doesn't work in Expo Go. The app gracefully falls back to expo-camera only mode.
 
 ### 2. TURN Server Credentials
-Using Metered.ca TURN servers. API key is hardcoded as fallback because `EXPO_PUBLIC_*` env vars require native rebuild (OTA doesn't update them).
+Using Metered.ca TURN servers. Set `EXPO_PUBLIC_METERED_API_KEY` in your `.env` file. Get your API key from https://www.metered.ca/stun-turn
 
 ```typescript
 // src/services/webrtc.ts
-const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || '692e88ad36749006f9f653eb3d40989da0d8'
+const METERED_API_KEY = process.env.EXPO_PUBLIC_METERED_API_KEY || ''
 ```
+
+**Note:** `EXPO_PUBLIC_*` env vars require native rebuild (OTA doesn't update them).
 
 ### 3. H.264 Black Screen on Android
 Some Android devices have issues with H.264 codec. We prefer VP8:
