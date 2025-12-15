@@ -62,5 +62,7 @@ ui.xml
 .vscode/
 *.sublime-*
 
-*.png
-*.apk
+# Debug screenshots (don't block assets/)
+debug-*.png
+emulator-*.png
+helpher-*.apk
