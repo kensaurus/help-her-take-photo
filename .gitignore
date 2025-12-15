@@ -62,3 +62,5 @@ ui.xml
 .vscode/
 *.sublime-*
 
+*.png
+*.apk

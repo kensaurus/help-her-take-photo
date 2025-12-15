@@ -331,6 +331,15 @@ export default function CameraScreen() {
   
   const encouragements = t.camera.encouragements
 
+  // IMPORTANT: This hook must be defined BEFORE any conditional returns
+  // to comply with React's rules of hooks
+  const showRandomEncouragement = useCallback(() => {
+    const msg = encouragements[Math.floor(Math.random() * encouragements.length)]
+    setEncouragement(msg)
+    setShowEncouragement(true)
+    setTimeout(() => setShowEncouragement(false), 2500)
+  }, [encouragements])
+
   // Initialize logging with detailed device info
   useEffect(() => {
     if (myDeviceId) {
@@ -725,13 +734,6 @@ export default function CameraScreen() {
       />
     )
   }
-
-  const showRandomEncouragement = useCallback(() => {
-    const msg = encouragements[Math.floor(Math.random() * encouragements.length)]
-    setEncouragement(msg)
-    setShowEncouragement(true)
-    setTimeout(() => setShowEncouragement(false), 2500)
-  }, [encouragements])
 
   const handleCapture = async () => {
     const captureStartTime = Date.now()
