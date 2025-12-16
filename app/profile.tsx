@@ -3,7 +3,7 @@
  * Clean minimal design with micro-interactions
  */
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { 
   View, 
   Text, 
