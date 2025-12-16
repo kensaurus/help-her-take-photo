@@ -1291,63 +1291,82 @@ class WebRTCService {
 
   /**
    * Subscribe to Supabase Realtime for signaling
+   * IMPORTANT: Waits for SUBSCRIBED status before returning to ensure channel is ready
    */
-  private async subscribeToSignaling() {
+  private async subscribeToSignaling(): Promise<void> {
     const channelName = `webrtc:${this.sessionId}`
 
     this.channel = supabase.channel(channelName)
 
-    this.channel
-      .on('broadcast', { event: 'signal' }, (payload) => {
-        const { from, to, signal } = payload.payload as {
-          from: string
-          to: string
-          signal: SignalMessage
-        }
+    // Return a promise that resolves when the channel is subscribed
+    return new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        sessionLogger.warn('signaling_subscription_timeout', { channelName })
+        // Resolve anyway to not block the flow, but log the warning
+        resolve()
+      }, 10000) // 10 second timeout
 
-        // Only process messages for us
-        if (to !== this.deviceId) return
+      this.channel!
+        .on('broadcast', { event: 'signal' }, (payload) => {
+          const { from, to, signal } = payload.payload as {
+            from: string
+            to: string
+            signal: SignalMessage
+          }
 
-        sessionLogger.logWebRTC('signal_received', { 
-          type: signal.type, 
-          from,
-          myRole: this.role,
-          myDeviceId: this.deviceId,
+          // Only process messages for us
+          if (to !== this.deviceId) return
+
+          sessionLogger.logWebRTC('signal_received', { 
+            type: signal.type, 
+            from,
+            myRole: this.role,
+            myDeviceId: this.deviceId,
+          })
+
+          switch (signal.type) {
+            case 'offer':
+              this.handleOffer(signal.data as RTCSessionDescriptionInit)
+              break
+            case 'answer':
+              this.handleAnswer(signal.data as RTCSessionDescriptionInit)
+              break
+            case 'ice-candidate':
+              this.handleIceCandidate(signal.data as RTCIceCandidateInit)
+              break
+          }
         })
-
-        switch (signal.type) {
-          case 'offer':
-            this.handleOffer(signal.data as RTCSessionDescriptionInit)
-            break
-          case 'answer':
-            this.handleAnswer(signal.data as RTCSessionDescriptionInit)
-            break
-          case 'ice-candidate':
-            this.handleIceCandidate(signal.data as RTCIceCandidateInit)
-            break
-        }
-      })
-      // Listen for director_ready signal to re-negotiate when director switches roles
-      .on('broadcast', { event: 'director_ready' }, (payload) => {
-        const { from, to } = payload.payload as { from: string; to: string }
-        
-        // Only process if we're the camera and message is for us
-        if (to !== this.deviceId || this.role !== 'camera') {
-          return
-        }
-        
-        sessionLogger.logWebRTC('director_ready_received', { 
-          from,
-          myRole: this.role,
-          hasLocalStream: !!this.localStream,
+        // Listen for director_ready signal to re-negotiate when director switches roles
+        .on('broadcast', { event: 'director_ready' }, (payload) => {
+          const { from, to } = payload.payload as { from: string; to: string }
+          
+          // Only process if we're the camera and message is for us
+          if (to !== this.deviceId || this.role !== 'camera') {
+            return
+          }
+          
+          sessionLogger.logWebRTC('director_ready_received', { 
+            from,
+            myRole: this.role,
+            hasLocalStream: !!this.localStream,
+          })
+          
+          // Re-send offer to the new director peer connection
+          this.handleDirectorReady()
         })
-        
-        // Re-send offer to the new director peer connection
-        this.handleDirectorReady()
-      })
-      .subscribe()
-
-    sessionLogger.logWebRTC('signaling_subscribed', { channelName })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            clearTimeout(timeout)
+            sessionLogger.logWebRTC('signaling_subscribed', { channelName, status })
+            resolve()
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            clearTimeout(timeout)
+            sessionLogger.error('signaling_subscription_failed', new Error(`Subscription status: ${status}`), { channelName })
+            // Resolve anyway to not block completely, the channel might still work
+            resolve()
+          }
+        })
+    })
   }
 
   /**

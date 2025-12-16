@@ -40,7 +40,7 @@ import { useStatsStore } from '../src/stores/statsStore'
 import { Icon } from '../src/components/ui/Icon'
 import { CaptureButton } from '../src/components/CaptureButton'
 import { ConnectionDebugPanel } from '../src/components/ui/ConnectionDebugPanel'
-import { pairingApi, connectionHistoryApi } from '../src/services/api'
+import { pairingApi, connectionHistoryApi, capturesApi } from '../src/services/api'
 import { sessionLogger, CAMERA_ERROR_MESSAGES, type CameraErrorType } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 import { livekitService, isLiveKitAvailable } from '../src/services/livekit'
@@ -1086,6 +1086,32 @@ export default function CameraScreen() {
             assetUri: asset?.uri?.substring(0, 50),
             success: true,
           })
+          
+          // Also save to Supabase captures table for gallery
+          if (myDeviceId) {
+            try {
+              const { capture, error } = await capturesApi.save({
+                cameraDeviceId: myDeviceId,
+                viewerDeviceId: pairedDeviceId || undefined,
+                sessionId: sessionId || undefined,
+                storagePath: asset.uri,
+                capturedBy: 'camera',
+                width: (photo as any)?.width,
+                height: (photo as any)?.height,
+              })
+              
+              if (capture) {
+                sessionLogger.info('capture_saved_to_supabase', {
+                  captureId: capture.id?.substring(0, 8),
+                  storagePath: asset.uri?.substring(0, 50),
+                })
+              } else if (error) {
+                sessionLogger.error('capture_supabase_save_failed', new Error(error))
+              }
+            } catch (err) {
+              sessionLogger.error('capture_supabase_save_error', err as Error)
+            }
+          }
         } else {
           sessionLogger.logCamera('permission_denied', { 
             type: 'media_library',
