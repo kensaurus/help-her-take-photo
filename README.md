@@ -21,6 +21,7 @@ A mobile app that helps couples take better photos by allowing one person to rem
 - 🎯 **Onboarding** - First-time user experience with language selection
 - 📊 **Debug Logging** - All events logged to Supabase for debugging
 - ✨ **Micro-interactions** - Physics-based animations, haptic feedback, visual polish
+- 🎀 **Cutesy Pastel Design** - Soft colors, asymmetric artistic shapes, distinct button/badge styling
 
 ## 🏗 Tech Stack
 
@@ -37,7 +38,7 @@ A mobile app that helps couples take better photos by allowing one person to rem
 | Images | expo-image |
 | Haptics | expo-haptics |
 | **Backend** | **Supabase (PostgreSQL, Auth, Edge Functions)** |
-| **Error Tracking** | **Sentry (@sentry/react-native)** |
+| **Error Tracking** | **Sentry (@sentry/react-native + @sentry/core)** |
 | **Validation** | Custom Zod-like schemas |
 
 ## 🚀 Quick Start
@@ -122,8 +123,11 @@ npx expo start
 │   │   ├── CaptureButton.tsx  # Enhanced capture with animations
 │   │   ├── ErrorBoundary.tsx  # React error boundary
 │   │   └── ui/           # Base UI components
-│   │       ├── DebugMenu.tsx  # Dev-only debug utilities
-│   │       └── ...       # Icon, Skeleton, AnimatedPressable, etc.
+│   │       ├── DebugMenu.tsx      # Dev-only debug utilities
+│   │       ├── ArtisticButton.tsx # Asymmetric button with glow
+│   │       ├── ArtisticCard.tsx   # Asymmetric card with decorations
+│   │       ├── CutesBadge.tsx     # Soft pill badge component
+│   │       └── ...                # Icon, Skeleton, AnimatedPressable, etc.
 │   ├── contexts/         # React contexts
 │   │   └── AuthContext.tsx   # Supabase auth state provider
 │   ├── schemas/          # Input validation
@@ -618,11 +622,32 @@ Available in dev builds via shake gesture or debug button:
 |-------|---------|
 | `pairingStore` | Device pairing state & code |
 | `connectionStore` | WebSocket connection & role |
-| `themeStore` | Dark/light mode preference |
+| `themeStore` | **Cutesy pastel theme** with light/dark mode (see colors below) |
 | `languageStore` | i18n translation loading |
 | `statsStore` | User statistics (photos, scoldings saved) |
 | `settingsStore` | App preferences |
 | `onboardingStore` | First-run completion flag |
+
+### Theme Store Colors
+
+The `themeStore` provides a comprehensive pastel color palette:
+
+```typescript
+const { colors, mode, toggleTheme } = useThemeStore()
+
+// Available color properties:
+colors.background      // Main background
+colors.surface         // Card/surface background
+colors.primary         // Primary action color (coral pink)
+colors.accent          // Secondary accent (periwinkle)
+colors.success         // Success states (mint)
+colors.error           // Error states (soft rose)
+colors.pastelPink      // Highlight accents
+colors.pastelMint      // Success highlights
+colors.pastelLavender  // Purple accents
+colors.buttonGlow      // Glow effect for clickable elements
+colors.badgeBg         // Muted background for badges
+```
 
 ## 🛠️ Services
 
@@ -736,6 +761,27 @@ logger.warn('Deprecation warning')
 
 ## 🎨 UI Components
 
+### Design System: Cutesy Pastel Theme
+
+The app uses a **cutesy pastel design philosophy** with artistic, non-generic styling:
+
+| Design Element | Description |
+|----------------|-------------|
+| **Color Palette** | Soft pastels: coral pink, mint green, lavender, peach, periwinkle |
+| **Card Shapes** | Asymmetric corners (more rounded top-left/bottom-right) |
+| **Button vs Badge** | Buttons: angular with glow; Badges: soft pill shapes |
+| **Typography** | Soft plum text (`#4A3B47`) instead of harsh black |
+
+#### Theme Colors (Light Mode)
+```typescript
+background: '#FFF9FB'    // Soft blush white
+primary: '#F5A0B8'       // Soft coral pink
+accent: '#B8D4F5'        // Soft periwinkle blue
+success: '#A8E6CF'       // Pastel mint green
+pastelPink: '#FFD4E0'    // Baby pink highlights
+pastelLavender: '#E8D5F5' // Soft purple accents
+```
+
 ### Base Components (`src/components/ui/`)
 
 | Component | Description |
@@ -746,6 +792,55 @@ logger.warn('Deprecation warning')
 | `AnimatedButton` | Button with spring animation |
 | `AnimatedPressable` | Physics-based pressable with configurable presets |
 | `FadeView` | View with fade-in animation |
+| `ArtisticButton` | **NEW** - Asymmetric button with glow effect for clickability |
+| `ArtisticCard` | **NEW** - Asymmetric card with decorative blobs |
+| `CutesBadge` | **NEW** - Soft pill badge for informational elements |
+
+### Artistic Components (New)
+
+#### ArtisticButton
+Clickable button with asymmetric chamfered corners and glow effect:
+
+```typescript
+import { ArtisticButton } from '@/components/ui/ArtisticButton'
+
+<ArtisticButton
+  label="Take Photo"
+  icon="camera"
+  variant="primary"  // 'primary' | 'secondary' | 'accent'
+  size="medium"      // 'small' | 'medium' | 'large'
+  onPress={handlePress}
+/>
+```
+
+#### CutesBadge
+Informational badge with soft pill shape (distinct from buttons):
+
+```typescript
+import { CutesBadge } from '@/components/ui/CutesBadge'
+
+<CutesBadge
+  label="Connected"
+  variant="success"  // 'default' | 'success' | 'warning' | 'info'
+  size="small"
+  showDot           // Optional pulsing indicator
+/>
+```
+
+#### ArtisticCard
+General purpose card with asymmetric corners and decorative elements:
+
+```typescript
+import { ArtisticCard } from '@/components/ui/ArtisticCard'
+
+<ArtisticCard
+  title="Connect with Partner"
+  subtitle="Link devices first"
+  icon="link"
+  variant="highlighted"  // 'default' | 'highlighted' | 'muted'
+  onPress={handlePress}
+/>
+```
 
 ### Enhanced Components (`src/components/`)
 

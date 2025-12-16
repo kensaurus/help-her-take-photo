@@ -1,7 +1,7 @@
 # Help Her Take Photo - Developer Handoff
 
 > **Last Updated:** December 16, 2025  
-> **Session Focus:** Full frontend integration with all 6 Edge Functions, Albums & Friends screens, Cloud API client
+> **Session Focus:** Cutesy pastel UI redesign with artistic asymmetric shapes, Sentry fix
 
 ---
 
@@ -27,9 +27,47 @@ A **couple's remote photography assistant** - one person holds the camera (Photo
 - ✅ Commands (direction, capture) work
 - ✅ **WebRTC video streaming working** - Camera feed displays reliably
 - ✅ **LiveKit integrated** as enhanced option (requires Edge Function deployment)
-- ✅ UI redesigned with minimal zen aesthetic
+- ✅ **UI redesigned with cutesy pastel aesthetic** (NEW)
 - ✅ **Large direction overlay** - Prominent arrows on photographer screen
 - ✅ Android SDK 35 compatibility fixed
+- ✅ **Sentry @sentry/core dependency fix** - Bundler error resolved
+
+---
+
+## 🎀 Cutesy Pastel UI Redesign (Latest)
+
+### What Was Done
+Complete UI/UX redesign from "zen minimal" to **"cutesy pastel"** aesthetic:
+
+1. **New Color Palette** (`src/stores/themeStore.ts`):
+   - Soft blush white background (`#FFF9FB`)
+   - Coral pink primary (`#F5A0B8`)
+   - Periwinkle blue accent (`#B8D4F5`)
+   - Mint green success (`#A8E6CF`)
+   - Added `pastelPink`, `pastelMint`, `pastelLavender`, `pastelPeach`, `pastelBlue`
+   - Added `buttonGlow` and `badgeBg` for distinct element styling
+
+2. **New UI Components**:
+   - `ArtisticButton.tsx` - Asymmetric chamfered corners with glow effect
+   - `ArtisticCard.tsx` - Asymmetric cards with decorative blob accents
+   - `CutesBadge.tsx` - Soft pill badges for informational elements
+
+3. **Design Philosophy Changes**:
+   - **Buttons**: Angular asymmetric corners (top-left/bottom-right: 14-20px, others: 4-6px)
+   - **Badges**: Soft pill shape (`borderRadius: 20`)
+   - **Cards**: Asymmetric with decorative blobs in corners
+   - **Typography**: Soft plum (`#4A3B47`) instead of harsh black
+
+4. **Updated Screens**:
+   - `app/index.tsx` - Home screen with new card designs
+   - `app/onboarding.tsx` - Onboarding flow with artistic shapes
+   - `app/settings.tsx` - Settings with differentiated buttons/badges
+
+### Sentry Fix
+Fixed `@sentry/core` missing dependency error by adding it to package.json:
+```bash
+npm install @sentry/core --legacy-peer-deps
+```
 
 ---
 
