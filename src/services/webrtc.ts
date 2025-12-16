@@ -442,6 +442,10 @@ class WebRTCService {
         sessionLogger.logWebRTC('camera_init_complete', { initId: currentInitId })
       } else {
         sessionLogger.logWebRTC('director_init_complete', { initId: currentInitId })
+        
+        // FIX: Director signals camera to re-negotiate when switching roles
+        // This solves the problem where camera doesn't know director has a new peer connection
+        await this.sendDirectorReadySignal()
       }
       
       this.isInitializing = false
@@ -956,6 +960,16 @@ class WebRTCService {
         this.startHealthMonitoring()
       } else if (iceState === 'disconnected' || iceState === 'failed' || iceState === 'closed') {
         this.stopHealthMonitoring()
+        
+        // When camera sees disconnected, attempt reconnection
+        if (this.role === 'camera' && (iceState === 'disconnected' || iceState === 'failed')) {
+          sessionLogger.warn('camera_ice_disconnected', {
+            message: 'Camera ICE disconnected - attempting ICE restart',
+            iceState,
+            role: this.role,
+          })
+          this.attemptIceRestart()
+        }
       }
 
       // Attempt ICE restart on failure
@@ -1313,9 +1327,65 @@ class WebRTCService {
             break
         }
       })
+      // Listen for director_ready signal to re-negotiate when director switches roles
+      .on('broadcast', { event: 'director_ready' }, (payload) => {
+        const { from, to } = payload.payload as { from: string; to: string }
+        
+        // Only process if we're the camera and message is for us
+        if (to !== this.deviceId || this.role !== 'camera') {
+          return
+        }
+        
+        sessionLogger.logWebRTC('director_ready_received', { 
+          from,
+          myRole: this.role,
+          hasLocalStream: !!this.localStream,
+        })
+        
+        // Re-send offer to the new director peer connection
+        this.handleDirectorReady()
+      })
       .subscribe()
 
     sessionLogger.logWebRTC('signaling_subscribed', { channelName })
+  }
+
+  /**
+   * Handle director_ready signal by re-creating offer
+   * Called when camera receives director_ready from director who switched roles
+   */
+  private async handleDirectorReady() {
+    if (!this.peerConnection || this.role !== 'camera') {
+      return
+    }
+
+    sessionLogger.logWebRTC('handling_director_ready', { role: this.role })
+
+    try {
+      // Create a new offer to send to the director's new peer connection
+      const offer = await this.peerConnection.createOffer({
+        offerToReceiveVideo: true,
+        offerToReceiveAudio: false,
+        iceRestart: true, // Force ICE restart for new connection
+      })
+
+      const modifiedSdp = this.preferVP8Codec(offer.sdp)
+      const modifiedOffer = { type: offer.type, sdp: modifiedSdp }
+
+      await this.peerConnection.setLocalDescription(modifiedOffer as RTCSessionDescriptionInit)
+
+      await this.sendSignal({
+        type: 'offer',
+        data: modifiedOffer,
+      })
+
+      sessionLogger.logWebRTC('director_ready_offer_sent', { 
+        role: this.role,
+        offerType: offer.type,
+      })
+    } catch (error) {
+      sessionLogger.error('director_ready_offer_failed', error, { role: this.role })
+    }
   }
 
   /**
@@ -1335,6 +1405,27 @@ class WebRTCService {
     })
 
     sessionLogger.logWebRTC('signal_sent', { type: signal.type })
+  }
+
+  /**
+   * Send director_ready signal to tell camera to re-negotiate
+   * This solves the problem where camera doesn't know director has a new peer connection
+   */
+  private async sendDirectorReadySignal() {
+    if (!this.channel || !this.deviceId || !this.peerDeviceId) {
+      return
+    }
+
+    await this.channel.send({
+      type: 'broadcast',
+      event: 'director_ready',
+      payload: {
+        from: this.deviceId,
+        to: this.peerDeviceId,
+      },
+    })
+
+    sessionLogger.logWebRTC('director_ready_sent', { to: this.peerDeviceId })
   }
 
   /**
