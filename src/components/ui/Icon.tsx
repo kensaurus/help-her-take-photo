@@ -182,50 +182,71 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'image':
+        // Zen gallery icon - artistic asymmetric frame with landscape
         return (
           <View style={baseStyle}>
-            {/* Frame */}
+            {/* Frame - asymmetric artistic corners */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: stroke,
-                  left: stroke,
-                  right: stroke,
-                  bottom: stroke,
+                  top: stroke * 1.5,
+                  left: stroke * 1.5,
+                  right: stroke * 1.5,
+                  bottom: stroke * 1.5,
                   borderWidth: stroke,
                   borderColor: iconColor,
-                  borderRadius: stroke * 1.5,
+                  borderTopLeftRadius: stroke * 3,
+                  borderBottomRightRadius: stroke * 3,
+                  borderTopRightRadius: stroke,
+                  borderBottomLeftRadius: stroke,
                 },
               ]}
             />
-            {/* Mountain shape */}
+            {/* Two overlapping hills - artistic landscape */}
             <View
               style={[
                 styles.absolute,
                 {
-                  bottom: quarter,
-                  left: quarter,
+                  bottom: quarter + stroke,
+                  left: quarter * 0.5,
                   width: 0,
                   height: 0,
-                  borderLeftWidth: quarter * 0.8,
-                  borderRightWidth: quarter * 0.8,
-                  borderBottomWidth: quarter * 0.7,
+                  borderLeftWidth: quarter,
+                  borderRightWidth: quarter,
+                  borderBottomWidth: quarter * 0.8,
                   borderLeftColor: 'transparent',
                   borderRightColor: 'transparent',
                   borderBottomColor: iconColor,
                 },
               ]}
             />
-            {/* Sun dot */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  bottom: quarter + stroke,
+                  right: quarter * 0.3,
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: quarter * 0.7,
+                  borderRightWidth: quarter * 0.7,
+                  borderBottomWidth: quarter * 0.5,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderBottomColor: iconColor,
+                },
+              ]}
+            />
+            {/* Sun - positioned nicely */}
             <View
               style={[
                 styles.absolute,
                 {
                   top: quarter + stroke,
                   right: quarter,
-                  width: stroke * 2.5,
-                  height: stroke * 2.5,
+                  width: stroke * 2.2,
+                  height: stroke * 2.2,
                   backgroundColor: iconColor,
                   borderRadius: stroke * 2,
                 },
@@ -235,36 +256,38 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'user':
+        // Zen user icon - softer, more artistic silhouette
         return (
           <View style={baseStyle}>
-            {/* Head circle */}
+            {/* Head - filled circle for cleaner look */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: stroke * 2,
-                  left: half - quarter * 0.6,
-                  width: quarter * 1.2,
-                  height: quarter * 1.2,
-                  borderWidth: stroke,
-                  borderColor: iconColor,
+                  top: stroke * 1.5,
+                  left: half - quarter * 0.7,
+                  width: quarter * 1.4,
+                  height: quarter * 1.4,
+                  backgroundColor: iconColor,
                   borderRadius: quarter,
                 },
               ]}
             />
-            {/* Body/shoulders arc */}
+            {/* Body - soft curved shoulders */}
             <View
               style={[
                 styles.absolute,
                 {
-                  bottom: stroke * 2,
-                  left: quarter * 0.8,
-                  right: quarter * 0.8,
-                  height: quarter * 1.2,
-                  borderWidth: stroke,
+                  bottom: stroke * 1.5,
+                  left: quarter * 0.6,
+                  right: quarter * 0.6,
+                  height: quarter * 1.3,
+                  borderWidth: stroke * 1.2,
                   borderColor: iconColor,
-                  borderTopLeftRadius: size,
-                  borderTopRightRadius: size,
+                  borderTopLeftRadius: size * 0.8,
+                  borderTopRightRadius: size * 0.8,
+                  borderBottomLeftRadius: stroke,
+                  borderBottomRightRadius: stroke,
                   borderBottomWidth: 0,
                 },
               ]}
@@ -273,35 +296,89 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'settings':
+        // Zen settings - artistic sliders instead of generic gear
+        const sliderWidth = size - stroke * 4
+        const knobSize = stroke * 2.2
         return (
           <View style={baseStyle}>
-            {/* Outer gear circle */}
+            {/* Top slider */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: stroke * 2,
+                  top: stroke * 2.5,
                   left: stroke * 2,
-                  right: stroke * 2,
-                  bottom: stroke * 2,
-                  borderWidth: stroke,
-                  borderColor: iconColor,
-                  borderRadius: size,
+                  width: sliderWidth,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
                 },
               ]}
             />
-            {/* Inner circle */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: quarter + stroke,
-                  left: quarter + stroke,
-                  right: quarter + stroke,
-                  bottom: quarter + stroke,
-                  borderWidth: stroke,
-                  borderColor: iconColor,
-                  borderRadius: size,
+                  top: stroke * 2.5 - knobSize / 2 + stroke / 2,
+                  left: stroke * 2 + sliderWidth * 0.65,
+                  width: knobSize,
+                  height: knobSize,
+                  backgroundColor: iconColor,
+                  borderRadius: knobSize / 2,
+                },
+              ]}
+            />
+            {/* Middle slider */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half - stroke / 2,
+                  left: stroke * 2,
+                  width: sliderWidth,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half - knobSize / 2,
+                  left: stroke * 2 + sliderWidth * 0.25,
+                  width: knobSize,
+                  height: knobSize,
+                  backgroundColor: iconColor,
+                  borderRadius: knobSize / 2,
+                },
+              ]}
+            />
+            {/* Bottom slider */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  bottom: stroke * 2.5,
+                  left: stroke * 2,
+                  width: sliderWidth,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke / 2,
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.absolute,
+                {
+                  bottom: stroke * 2.5 - knobSize / 2 + stroke / 2,
+                  left: stroke * 2 + sliderWidth * 0.5,
+                  width: knobSize,
+                  height: knobSize,
+                  backgroundColor: iconColor,
+                  borderRadius: knobSize / 2,
                 },
               ]}
             />
@@ -1361,66 +1438,48 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'home':
-        // Minimal house icon - clean outline style
+        // Simple filled home icon - recognizable at any size
         return (
           <View style={baseStyle}>
-            {/* House base - rounded square */}
+            {/* Roof - solid triangle */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke,
+                  left: stroke,
+                  right: stroke,
+                  height: half - stroke,
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                },
+              ]}
+            >
+              <View
+                style={{
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: half - stroke,
+                  borderRightWidth: half - stroke,
+                  borderBottomWidth: half - stroke * 2,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderBottomColor: iconColor,
+                }}
+              />
+            </View>
+            {/* House body - solid rectangle */}
             <View
               style={[
                 styles.absolute,
                 {
                   top: half - stroke,
-                  left: stroke * 1.5,
-                  width: size - stroke * 3,
-                  height: half,
-                  borderWidth: stroke,
-                  borderColor: iconColor,
-                  borderTopWidth: 0,
-                  borderBottomLeftRadius: stroke * 2,
-                  borderBottomRightRadius: stroke * 2,
-                },
-              ]}
-            />
-            {/* Roof - two angled lines */}
-            <View
-              style={[
-                styles.absolute,
-                {
-                  top: stroke * 0.5,
-                  left: stroke,
-                  width: half - stroke,
-                  height: stroke,
+                  left: quarter,
+                  right: quarter,
+                  bottom: stroke * 2,
                   backgroundColor: iconColor,
-                  transform: [{ rotate: '35deg' }],
-                  transformOrigin: 'right center',
-                },
-              ]}
-            />
-            <View
-              style={[
-                styles.absolute,
-                {
-                  top: stroke * 0.5,
-                  right: stroke,
-                  width: half - stroke,
-                  height: stroke,
-                  backgroundColor: iconColor,
-                  transform: [{ rotate: '-35deg' }],
-                  transformOrigin: 'left center',
-                },
-              ]}
-            />
-            {/* Chimney */}
-            <View
-              style={[
-                styles.absolute,
-                {
-                  top: stroke * 2,
-                  right: stroke * 2.5,
-                  width: stroke * 2,
-                  height: stroke * 3,
-                  backgroundColor: iconColor,
-                  borderRadius: stroke * 0.5,
+                  borderBottomLeftRadius: stroke,
+                  borderBottomRightRadius: stroke,
                 },
               ]}
             />
@@ -1428,35 +1487,68 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'capture':
-        // Minimal shutter/record icon - clean circle design
+        // Zen shutter - artistic aperture-like design
+        const bladeLength = size * 0.28
+        const bladeWidth = stroke * 1.5
         return (
           <View style={baseStyle}>
-            {/* Outer ring */}
+            {/* Outer ring - thicker for prominence */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: stroke,
-                  left: stroke,
-                  width: size - stroke * 2,
-                  height: size - stroke * 2,
-                  borderWidth: stroke * 1.2,
+                  top: stroke * 0.5,
+                  left: stroke * 0.5,
+                  width: size - stroke,
+                  height: size - stroke,
+                  borderWidth: stroke * 1.5,
                   borderColor: iconColor,
                   borderRadius: size,
                 },
               ]}
             />
-            {/* Inner filled dot */}
+            {/* Inner artistic pattern - 3 curved blades suggesting aperture */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: size * 0.3,
-                  left: size * 0.3,
-                  width: size * 0.4,
-                  height: size * 0.4,
+                  top: half - bladeWidth / 2,
+                  left: quarter,
+                  width: bladeLength,
+                  height: bladeWidth,
                   backgroundColor: iconColor,
-                  borderRadius: size,
+                  borderRadius: bladeWidth,
+                  transform: [{ rotate: '0deg' }],
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half - bladeWidth / 2,
+                  left: quarter,
+                  width: bladeLength,
+                  height: bladeWidth,
+                  backgroundColor: iconColor,
+                  borderRadius: bladeWidth,
+                  transform: [{ rotate: '120deg' }],
+                  transformOrigin: 'center',
+                },
+              ]}
+            />
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: half - bladeWidth / 2,
+                  left: quarter,
+                  width: bladeLength,
+                  height: bladeWidth,
+                  backgroundColor: iconColor,
+                  borderRadius: bladeWidth,
+                  transform: [{ rotate: '240deg' }],
+                  transformOrigin: 'center',
                 },
               ]}
             />

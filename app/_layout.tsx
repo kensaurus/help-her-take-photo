@@ -12,6 +12,13 @@ import { Alert } from 'react-native'
 import * as SplashScreen from 'expo-splash-screen'
 import * as Sentry from '@sentry/react-native'
 import Constants from 'expo-constants'
+import {
+  useFonts,
+  Nunito_400Regular,
+  Nunito_500Medium,
+  Nunito_600SemiBold,
+  Nunito_700Bold,
+} from '@expo-google-fonts/nunito'
 
 // Initialize Sentry early (required for Sentry.wrap to work)
 Sentry.init({
@@ -62,6 +69,14 @@ export default Sentry.wrap(function RootLayout() {
   const { loadStats, setDeviceId: setStatsDeviceId } = useStatsStore()
   const { loadFromStorage: loadPairing, myDeviceId } = usePairingStore()
   const [isReady, setIsReady] = useState(false)
+
+  // Load custom fonts
+  const [fontsLoaded] = useFonts({
+    Nunito_400Regular,
+    Nunito_500Medium,
+    Nunito_600SemiBold,
+    Nunito_700Bold,
+  })
 
   // Handle connection manager events
   const handleConnectionEvent = useCallback((event: ConnectionEvent) => {
@@ -184,11 +199,8 @@ export default Sentry.wrap(function RootLayout() {
 
       setIsReady(true)
 
-      // Hide splash screen after a brief delay for smooth transition
-      setTimeout(() => {
-        SplashScreen.hideAsync()
-        logger.info('App ready')
-      }, 400)
+      // Note: Splash screen will be hidden when fonts are also ready
+      logger.info('App stores loaded, waiting for fonts...')
       
       // Cleanup function
       return () => {
@@ -198,9 +210,19 @@ export default Sentry.wrap(function RootLayout() {
     init()
   }, [loadLanguage, loadTheme, loadOnboardingState, loadSettings, loadStats, loadPairing, handleConnectionEvent])
 
+  // Hide splash screen when everything is ready
+  useEffect(() => {
+    if (isReady && fontsLoaded) {
+      setTimeout(() => {
+        SplashScreen.hideAsync()
+        logger.info('App ready with custom fonts')
+      }, 200)
+    }
+  }, [isReady, fontsLoaded])
+
   // Handle onboarding navigation
   useEffect(() => {
-    if (!isReady) return
+    if (!isReady || !fontsLoaded) return
 
     const inOnboarding = segments[0] === 'onboarding'
     
@@ -240,8 +262,8 @@ export default Sentry.wrap(function RootLayout() {
             },
             headerTintColor: colors.text,
             headerTitleStyle: {
-              fontWeight: '600',
-              fontSize: 18,
+              fontFamily: 'Nunito_600SemiBold',
+              fontSize: 19,
             },
             headerShadowVisible: false,
             animation: 'slide_from_right',

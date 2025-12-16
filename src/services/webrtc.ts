@@ -969,19 +969,18 @@ class WebRTCService {
             role: this.role,
           })
           this.attemptIceRestart()
+        } else if (this.role === 'director' && iceState === 'failed') {
+          // Director only attempts restart on failure (not disconnected)
+          // Camera handles both disconnected and failed above
+          sessionLogger.error('ice_failed', new Error('ICE connection failed'), {
+            message: 'ICE failed - likely need TURN servers for this network',
+            role: this.role,
+            checkingDuration: this.iceCheckingStartTime 
+              ? Date.now() - this.iceCheckingStartTime 
+              : null,
+          })
+          this.attemptIceRestart()
         }
-      }
-
-      // Attempt ICE restart on failure
-      if (iceState === 'failed') {
-        sessionLogger.error('ice_failed', new Error('ICE connection failed'), {
-          message: 'ICE failed - likely need TURN servers for this network',
-          role: this.role,
-          checkingDuration: this.iceCheckingStartTime 
-            ? Date.now() - this.iceCheckingStartTime 
-            : null,
-        })
-        this.attemptIceRestart()
       }
     }
 

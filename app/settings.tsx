@@ -38,6 +38,7 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Language, languageNames } from '../src/i18n/translations'
 import { getBuildInfo } from '../src/config/build'
 import { Icon } from '../src/components/ui/Icon'
+import { fonts } from '../src/config/typography'
 import { profileApi, appVersionApi } from '../src/services/api'
 import { connectionManager } from '../src/services/connectionManager'
 import { sessionLogger } from '../src/services/sessionLogger'
@@ -377,7 +378,7 @@ export default function SettingsScreen() {
                 {/* Connected state - Partner Info */}
                 <View style={styles.connectionStatusRow}>
                   <View style={[styles.partnerAvatarLarge, { backgroundColor: `${colors.primary}15` }]}>
-                    <Text style={styles.partnerAvatarEmoji}>{partnerAvatar || '📸'}</Text>
+                    <Text style={styles.partnerAvatarEmoji}>{partnerAvatar || '👤'}</Text>
                   </View>
                   <View style={styles.connectionStatusInfo}>
                     <Text style={[styles.connectionStatusTitle, { color: colors.text }]}>
@@ -432,7 +433,7 @@ export default function SettingsScreen() {
                 {/* Disconnected state */}
                 <View style={styles.connectionStatusRow}>
                   <View style={[styles.connectionStatusIcon, { backgroundColor: colors.surfaceAlt }]}>
-                    <Text style={styles.connectionStatusEmoji}>📱</Text>
+                    <Icon name="link" size={24} color={colors.textMuted} />
                   </View>
                   <View style={styles.connectionStatusInfo}>
                     <Text style={[styles.connectionStatusTitle, { color: colors.text }]}>
@@ -848,7 +849,7 @@ export default function SettingsScreen() {
                       {item.partnerDisplayName || 'Unknown Partner'}
                     </Text>
                     <Text style={[styles.historyListItemRole, { color: colors.accent }]}>
-                      {item.role === 'camera' ? '📸 Photographer' : '👁️ Director'}
+                      {item.role === 'camera' ? 'Photographer' : 'Director'}
                     </Text>
                   </View>
                   <View style={[
@@ -909,8 +910,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
     letterSpacing: 1,
     marginBottom: 10,
   },
@@ -973,11 +974,12 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   settingLabel: {
-    fontSize: 15,
-    fontWeight: '500',
+    fontFamily: fonts.medium,
+    fontSize: 16,
   },
   settingDesc: {
-    fontSize: 13,
+    fontFamily: fonts.regular,
+    fontSize: 14,
     marginTop: 2,
   },
   divider: {
@@ -1034,8 +1036,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   connectionStatusTitle: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 19,
   },
   statusBadge: {
     flexDirection: 'row',

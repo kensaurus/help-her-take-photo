@@ -300,7 +300,7 @@ function PhotoViewer({
               style={styles.analysisPanel}
             >
               <View style={styles.analysisPanelHeader}>
-                <Text style={styles.analysisPanelTitle}>✨ AI Analysis</Text>
+                <Text style={styles.analysisPanelTitle}>AI Analysis</Text>
                 <Pressable onPress={() => setShowAnalysis(false)}>
                   <Icon name="close" size={18} color="#FFFFFF" />
                 </Pressable>

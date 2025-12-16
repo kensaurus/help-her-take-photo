@@ -44,6 +44,7 @@ import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
 import { connectionHistoryApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { fonts, typography } from '../src/config/typography'
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -385,7 +386,7 @@ export default function HomeScreen() {
         <Animated.View entering={FadeIn.duration(500)} style={styles.header}>
           <View style={styles.brand}>
             <Text style={[styles.brandBold, { color: colors.text }]}>
-              {t.appName} 📸
+              {t.appName}
             </Text>
           </View>
 
@@ -555,15 +556,15 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   brandBold: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 30,
     letterSpacing: -0.3,
   },
   tagline: {
-    fontSize: 15,
-    lineHeight: 24,
-    minHeight: 48,
-    fontWeight: '400',
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    lineHeight: 26,
+    minHeight: 52,
   },
   statusRow: {
     flexDirection: 'row',
@@ -589,8 +590,8 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -626,14 +627,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontFamily: fonts.bold,
+    fontSize: 28,
     letterSpacing: -0.3,
   },
   statLabel: {
-    fontSize: 12,
+    fontFamily: fonts.medium,
+    fontSize: 13,
     marginTop: 6,
-    fontWeight: '500',
     letterSpacing: 0.4,
   },
   statDivider: {
@@ -644,8 +645,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
+    fontSize: 13,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
     marginBottom: 16,
@@ -708,15 +709,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardLabel: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontFamily: fonts.semiBold,
+    fontSize: 17,
     letterSpacing: -0.2,
   },
   cardSubtitle: {
-    fontSize: 13,
+    fontFamily: fonts.regular,
+    fontSize: 14,
     marginTop: 5,
-    fontWeight: '400',
-    lineHeight: 20,
+    lineHeight: 21,
   },
   cardArrowContainer: {
     paddingLeft: 12,

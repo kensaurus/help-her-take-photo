@@ -216,6 +216,14 @@ export default function ViewerScreen() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const wasReceivingRef = useRef(false) // Track if we had video before backgrounding
   
+  // Reset wasReceivingRef when pairing status changes to prevent false reconnection attempts
+  // when user unpairs and pairs with a new partner
+  useEffect(() => {
+    if (!isPaired) {
+      wasReceivingRef.current = false
+    }
+  }, [isPaired])
+  
   // Use Supabase Realtime as backup channel for sending commands
   // This ensures commands reach the camera even if WebRTC data channel has issues
   const { sendDirection: sendRealtimeDirection, isConnected: realtimeConnected } = useRealtimeCommands(

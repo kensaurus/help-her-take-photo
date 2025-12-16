@@ -390,6 +390,14 @@ export default function CameraScreen() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState)
   const wasConnectedRef = useRef(false) // Track if we had a connection before backgrounding
   
+  // Reset wasConnectedRef when pairing status changes to prevent false reconnection attempts
+  // when user unpairs and pairs with a new partner
+  useEffect(() => {
+    if (!isPaired) {
+      wasConnectedRef.current = false
+    }
+  }, [isPaired])
+  
   const encouragements = t.camera.encouragements
 
   // Use Supabase Realtime as fallback/enhancement for WebRTC commands
@@ -989,7 +997,9 @@ export default function CameraScreen() {
         </Pressable>
         
         <View style={styles.loadingContainer}>
-          <Animated.Text entering={FadeIn.duration(300)} style={styles.loadingEmoji}>📷</Animated.Text>
+          <View style={styles.loadingIconContainer}>
+            <Icon name="camera" size={32} color="rgba(255,255,255,0.5)" />
+          </View>
           <Animated.Text 
             entering={FadeIn.delay(200).duration(300)}
             style={[styles.loadingText, { color: colors.textMuted }]}
@@ -1228,7 +1238,9 @@ export default function CameraScreen() {
           // WebRTC is initializing - show placeholder to avoid camera conflict
           // Do NOT render CameraView here or it will fight with getUserMedia()
           <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
-            <Text style={styles.initializingEmoji}>📷</Text>
+            <View style={styles.loadingIconContainer}>
+              <Icon name="camera" size={32} color="rgba(255,255,255,0.4)" />
+            </View>
             <Text style={styles.initializingText}>Connecting camera...</Text>
             {partnerOnline === false && (
               <Text style={styles.initializingText}>Partner is offline — showing local camera only</Text>
@@ -1237,7 +1249,9 @@ export default function CameraScreen() {
         ) : cameraError ? (
           // Camera error state - show error message with retry option
           <View style={[StyleSheet.absoluteFill, styles.initializingContainer]}>
-            <Text style={styles.initializingEmoji}>⚠️</Text>
+            <View style={styles.loadingIconContainer}>
+              <Icon name="close" size={28} color="#ff6b6b" />
+            </View>
             <Text style={styles.errorText}>{cameraError}</Text>
             <Pressable
               style={styles.retryButton}
@@ -1373,7 +1387,7 @@ export default function CameraScreen() {
             </View>
             {isConnected && (
               <Text style={styles.streamingHint}>
-                📷 Camera is being shared
+                Camera is being shared
               </Text>
             )}
           </Animated.View>
@@ -1418,7 +1432,7 @@ export default function CameraScreen() {
             }}
             accessibilityLabel={t.camera.connectPrompt}
           >
-            <Text style={styles.connectPromptIcon}>🔗</Text>
+            <Icon name="link" size={16} color="rgba(255,255,255,0.6)" />
             <Text style={styles.connectPromptText}>Connect with Partner</Text>
           </Pressable>
         )}
@@ -1481,9 +1495,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  loadingEmoji: {
-    fontSize: 32,
-    opacity: 0.5,
+  loadingIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingText: {
     fontSize: 13,
@@ -1583,11 +1601,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#111',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  initializingEmoji: {
-    fontSize: 32,
-    marginBottom: 16,
-    opacity: 0.4,
   },
   initializingText: {
     fontSize: 13,
@@ -1944,10 +1957,6 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-  },
-  connectPromptIcon: {
-    fontSize: 14,
-    opacity: 0.6,
   },
   connectPromptText: {
     fontSize: 13,
