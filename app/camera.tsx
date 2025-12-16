@@ -42,6 +42,8 @@ import { pairingApi, connectionHistoryApi } from '../src/services/api'
 import { sessionLogger, CAMERA_ERROR_MESSAGES, type CameraErrorType } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 import { livekitService, isLiveKitAvailable } from '../src/services/livekit'
+import { useRealtimeCommands, Direction } from '../src/services/realtimeCommands'
+import { cloudApi } from '../src/services/cloudApi'
 
 // LiveKit temporarily disabled - native packages conflict
 // Use WebRTC until LiveKit build issues are resolved
@@ -382,6 +384,22 @@ export default function CameraScreen() {
   const [streamReady, setStreamReady] = useState(false) // Track if stream has active video
   
   const encouragements = t.camera.encouragements
+
+  // Use Supabase Realtime as fallback/enhancement for WebRTC commands
+  // This provides instant direction commands even if WebRTC data channel has issues
+  const handleRealtimeCommand = useCallback((command: { direction: Direction }) => {
+    sessionLogger.info('realtime_direction_received', { direction: command.direction })
+    setCurrentDirection(command.direction)
+    setShowDirection(true)
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+    setTimeout(() => setShowDirection(false), 2500)
+  }, [])
+
+  const { isConnected: realtimeConnected } = useRealtimeCommands(
+    isPaired ? sessionId ?? undefined : undefined,
+    'camera',
+    handleRealtimeCommand
+  )
 
   // IMPORTANT: This hook must be defined BEFORE any conditional returns
   // to comply with React's rules of hooks

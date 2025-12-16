@@ -46,6 +46,8 @@ import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
 import { livekitService, isLiveKitAvailable } from '../src/services/livekit'
+import { useRealtimeCommands, Direction } from '../src/services/realtimeCommands'
+import { cloudApi } from '../src/services/cloudApi'
 
 // LiveKit temporarily disabled - native packages conflict
 // Use WebRTC until LiveKit build issues are resolved
@@ -206,6 +208,13 @@ export default function ViewerScreen() {
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
   const [showSwitchToast, setShowSwitchToast] = useState(false)
   const [usingLiveKit, setUsingLiveKit] = useState(USE_LIVEKIT && isLiveKitAvailable)
+  
+  // Use Supabase Realtime as backup channel for sending commands
+  // This ensures commands reach the camera even if WebRTC data channel has issues
+  const { sendDirection: sendRealtimeDirection, isConnected: realtimeConnected } = useRealtimeCommands(
+    isPaired ? sessionId ?? undefined : undefined,
+    'viewer'
+  )
   
   // Ref to track if we should poll for stream
   const streamCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -451,8 +460,16 @@ export default function ViewerScreen() {
     setLastCommand(t.viewer.directions[direction])
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1200)
+    
+    // Send via WebRTC data channel (primary)
     await sendCommand('direction', { direction })
-    sessionLogger.info('direction_sent', { direction })
+    
+    // Also send via Supabase Realtime (backup for reliability)
+    if (myDeviceId) {
+      await sendRealtimeDirection(direction as Direction, myDeviceId)
+    }
+    
+    sessionLogger.info('direction_sent', { direction, realtimeConnected })
   }
 
   const handleTakePhoto = async () => {

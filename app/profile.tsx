@@ -32,6 +32,7 @@ import { useLanguageStore } from '../src/stores/languageStore'
 import { useStatsStore } from '../src/stores/statsStore'
 import { useThemeStore } from '../src/stores/themeStore'
 import { Icon } from '../src/components/ui/Icon'
+import { cloudApi, AnalyticsSummary } from '../src/services/cloudApi'
 
 function StatCard({ 
   value, 
@@ -96,19 +97,44 @@ const rankDescriptions: Record<string, string> = {
 export default function ProfileScreen() {
   const router = useRouter()
   const { colors } = useThemeStore()
-  const { isPaired } = usePairingStore()
+  const { isPaired, myDeviceId } = usePairingStore()
   const { t } = useLanguageStore()
   const { stats, getRank, loadStats } = useStatsStore()
   const [refreshing, setRefreshing] = useState(false)
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
 
   const rank = getRank()
   const rankText = t.profile.ranks[rank as keyof typeof t.profile.ranks]
   const rankDescription = rankDescriptions[rank] || ''
 
+  const loadAnalytics = async () => {
+    if (!myDeviceId) return
+    setAnalyticsLoading(true)
+    try {
+      const { analytics: data } = await cloudApi.analytics.getSummary({
+        period: 'month',
+        deviceId: myDeviceId,
+      })
+      if (data) {
+        setAnalytics(data)
+      }
+    } catch {
+      // Ignore analytics errors
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }
+
+  // Load analytics on mount
+  useEffect(() => {
+    loadAnalytics()
+  }, [myDeviceId])
+
   const handleRefresh = async () => {
     setRefreshing(true)
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-    await loadStats()
+    await Promise.all([loadStats(), loadAnalytics()])
     setRefreshing(false)
   }
 
@@ -215,6 +241,54 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         </Animated.View>
+
+        {/* Analytics Summary */}
+        {analytics && (
+          <Animated.View 
+            entering={FadeInUp.delay(225).duration(300)} 
+            style={styles.section}
+          >
+            <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>THIS MONTH</Text>
+            <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              <View style={styles.analyticsGrid}>
+                <View style={styles.analyticsItem}>
+                  <Text style={[styles.analyticsValue, { color: colors.primary }]}>
+                    {analytics.totalSessions}
+                  </Text>
+                  <Text style={[styles.analyticsLabel, { color: colors.textMuted }]}>Sessions</Text>
+                </View>
+                <View style={styles.analyticsItem}>
+                  <Text style={[styles.analyticsValue, { color: colors.primary }]}>
+                    {analytics.totalPhotos}
+                  </Text>
+                  <Text style={[styles.analyticsLabel, { color: colors.textMuted }]}>Photos</Text>
+                </View>
+                <View style={styles.analyticsItem}>
+                  <Text style={[styles.analyticsValue, { color: colors.primary }]}>
+                    {Math.round(analytics.averageSessionDuration / 60)}m
+                  </Text>
+                  <Text style={[styles.analyticsLabel, { color: colors.textMuted }]}>Avg Time</Text>
+                </View>
+              </View>
+              {analytics.topDirections && analytics.topDirections.length > 0 && (
+                <View style={styles.topDirections}>
+                  <Text style={[styles.topDirectionsTitle, { color: colors.textSecondary }]}>
+                    Most used directions:
+                  </Text>
+                  <View style={styles.directionBadges}>
+                    {analytics.topDirections.slice(0, 3).map((d, i) => (
+                      <View key={i} style={[styles.directionBadge, { backgroundColor: colors.surfaceAlt }]}>
+                        <Text style={[styles.directionBadgeText, { color: colors.text }]}>
+                          {d.direction} ({d.count})
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
+            </View>
+          </Animated.View>
+        )}
 
         {/* Connection Status - Simplified, view-only */}
         <Animated.View 
@@ -395,5 +469,51 @@ const styles = StyleSheet.create({
     fontSize: 12, // Accessibility: minimum 12sp
     fontWeight: '500',
     letterSpacing: 0.5,
+  },
+  // Analytics styles
+  analyticsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 8,
+  },
+  analyticsItem: {
+    alignItems: 'center',
+  },
+  analyticsValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  analyticsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  topDirections: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(128, 128, 128, 0.2)',
+  },
+  topDirectionsTitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginBottom: 8,
+  },
+  directionBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  directionBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  directionBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 })

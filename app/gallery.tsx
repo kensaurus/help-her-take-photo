@@ -51,6 +51,7 @@ import { ZenLoader } from '../src/components/ui/ZenLoader'
 import { ZenEmptyState } from '../src/components/ui/ZenEmptyState'
 import { capturesApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
+import { cloudApi, AIAnalysisResult } from '../src/services/cloudApi'
 import { useRouter } from 'expo-router'
 
 const COLUMN_COUNT = 3
@@ -61,6 +62,8 @@ interface Photo {
   uri: string
   byMe: boolean
   timestamp: Date
+  cloudUrl?: string
+  hasAnalysis?: boolean
 }
 
 /**
@@ -119,12 +122,16 @@ function ActionButton({
   icon, 
   onPress, 
   danger = false,
+  loading = false,
+  disabled = false,
   accessibilityHint,
 }: { 
   label: string
-  icon: 'share' | 'image' | 'trash'
+  icon: 'share' | 'image' | 'trash' | 'cloud' | 'sparkles' | 'star'
   onPress: () => void
   danger?: boolean
+  loading?: boolean
+  disabled?: boolean
   accessibilityHint?: string
 }) {
   const scale = useSharedValue(1)
@@ -138,10 +145,13 @@ function ActionButton({
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled || loading}
       onPressIn={() => { 
-        scale.value = withSpring(0.94, { damping: 15, stiffness: 400 })
-        opacity.value = withTiming(0.8, { duration: 50 })
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        if (!disabled && !loading) {
+          scale.value = withSpring(0.94, { damping: 15, stiffness: 400 })
+          opacity.value = withTiming(0.8, { duration: 50 })
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+        }
       }}
       onPressOut={() => { 
         scale.value = withSpring(1, { damping: 15 }) 
@@ -154,13 +164,18 @@ function ActionButton({
       <Animated.View style={[
         styles.actionButton, 
         danger && styles.actionButtonDanger, 
+        (disabled || loading) && styles.actionButtonDisabled,
         animatedStyle
       ]}>
-        <Icon 
-          name={icon} 
-          size={18} 
-          color={danger ? '#FCA5A5' : '#FFFFFF'} 
-        />
+        {loading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Icon 
+            name={icon} 
+            size={18} 
+            color={danger ? '#FCA5A5' : '#FFFFFF'} 
+          />
+        )}
         <Text style={[styles.actionButtonText, danger && styles.actionButtonTextDanger]}>
           {label}
         </Text>
@@ -175,6 +190,11 @@ function PhotoViewer({
   onShare,
   onDelete,
   onDownload,
+  onCloudUpload,
+  onAnalyze,
+  isUploading,
+  isAnalyzing,
+  analysisResult,
   t,
 }: { 
   photo: Photo
@@ -182,8 +202,14 @@ function PhotoViewer({
   onShare: () => void
   onDelete: () => void
   onDownload: () => void
+  onCloudUpload: () => void
+  onAnalyze: () => void
+  isUploading: boolean
+  isAnalyzing: boolean
+  analysisResult: AIAnalysisResult | null
   t: typeof import('../src/i18n/translations').translations.en
 }) {
+  const [showAnalysis, setShowAnalysis] = useState(false)
   const scale = useSharedValue(1)
   const translateX = useSharedValue(0)
   const translateY = useSharedValue(0)
@@ -267,20 +293,89 @@ function PhotoViewer({
         </GestureDetector>
 
         <View style={styles.viewerFooter}>
+          {/* AI Analysis Panel */}
+          {showAnalysis && analysisResult && (
+            <Animated.View 
+              entering={FadeIn.duration(200)}
+              style={styles.analysisPanel}
+            >
+              <View style={styles.analysisPanelHeader}>
+                <Text style={styles.analysisPanelTitle}>✨ AI Analysis</Text>
+                <Pressable onPress={() => setShowAnalysis(false)}>
+                  <Icon name="close" size={18} color="#FFFFFF" />
+                </Pressable>
+              </View>
+              
+              {analysisResult.composition && (
+                <View style={styles.analysisSection}>
+                  <Text style={styles.analysisSectionTitle}>📐 Composition</Text>
+                  <Text style={styles.analysisScore}>
+                    Score: {analysisResult.composition.score}/10
+                  </Text>
+                  {analysisResult.composition.suggestions.map((s, i) => (
+                    <Text key={i} style={styles.analysisSuggestion}>• {s}</Text>
+                  ))}
+                </View>
+              )}
+              
+              {analysisResult.lighting && (
+                <View style={styles.analysisSection}>
+                  <Text style={styles.analysisSectionTitle}>💡 Lighting</Text>
+                  <Text style={styles.analysisScore}>
+                    {analysisResult.lighting.quality} quality
+                  </Text>
+                  {analysisResult.lighting.suggestions.map((s, i) => (
+                    <Text key={i} style={styles.analysisSuggestion}>• {s}</Text>
+                  ))}
+                </View>
+              )}
+              
+              {analysisResult.overall_suggestions && analysisResult.overall_suggestions.length > 0 && (
+                <View style={styles.analysisSection}>
+                  <Text style={styles.analysisSectionTitle}>💬 Tips</Text>
+                  {analysisResult.overall_suggestions.slice(0, 3).map((s, i) => (
+                    <Text key={i} style={styles.analysisSuggestion}>• {s}</Text>
+                  ))}
+                </View>
+              )}
+            </Animated.View>
+          )}
+
           <Text 
             style={styles.photoInfo}
             accessibilityLabel={`Photo taken ${photo.byMe ? 'by you' : 'by partner'} on ${photo.timestamp.toLocaleDateString()}`}
           >
             {photo.byMe ? t.gallery.byYou : t.gallery.byPartner} · {photo.timestamp.toLocaleDateString()}
+            {photo.cloudUrl && ' · ☁️ Backed up'}
           </Text>
           
+          {/* Primary Actions Row */}
           <View style={styles.viewerActions} accessibilityRole="toolbar">
+            <ActionButton 
+              label="Cloud" 
+              icon="cloud" 
+              onPress={onCloudUpload}
+              loading={isUploading}
+              disabled={!!photo.cloudUrl}
+              accessibilityHint={photo.cloudUrl ? "Already backed up to cloud" : "Upload photo to cloud storage"}
+            />
+            <ActionButton 
+              label="AI" 
+              icon="sparkles" 
+              onPress={analysisResult ? () => setShowAnalysis(!showAnalysis) : onAnalyze}
+              loading={isAnalyzing}
+              accessibilityHint="Analyze photo composition and lighting with AI"
+            />
             <ActionButton 
               label={t.gallery.share} 
               icon="share" 
               onPress={onShare}
               accessibilityHint="Share this photo with others"
             />
+          </View>
+
+          {/* Secondary Actions Row */}
+          <View style={[styles.viewerActions, { marginTop: 8 }]} accessibilityRole="toolbar">
             <ActionButton 
               label={t.gallery.download} 
               icon="image" 
@@ -382,6 +477,11 @@ export default function GalleryScreen() {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [isAdding, setIsAdding] = useState(false)
   const { myDeviceId, sessionId, pairedDeviceId } = usePairingStore()
+  
+  // Cloud upload and AI analysis state
+  const [isUploading, setIsUploading] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [analysisResult, setAnalysisResult] = useState<AIAnalysisResult | null>(null)
   
   // Undo state for delete actions
   const [undoState, setUndoState] = useState<{
@@ -557,6 +657,145 @@ export default function GalleryScreen() {
       Alert.alert(t.common.error, 'Failed to save photo')
     }
   }
+
+  // Cloud upload handler
+  const handleCloudUpload = async () => {
+    if (!selectedPhoto || !myDeviceId || selectedPhoto.cloudUrl) return
+    
+    setIsUploading(true)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    sessionLogger.info('cloud_upload_started', { photoId: selectedPhoto.id })
+    
+    try {
+      // Convert URI to base64
+      const base64 = await cloudApi.photo.uriToBase64(selectedPhoto.uri)
+      
+      if (!base64) {
+        Alert.alert(t.common.error, 'Failed to read photo')
+        return
+      }
+      
+      // Upload to cloud
+      const result = await cloudApi.photo.upload({
+        captureId: selectedPhoto.id,
+        deviceId: myDeviceId,
+        imageBase64: base64,
+        mimeType: 'image/jpeg',
+      })
+      
+      if (result.success && result.publicUrl) {
+        // Update photo with cloud URL
+        setPhotos(prev => prev.map(p => 
+          p.id === selectedPhoto.id 
+            ? { ...p, cloudUrl: result.publicUrl } 
+            : p
+        ))
+        setSelectedPhoto(prev => prev ? { ...prev, cloudUrl: result.publicUrl } : null)
+        
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        sessionLogger.info('cloud_upload_success', { photoId: selectedPhoto.id })
+        Alert.alert('☁️ Success', 'Photo backed up to cloud!')
+      } else {
+        sessionLogger.error('cloud_upload_failed', new Error(result.error || 'Unknown'))
+        Alert.alert(t.common.error, result.error || 'Upload failed')
+      }
+    } catch (error) {
+      sessionLogger.error('cloud_upload_error', error)
+      Alert.alert(t.common.error, 'Upload failed. Please try again.')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  // AI analysis handler
+  const handleAnalyze = async () => {
+    if (!selectedPhoto || !myDeviceId) return
+    
+    setIsAnalyzing(true)
+    setAnalysisResult(null)
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
+    sessionLogger.info('ai_analysis_started', { photoId: selectedPhoto.id })
+    
+    try {
+      // Check for existing analysis first
+      const existing = await cloudApi.ai.getAnalysis(selectedPhoto.id)
+      if (existing) {
+        setAnalysisResult(existing)
+        setIsAnalyzing(false)
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        return
+      }
+      
+      // Need cloud URL for AI analysis
+      let imageUrl = selectedPhoto.cloudUrl
+      
+      if (!imageUrl) {
+        // Upload to cloud first
+        const base64 = await cloudApi.photo.uriToBase64(selectedPhoto.uri)
+        if (base64) {
+          const uploadResult = await cloudApi.photo.upload({
+            captureId: selectedPhoto.id,
+            deviceId: myDeviceId,
+            imageBase64: base64,
+            mimeType: 'image/jpeg',
+          })
+          
+          if (uploadResult.success && uploadResult.publicUrl) {
+            imageUrl = uploadResult.publicUrl
+            // Update photo with cloud URL
+            setPhotos(prev => prev.map(p => 
+              p.id === selectedPhoto.id 
+                ? { ...p, cloudUrl: uploadResult.publicUrl } 
+                : p
+            ))
+            setSelectedPhoto(prev => prev ? { ...prev, cloudUrl: uploadResult.publicUrl } : null)
+          }
+        }
+      }
+      
+      if (!imageUrl) {
+        Alert.alert(t.common.error, 'Could not prepare photo for analysis')
+        return
+      }
+      
+      // Run AI analysis
+      const result = await cloudApi.ai.analyze({
+        captureId: selectedPhoto.id,
+        imageUrl,
+        deviceId: myDeviceId,
+      })
+      
+      if (result.success) {
+        setAnalysisResult(result)
+        setPhotos(prev => prev.map(p => 
+          p.id === selectedPhoto.id 
+            ? { ...p, hasAnalysis: true } 
+            : p
+        ))
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        sessionLogger.info('ai_analysis_complete', { photoId: selectedPhoto.id })
+      } else {
+        sessionLogger.error('ai_analysis_failed', new Error(result.error || 'Unknown'))
+        Alert.alert(t.common.error, result.error || 'Analysis failed')
+      }
+    } catch (error) {
+      sessionLogger.error('ai_analysis_error', error)
+      Alert.alert(t.common.error, 'Analysis failed. Please try again.')
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+  
+  // Reset analysis when selecting different photo
+  useEffect(() => {
+    if (selectedPhoto) {
+      setAnalysisResult(null)
+      // Check for existing analysis
+      cloudApi.ai.getAnalysis(selectedPhoto.id).then(existing => {
+        if (existing) setAnalysisResult(existing)
+      })
+    }
+  }, [selectedPhoto?.id])
 
   // Undo pattern for delete - more user-friendly than confirm dialogs
   const handleDelete = () => {
@@ -739,10 +978,18 @@ export default function GalleryScreen() {
       {selectedPhoto && (
         <PhotoViewer
           photo={selectedPhoto}
-          onClose={() => setSelectedPhoto(null)}
+          onClose={() => {
+            setSelectedPhoto(null)
+            setAnalysisResult(null)
+          }}
           onShare={handleShare}
           onDelete={handleDelete}
           onDownload={handleDownload}
+          onCloudUpload={handleCloudUpload}
+          onAnalyze={handleAnalyze}
+          isUploading={isUploading}
+          isAnalyzing={isAnalyzing}
+          analysisResult={analysisResult}
           t={t}
         />
       )}
@@ -903,6 +1150,9 @@ const styles = StyleSheet.create({
   actionButtonDanger: {
     backgroundColor: 'rgba(239,68,68,0.25)',
   },
+  actionButtonDisabled: {
+    opacity: 0.5,
+  },
   actionButtonText: {
     fontSize: 14,
     fontWeight: '600',
@@ -910,6 +1160,45 @@ const styles = StyleSheet.create({
   },
   actionButtonTextDanger: {
     color: '#FCA5A5',
+  },
+  // AI Analysis Panel
+  analysisPanel: {
+    backgroundColor: 'rgba(30, 30, 40, 0.95)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    maxHeight: 280,
+  },
+  analysisPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  analysisPanelTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  analysisSection: {
+    marginBottom: 10,
+  },
+  analysisSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  analysisScore: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 4,
+  },
+  analysisSuggestion: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    lineHeight: 18,
+    marginLeft: 4,
   },
   addButton: {
     position: 'absolute',
