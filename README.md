@@ -108,10 +108,12 @@ npx expo start
 │   ├── index.tsx          # Home screen (role selection)
 │   ├── onboarding.tsx     # First-time user flow + language selection
 │   ├── pairing.tsx        # Device pairing (4-digit code)
-│   ├── camera.tsx         # Camera view (photographer)
-│   ├── viewer.tsx         # Remote viewer (director)
-│   ├── gallery.tsx        # Photo gallery with FlashList
-│   ├── profile.tsx        # User stats & achievements
+│   ├── camera.tsx         # Camera view (photographer) + Realtime commands
+│   ├── viewer.tsx         # Remote viewer (director) + Realtime directions
+│   ├── gallery.tsx        # Photo gallery + Cloud upload + AI analysis
+│   ├── albums.tsx         # Photo albums management (NEW)
+│   ├── friends.tsx        # Friends & recent partners (NEW)
+│   ├── profile.tsx        # User stats + Monthly analytics
 │   ├── settings.tsx       # App settings
 │   ├── feedback.tsx       # Submit feedback
 │   └── changelog.tsx      # Version history
@@ -129,12 +131,15 @@ npx expo start
 │   ├── stores/           # Zustand state stores
 │   ├── services/         # Business logic
 │   │   ├── api.ts        # Supabase API client
+│   │   ├── cloudApi.ts   # Edge Functions client (NEW)
 │   │   ├── supabase.ts   # Supabase client + anonymous auth
 │   │   ├── errorTracking.ts  # Sentry integration
 │   │   ├── logging.ts    # Structured logging service
 │   │   ├── connectionManager.ts  # WebRTC connection management
 │   │   ├── sessionLogger.ts  # Supabase logging service
 │   │   ├── soundService.ts   # Sound + haptic feedback
+│   │   ├── realtimeCommands.ts  # Supabase Realtime Broadcast (NEW)
+│   │   ├── pushNotifications.ts # Expo Push Notifications (NEW)
 │   │   └── webrtc.ts     # WebRTC P2P video streaming
 │   ├── hooks/            # Custom React hooks
 │   ├── lib/              # Utility libraries
@@ -632,7 +637,7 @@ Available in dev builds via shake gesture or debug button:
 | `connectionManager.ts` | WebRTC connection state machine |
 | `api.ts` | Supabase database operations |
 
-### Realtime Commands (New)
+### Realtime Commands
 Uses Supabase Realtime Broadcast for instant direction delivery:
 
 ```typescript
@@ -647,6 +652,56 @@ const { isConnected, lastCommand, sendDirection } = useRealtimeCommands(
 
 // Send direction
 await sendDirection('up', deviceId)
+```
+
+### Cloud API Client (New)
+Unified API client for all Edge Functions:
+
+```typescript
+import { cloudApi } from '@/services/cloudApi'
+
+// Photo Upload to Cloud
+const base64 = await cloudApi.photo.uriToBase64(localUri)
+const { publicUrl } = await cloudApi.photo.upload({
+  captureId, deviceId, imageBase64: base64, mimeType: 'image/jpeg'
+})
+
+// AI Photo Analysis
+const analysis = await cloudApi.ai.analyze({ captureId, imageUrl, deviceId })
+// Returns: { composition, lighting, subjects, overall_suggestions }
+
+// Push Notifications
+await cloudApi.notifications.send({ deviceId, title, body, data })
+await cloudApi.notifications.notifyPhotoCaptured(partnerDeviceId)
+
+// Albums Management
+const { albums } = await cloudApi.albums.list(deviceId)
+await cloudApi.albums.create({ deviceId, name: 'Vacation', isPublic: false })
+await cloudApi.albums.generateShareCode(albumId, deviceId)
+
+// Friends & Social
+const { partners } = await cloudApi.friends.getRecentPartners(deviceId, 10)
+await cloudApi.friends.sendRequest(deviceId, friendDeviceId)
+const { friends } = await cloudApi.friends.list(deviceId)
+
+// Analytics Dashboard
+const { analytics } = await cloudApi.analytics.getSummary({
+  period: 'month',  // 'today' | 'week' | 'month' | 'all'
+  deviceId
+})
+```
+
+### Push Notifications
+Expo Push Notifications with deep linking:
+
+```typescript
+import { usePushNotifications } from '@/services/pushNotifications'
+
+// In your root component
+const { token, lastNotification, clearBadge } = usePushNotifications(deviceId)
+
+// Notification types: 'photo_captured', 'session_invite', 'friend_request'
+// Auto-navigates to relevant screen when tapped
 ```
 
 ### Key Service Functions

@@ -1,7 +1,7 @@
 # Help Her Take Photo - Developer Handoff
 
 > **Last Updated:** December 16, 2025  
-> **Session Focus:** Supabase backend enhancements, Edge Functions, AI photo analysis, Push notifications
+> **Session Focus:** Full frontend integration with all 6 Edge Functions, Albums & Friends screens, Cloud API client
 
 ---
 
@@ -122,14 +122,21 @@ Latency: ~100-300ms
 | `supabase/migrations/014_enhanced_features.sql` | 9 new tables + functions |
 | `supabase/migrations/015_pg_cron_jobs.sql` | Scheduled cleanup jobs |
 | `src/services/realtimeCommands.ts` | Supabase Broadcast for commands |
+| **`src/services/cloudApi.ts`** | **Frontend API client for all Edge Functions** |
+| **`src/services/pushNotifications.ts`** | **Expo Push Notifications service** |
+| **`app/albums.tsx`** | **Albums management screen** |
+| **`app/friends.tsx`** | **Friends & recent partners screen** |
 
 ### Modified Files
 
 | File | Changes |
 |------|---------|
-| `app/camera.tsx` | **Large direction overlay** with 80px icons, full-screen dark overlay, color-coded arrows |
+| `app/camera.tsx` | **Large direction overlay** + Realtime commands integration |
+| `app/viewer.tsx` | Sends directions via WebRTC + Realtime (dual channel) |
+| `app/gallery.tsx` | **Cloud upload + AI analysis buttons** with analysis panel |
+| `app/profile.tsx` | **Monthly analytics section** with stats dashboard |
+| `src/services/supabase.ts` | Exported `SUPABASE_URL` and `SUPABASE_ANON_KEY` |
 | `src/services/webrtc.ts` | Cleaned up debug instrumentation |
-| `app/viewer.tsx` | Cleaned up debug instrumentation |
 | `package.json` | Updated packages: @supabase/supabase-js 2.87.3, @sentry/react-native 7.7.0, @shopify/flash-list 2.2.0 |
 | `app.config.ts` | Android `compileSdkVersion: 35`, `targetSdkVersion: 34` |
 
@@ -345,6 +352,19 @@ Diff Network:  Phone A → LiveKit → Phone B
 | Realtime Commands service | ✅ Created - Supabase Broadcast |
 | Package updates | ✅ Done - 0 vulnerabilities |
 
+### Part 3: Frontend Integration (All Edge Functions Connected!)
+| Task | Status |
+|------|--------|
+| **cloudApi.ts** - Unified API client | ✅ Created - All 6 Edge Functions |
+| **pushNotifications.ts** - Push service | ✅ Created - Expo Push + deep linking |
+| **app/albums.tsx** - Albums screen | ✅ Created - Create/share/delete albums |
+| **app/friends.tsx** - Friends screen | ✅ Created - Recent partners + quick reconnect |
+| **app/gallery.tsx** - Cloud upload | ✅ Updated - Upload to Storage |
+| **app/gallery.tsx** - AI analysis | ✅ Updated - GPT-4o composition tips |
+| **app/camera.tsx** - Realtime commands | ✅ Updated - Uses Supabase Broadcast |
+| **app/viewer.tsx** - Realtime directions | ✅ Updated - Sends via WebRTC + Realtime |
+| **app/profile.tsx** - Analytics | ✅ Updated - Monthly stats dashboard |
+
 ### New Edge Functions (6 total)
 ```
 supabase/functions/
@@ -355,6 +375,73 @@ supabase/functions/
 ├── manage-album/         # Photo albums CRUD + sharing
 └── manage-friends/       # Social features
 ```
+
+### Frontend API Client (`src/services/cloudApi.ts`)
+All Edge Functions are now accessible via typed client:
+
+```typescript
+import { cloudApi } from '@/services/cloudApi'
+
+// Photo Upload
+const result = await cloudApi.photo.upload({
+  captureId, deviceId, imageBase64, mimeType
+})
+
+// AI Analysis
+const analysis = await cloudApi.ai.analyze({
+  captureId, imageUrl, deviceId
+})
+
+// Push Notifications
+await cloudApi.notifications.send({
+  deviceId, title, body, data
+})
+
+// Albums
+await cloudApi.albums.create({ deviceId, name, isPublic })
+await cloudApi.albums.list(deviceId)
+await cloudApi.albums.generateShareCode(albumId, deviceId)
+
+// Friends
+await cloudApi.friends.getRecentPartners(deviceId, 10)
+await cloudApi.friends.list(deviceId)
+
+// Analytics
+await cloudApi.analytics.getSummary({ period: 'month', deviceId })
+```
+
+### New Frontend Screens
+
+**Albums Screen (`app/albums.tsx`)**
+- Create/rename/delete photo albums
+- Generate share codes for sharing
+- Toggle public/private visibility
+- Add photos to albums
+
+**Friends Screen (`app/friends.tsx`)**
+- Recent partners for quick reconnect
+- Friend requests (send/accept/decline)
+- Session count and photo stats per partner
+
+### Updated Screens
+
+**Gallery (`app/gallery.tsx`)**
+- ☁️ Cloud Upload button - backs up to Supabase Storage
+- ✨ AI Analysis button - GPT-4o composition & lighting tips
+- Analysis panel with scores and suggestions
+
+**Camera (`app/camera.tsx`)**
+- `useRealtimeCommands` hook for instant direction delivery
+- Receives commands via WebRTC AND Supabase Realtime (redundancy)
+
+**Viewer (`app/viewer.tsx`)**
+- Sends directions via WebRTC + Realtime (dual channel)
+- Better reliability on poor networks
+
+**Profile (`app/profile.tsx`)**
+- Monthly analytics summary section
+- Total sessions, photos, avg duration
+- Most-used direction commands
 
 ### New Database Tables (9 total)
 | Table | Purpose |
