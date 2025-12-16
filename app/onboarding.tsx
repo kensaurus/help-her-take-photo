@@ -1,7 +1,11 @@
 /**
- * Onboarding - Welcome flow for first-time users
- * Includes language selection on first slide
- * Responsive design with smooth animations
+ * Onboarding - Cutesy pastel welcome flow
+ * 
+ * Design Philosophy:
+ * - Soft pastel colors and dreamy aesthetic
+ * - Asymmetric artistic shapes
+ * - Distinct button vs badge styling
+ * - Playful bouncy animations
  */
 
 import { useState, useRef, useCallback } from 'react'
@@ -483,21 +487,22 @@ const styles = StyleSheet.create({
   skipButton: {
     paddingVertical: 12,
     paddingHorizontal: 16,
-    minHeight: 48, // Accessibility: minimum touch target
+    minHeight: 48,
   },
   skipText: {
     fontSize: 16,
     fontWeight: '500',
   },
+  // Language button - uses badge styling (soft pill)
   languageButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,           // Soft pill (badge style)
     borderWidth: 1,
-    minHeight: 48, // Accessibility: minimum touch target
+    minHeight: 48,
   },
   languageButtonText: {
     fontSize: 14,
@@ -505,15 +510,20 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(74, 59, 71, 0.5)',  // Soft plum overlay
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
+  // Modal with artistic corners
   modalContent: {
     width: '100%',
     maxWidth: 320,
-    borderRadius: 16,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
     padding: 20,
     maxHeight: 400,
   },
@@ -526,13 +536,18 @@ const styles = StyleSheet.create({
   languageList: {
     maxHeight: 300,
   },
+  // Language option - asymmetric card style
   languageOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
+    borderWidth: 1.5,
     marginBottom: 10,
   },
   languageOptionName: {
@@ -553,20 +568,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     maxWidth: 360,
   },
+  // Icon container - asymmetric artistic shape
   iconContainer: {
-    borderRadius: 24,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 32,
   },
+  // Badge - soft pill shape (distinct from buttons)
   badge: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 20,           // Soft pill (badge style)
     marginBottom: 20,
   },
   badgeText: {
-    fontSize: 12, // Accessibility: consistent minimum
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
@@ -593,16 +614,22 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 32,
   },
+  // Pagination dots - soft organic feel
   dot: {
     height: 8,
     borderRadius: 4,
   },
+  // Next button - asymmetric artistic shape (distinct from badges)
   nextButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 18,
-    borderRadius: 12,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     gap: 8,
     minWidth: 160,
   },

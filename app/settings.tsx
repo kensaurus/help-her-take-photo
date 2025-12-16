@@ -1,5 +1,10 @@
 /**
- * Settings - Clean, minimal design with icons
+ * Settings - Cutesy pastel design with artistic shapes
+ * 
+ * Design Philosophy:
+ * - Asymmetric artistic card shapes
+ * - Distinct button vs badge styling
+ * - Soft pastel colors throughout
  */
 
 import { useEffect, useState } from 'react'
@@ -904,14 +909,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 12, // Accessibility: minimum 12sp
+    fontSize: 12,
     fontWeight: '600',
     letterSpacing: 1,
-    marginBottom: 8,
+    marginBottom: 10,
   },
+  // Card with artistic asymmetric corners
   card: {
-    borderWidth: 1,
-    borderRadius: 8,
+    borderWidth: 1.5,
+    // Artistic asymmetric corners - NOT generic rounded
+    borderTopLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     overflow: 'hidden',
   },
   linkCard: {
@@ -946,10 +956,15 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
   },
+  // Icon container - asymmetric artistic shape
   iconContainer: {
     width: 32,
     height: 32,
-    borderRadius: 6,
+    // Asymmetric corners matching card style
+    borderTopLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -985,20 +1000,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 14,
   },
+  // Partner avatar - artistic asymmetric shape
   partnerAvatarLarge: {
     width: 56,
     height: 56,
-    borderRadius: 16,
+    // Asymmetric artistic corners
+    borderTopLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   partnerAvatarEmoji: {
     fontSize: 28,
   },
+  // Connection status icon - artistic asymmetric shape
   connectionStatusIcon: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    // Asymmetric artistic corners
+    borderTopLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1059,11 +1084,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
+  // Connect button - asymmetric artistic shape (distinct from badges)
   connectButton: {
     marginHorizontal: 16,
     marginVertical: 12,
     paddingVertical: 14,
-    borderRadius: 10,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 4,
     alignItems: 'center',
   },
   connectButtonText: {
@@ -1125,12 +1155,17 @@ const styles = StyleSheet.create({
   languageList: {
     padding: 20,
   },
+  // Language option - asymmetric card style
   languageOption: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderRadius: 8,
+    borderWidth: 1.5,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 4,
     paddingVertical: 16,
     paddingHorizontal: 16,
     marginBottom: 8,
@@ -1139,10 +1174,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  // History styles
+  // History card - asymmetric artistic style
   historyCard: {
-    borderWidth: 1,
-    borderRadius: 8,
+    borderWidth: 1.5,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     marginTop: 12,
     overflow: 'hidden',
   },
@@ -1157,11 +1196,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  // Badge styling - soft pill shape (distinct from buttons)
   historyBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    backgroundColor: 'rgba(128, 128, 128, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,           // Soft pill (badge style)
+    backgroundColor: 'rgba(128, 128, 128, 0.12)',
   },
   historyBadgeText: {
     fontSize: 12,
@@ -1214,9 +1254,14 @@ const styles = StyleSheet.create({
   emptyHistoryText: {
     fontSize: 15,
   },
+  // History list item - asymmetric card style
   historyListItem: {
-    borderWidth: 1,
-    borderRadius: 12,
+    borderWidth: 1.5,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 16,
+    borderBottomRightRadius: 16,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     marginBottom: 12,
     overflow: 'hidden',
   },
@@ -1240,12 +1285,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+  // Status badge - soft pill (badge style)
   historyListStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 12,
+    borderRadius: 20,           // Soft pill (badge style)
     gap: 5,
   },
   historyListStatusDot: {
@@ -1296,10 +1342,11 @@ const styles = StyleSheet.create({
   updateInfo: {
     flex: 1,
   },
+  // Update badge - soft pill (badge style)
   updateBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,           // Soft pill (badge style)
   },
   updateBadgeText: {
     color: '#FFFFFF',

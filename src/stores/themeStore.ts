@@ -1,10 +1,11 @@
 /**
  * Theme store with dark mode support
  * 
- * Zen-inspired design: calm, spacious, mindful
- * - Softer contrasts for reduced eye strain
- * - Muted accent colors for calm atmosphere
- * - Warmer tones for comfort
+ * Cutesy Pastel Design Philosophy:
+ * - Soft, dreamy pastel colors
+ * - Playful yet sophisticated aesthetic
+ * - Distinct button vs badge differentiation
+ * - Artistic, asymmetric shapes inspiration
  */
 
 import { create } from 'zustand'
@@ -32,57 +33,77 @@ interface ThemeColors {
   switchTrackOff: string
   switchTrackOn: string
   switchThumb: string
-  // Zen additions
-  zen: string       // Calming accent for zen moments
-  zenMuted: string  // Subtle zen background
+  // Cutesy additions
+  pastelPink: string      // Soft coral pink for highlights
+  pastelMint: string      // Soft mint for success states
+  pastelLavender: string  // Soft purple for accents
+  pastelPeach: string     // Warm peach for warmth
+  pastelBlue: string      // Soft periwinkle for info
+  // Button vs Badge distinction
+  buttonGlow: string      // Subtle glow for clickable elements
+  badgeBg: string         // Muted background for badges
 }
 
-// Light theme: Warm, paper-like, gentle on the eyes
+// Light theme: Cutesy pastel, dreamy and playful
 const lightTheme: ThemeColors = {
-  background: '#FAF9F6',     // Warm off-white (paper)
+  background: '#FFF9FB',     // Soft blush white
   surface: '#FFFFFF',
-  surfaceAlt: '#F7F6F3',     // Warm gray
-  text: '#2C2C2C',           // Softer than pure black
-  textSecondary: '#5C5C5C',  // Warm gray
-  textMuted: '#9A9A9A',      // Muted
-  border: '#E8E6E1',         // Warm border
-  borderLight: '#F2F0EB',    // Very subtle
-  primary: '#3D3D3D',        // Soft black
+  surfaceAlt: '#FFF5F8',     // Whisper pink
+  text: '#4A3B47',           // Soft plum (not harsh black)
+  textSecondary: '#7B6B77',  // Muted mauve
+  textMuted: '#B5A8B1',      // Soft lavender gray
+  border: '#F5E6EB',         // Pastel pink border
+  borderLight: '#FAF0F3',    // Very subtle pink
+  primary: '#F5A0B8',        // Soft coral pink
   primaryText: '#FFFFFF',
-  accent: '#7C8B9A',         // Muted blue-gray (calming)
-  accentText: '#FFFFFF',
-  success: '#6B9080',        // Muted sage green
-  error: '#C17B7B',          // Muted rose
-  overlay: 'rgba(250, 249, 246, 0.97)',
-  switchTrackOff: '#D4D2CD',
-  switchTrackOn: '#7C8B9A',
+  accent: '#B8D4F5',         // Soft periwinkle blue
+  accentText: '#4A3B47',
+  success: '#A8E6CF',        // Pastel mint green
+  error: '#FFB7B7',          // Soft rose
+  overlay: 'rgba(255, 249, 251, 0.97)',
+  switchTrackOff: '#E8D8DE',
+  switchTrackOn: '#F5A0B8',
   switchThumb: '#FFFFFF',
-  zen: '#A8B5A0',            // Sage green - zen accent
-  zenMuted: 'rgba(168, 181, 160, 0.1)',
+  // Cutesy palette
+  pastelPink: '#FFD4E0',     // Soft baby pink
+  pastelMint: '#C8F7DC',     // Soft mint
+  pastelLavender: '#E8D5F5', // Soft lavender
+  pastelPeach: '#FFDDC8',    // Soft peach
+  pastelBlue: '#D4E8FF',     // Soft sky blue
+  // Button/Badge differentiation
+  buttonGlow: 'rgba(245, 160, 184, 0.3)',  // Pink glow for buttons
+  badgeBg: 'rgba(184, 212, 245, 0.2)',     // Soft blue for badges
 }
 
-// Dark theme: Deep, warm darkness, like night sky
+// Dark theme: Dreamy night pastels, like sunset to twilight
 const darkTheme: ThemeColors = {
-  background: '#121210',     // Warm black
-  surface: '#1A1918',        // Warm surface
-  surfaceAlt: '#222120',     // Warm alt
-  text: '#E8E6E1',           // Warm white
-  textSecondary: '#A8A6A1',  // Warm gray
-  textMuted: '#6B6965',      // Muted
-  border: '#2E2D2B',         // Warm border
-  borderLight: '#252422',    // Subtle
-  primary: '#E8E6E1',        // Warm white
-  primaryText: '#121210',
-  accent: '#8B9AA8',         // Muted steel blue
-  accentText: '#121210',
-  success: '#7AA08B',        // Muted sage
-  error: '#B08080',          // Muted rose
-  overlay: 'rgba(18, 18, 16, 0.97)',
-  switchTrackOff: '#3D3B39',
-  switchTrackOn: '#8B9AA8',
-  switchThumb: '#E8E6E1',
-  zen: '#8B9F7C',            // Muted sage - zen accent
-  zenMuted: 'rgba(139, 159, 124, 0.08)',
+  background: '#1E1A1C',     // Soft dark plum
+  surface: '#2A2528',        // Muted mauve dark
+  surfaceAlt: '#352F32',     // Warm dark surface
+  text: '#F5E8EC',           // Soft pink white
+  textSecondary: '#C8B8C0',  // Muted pink gray
+  textMuted: '#8A7A82',      // Soft mauve
+  border: '#3D3538',         // Subtle dark border
+  borderLight: '#332D30',    // Very subtle
+  primary: '#E88BA5',        // Soft coral (darker mode)
+  primaryText: '#1E1A1C',
+  accent: '#9BB8D8',         // Muted periwinkle
+  accentText: '#1E1A1C',
+  success: '#8BC4A8',        // Muted mint
+  error: '#D89898',          // Muted rose
+  overlay: 'rgba(30, 26, 28, 0.97)',
+  switchTrackOff: '#4A4245',
+  switchTrackOn: '#E88BA5',
+  switchThumb: '#F5E8EC',
+  // Cutesy dark palette
+  pastelPink: '#D88BA0',     // Muted coral
+  pastelMint: '#8BC4A8',     // Muted mint
+  pastelLavender: '#B8A0C8', // Muted lavender
+  pastelPeach: '#D8B8A0',    // Muted peach
+  pastelBlue: '#A0B8D8',     // Muted sky
+  // Button/Badge differentiation
+  buttonGlow: 'rgba(232, 139, 165, 0.25)', // Pink glow for buttons
+  badgeBg: 'rgba(155, 184, 216, 0.15)',    // Soft blue for badges
 }
 
 interface ThemeState {

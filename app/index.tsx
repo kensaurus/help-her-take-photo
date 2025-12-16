@@ -1,11 +1,11 @@
 /**
  * Home - Your relationship's photography insurance
  * 
- * Zen Design Philosophy:
- * - Generous whitespace for breathing room
- * - Calm, muted colors
- * - Gentle, deliberate animations
- * - Clear focus on essential actions
+ * Cutesy Pastel Design Philosophy:
+ * - Soft, dreamy pastel colors
+ * - Asymmetric artistic card shapes
+ * - Distinct buttons vs badges styling
+ * - Playful yet sophisticated aesthetic
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -48,7 +48,10 @@ import { sessionLogger } from '../src/services/sessionLogger'
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
 /**
- * Animated action card with press feedback and ripple effect
+ * Animated action card with cutesy asymmetric design
+ * - Chamfered corners (not generic rounded)
+ * - Decorative blob accents
+ * - Clear button vs badge differentiation
  */
 function ActionCard({ 
   label, 
@@ -71,14 +74,15 @@ function ActionCard({
   const scale = useSharedValue(1)
   const pressed = useSharedValue(0)
   const shimmer = useSharedValue(0)
+  const glow = useSharedValue(0)
   
   // Subtle shimmer animation on highlight
   useEffect(() => {
     if (highlight) {
       shimmer.value = withRepeat(
         withSequence(
-          withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-          withTiming(0, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+          withTiming(1, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 2500, easing: Easing.inOut(Easing.ease) })
         ),
         -1,
         false
@@ -88,24 +92,31 @@ function ActionCard({
   
   const cardStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-    opacity: interpolate(pressed.value, [0, 1], [1, 0.95]),
+    opacity: interpolate(pressed.value, [0, 1], [1, 0.96]),
   }))
 
   const shimmerStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(shimmer.value, [0, 1], [0, 0.08]),
+    opacity: interpolate(shimmer.value, [0, 1], [0, 0.12]),
+  }))
+
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(glow.value, [0, 1], [0, 0.4]),
+    transform: [{ scale: interpolate(glow.value, [0, 1], [0.98, 1.01]) }],
   }))
   
   const handlePressIn = () => {
-    // Zen: gentler, more deliberate press animation
-    scale.value = withSpring(0.985, { damping: 20, stiffness: 300 })
-    pressed.value = withTiming(1, { duration: 120 })
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft)
+    // Cutesy: playful bounce with glow
+    scale.value = withSpring(0.97, { damping: 18, stiffness: 350 })
+    pressed.value = withTiming(1, { duration: 100 })
+    glow.value = withTiming(1, { duration: 100 })
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
   }
   
   const handlePressOut = () => {
-    // Zen: slower spring back
-    scale.value = withSpring(1, { damping: 18, stiffness: 250 })
-    pressed.value = withTiming(0, { duration: 200 })
+    // Cutesy: bouncy spring back
+    scale.value = withSpring(1, { damping: 14, stiffness: 280 })
+    pressed.value = withTiming(0, { duration: 180 })
+    glow.value = withTiming(0, { duration: 250 })
   }
 
   return (
@@ -121,6 +132,15 @@ function ActionCard({
         accessibilityHint={accessibilityHint}
         accessibilityRole="button"
       >
+        {/* Glow layer - indicates clickability */}
+        <Animated.View 
+          style={[
+            styles.cardGlow, 
+            { backgroundColor: colors.buttonGlow },
+            glowStyle
+          ]} 
+        />
+        
         <Animated.View style={[
           styles.card, 
           { 
@@ -134,11 +154,19 @@ function ActionCard({
             <Animated.View style={[styles.shimmer, shimmerStyle, { backgroundColor: colors.primaryText }]} />
           )}
           
-          {/* Icon */}
+          {/* Decorative blob - artistic touch */}
+          <View 
+            style={[
+              styles.decorBlob,
+              { backgroundColor: highlight ? `${colors.primaryText}15` : colors.pastelPink }
+            ]}
+          />
+          
+          {/* Icon - asymmetric container */}
           <View 
             style={[
               styles.cardIcon,
-              { backgroundColor: highlight ? `${colors.primaryText}15` : colors.surfaceAlt }
+              { backgroundColor: highlight ? `${colors.primaryText}20` : colors.surfaceAlt }
             ]}
             accessibilityElementsHidden
           >
@@ -159,18 +187,18 @@ function ActionCard({
             </Text>
             <Text style={[
               styles.cardSubtitle, 
-              { color: highlight ? `${colors.primaryText}80` : colors.textMuted }
+              { color: highlight ? `${colors.primaryText}85` : colors.textMuted }
             ]}>
               {subtitle}
             </Text>
           </View>
           
-          {/* Arrow */}
+          {/* Arrow - indicates action */}
           <View style={styles.cardArrowContainer} accessibilityElementsHidden>
             <Icon 
               name="chevron-right" 
               size={16} 
-              color={highlight ? `${colors.primaryText}50` : colors.textMuted} 
+              color={highlight ? `${colors.primaryText}60` : colors.textMuted} 
             />
           </View>
         </Animated.View>
@@ -231,7 +259,8 @@ function NavItem({
 
 
 /**
- * Status pill component - Tappable to navigate to Settings
+ * Status badge component - Soft pill design (distinct from buttons)
+ * Uses badge styling: rounded pill, no glow, muted colors
  */
 function StatusPill({
   connected,
@@ -250,8 +279,8 @@ function StatusPill({
     if (connected) {
       pulse.value = withRepeat(
         withSequence(
-          withTiming(1.2, { duration: 1000 }),
-          withTiming(1, { duration: 1000 })
+          withTiming(1.3, { duration: 1200 }),
+          withTiming(1, { duration: 1200 })
         ),
         -1,
         true
@@ -280,7 +309,8 @@ function StatusPill({
         scale.value = withSpring(1, { damping: 15, stiffness: 300 })
       }}
     >
-      <Animated.View style={[styles.statusPill, { backgroundColor: `${colors.success}12` }, pressStyle]}>
+      {/* Badge style: soft pill, no harsh shadows */}
+      <Animated.View style={[styles.statusPill, { backgroundColor: colors.badgeBg, borderColor: `${colors.success}30` }, pressStyle]}>
         <Animated.View style={[
           styles.statusDot, 
           { backgroundColor: colors.success },
@@ -589,156 +619,195 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 28,      // Zen: more breathing room
+    paddingHorizontal: 24,
     paddingBottom: 40,
   },
   header: {
-    paddingTop: 24,             // Zen: more space at top
-    paddingBottom: 40,          // Zen: generous spacing
+    paddingTop: 24,
+    paddingBottom: 36,
   },
   brand: {
-    marginBottom: 20,
+    marginBottom: 18,
   },
   brandBold: {
-    fontSize: 30,               // Zen: slightly smaller, more refined
-    fontWeight: '700',          // Zen: less aggressive weight
+    fontSize: 28,
+    fontWeight: '700',
     letterSpacing: -0.3,
   },
   tagline: {
     fontSize: 15,
-    lineHeight: 24,             // Zen: more line height for readability
+    lineHeight: 24,
     minHeight: 48,
     fontWeight: '400',
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,              // Zen: more space
-    gap: 12,
+    marginTop: 20,
+    gap: 10,
     flexWrap: 'wrap',
   },
+  // Badge style: soft pill, distinct from angular buttons
   statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,           // Zen: softer corners
-    minHeight: 48,
-  },
-  statusDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '500',          // Zen: lighter weight
-    letterSpacing: 0.4,
-  },
-  rankPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 10,
-    minHeight: 48,
+    paddingVertical: 10,
+    borderRadius: 20,           // Soft pill shape (badge)
+    borderWidth: 1,
+    minHeight: 44,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  // Badge style for rank
+  rankPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,           // Soft pill shape (badge)
+    minHeight: 44,
   },
   rankText: {
     fontSize: 12,
     fontWeight: '600',
     letterSpacing: 0.4,
   },
+  // Stats card with asymmetric corners
   statsCard: {
     flexDirection: 'row',
-    borderWidth: 1,
-    borderRadius: 16,           // Zen: softer corners
-    padding: 24,                // Zen: more padding
-    marginBottom: 36,           // Zen: more spacing
+    borderWidth: 1.5,
+    // Artistic asymmetric corners
+    borderTopLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    borderTopRightRadius: 8,
+    borderBottomLeftRadius: 8,
+    padding: 22,
+    marginBottom: 32,
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 26,               // Zen: slightly smaller
+    fontSize: 26,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
   statLabel: {
     fontSize: 12,
     marginTop: 6,
-    fontWeight: '400',          // Zen: lighter
+    fontWeight: '500',
     letterSpacing: 0.4,
   },
   statDivider: {
     width: 1,
-    marginHorizontal: 20,       // Zen: more space
+    marginHorizontal: 18,
   },
   actions: {
     flex: 1,
   },
   sectionLabel: {
     fontSize: 12,
-    fontWeight: '500',          // Zen: lighter
+    fontWeight: '600',
     letterSpacing: 1.2,
     textTransform: 'uppercase',
-    marginBottom: 18,           // Zen: more space
+    marginBottom: 16,
   },
   cardPressable: {
-    marginBottom: 14,           // Zen: more space between cards
+    marginBottom: 14,
+    position: 'relative',
   },
+  // Glow layer for buttons - indicates clickability
+  cardGlow: {
+    ...StyleSheet.absoluteFillObject,
+    // Match card shape
+    borderTopLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
+  },
+  // Artistic asymmetric card shape
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 26,        // Zen: more padding
-    paddingHorizontal: 22,
-    borderWidth: 1,
-    borderRadius: 16,           // Zen: softer corners
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    borderWidth: 1.5,
+    // Artistic asymmetric corners - NOT generic rounded
+    borderTopLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    borderTopRightRadius: 6,
+    borderBottomLeftRadius: 6,
     overflow: 'hidden',
-    minHeight: 96,              // Zen: taller for breathing room
+    minHeight: 92,
   },
   shimmer: {
     ...StyleSheet.absoluteFillObject,
   },
+  // Decorative blob - artistic touch
+  decorBlob: {
+    position: 'absolute',
+    top: -15,
+    right: -15,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    opacity: 0.25,
+  },
+  // Asymmetric icon container
   cardIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 14,           // Zen: softer corners
+    width: 52,
+    height: 52,
+    // Asymmetric shape matching card
+    borderTopLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 18,
+    marginRight: 16,
   },
   cardContent: {
     flex: 1,
   },
   cardLabel: {
-    fontSize: 17,               // Zen: slightly smaller
-    fontWeight: '600',          // Zen: lighter weight
+    fontSize: 16,
+    fontWeight: '600',
     letterSpacing: -0.2,
   },
   cardSubtitle: {
-    fontSize: 14,
-    marginTop: 6,
+    fontSize: 13,
+    marginTop: 5,
     fontWeight: '400',
-    lineHeight: 21,             // Zen: more line height
-    opacity: 0.8,               // Zen: softer secondary text
+    lineHeight: 20,
   },
   cardArrowContainer: {
-    paddingLeft: 14,
-    paddingRight: 4,
+    paddingLeft: 12,
+    paddingRight: 2,
     overflow: 'visible',
-    opacity: 0.5,               // Zen: subtle arrow
+    opacity: 0.6,
   },
   spacer: {
-    height: 20,                 // Zen: more space
+    height: 18,
   },
+  // Bottom nav with artistic styling
   bottomNav: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    marginHorizontal: -24,
-    paddingHorizontal: 24,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 8,
     marginTop: 16,
@@ -747,7 +816,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 12,
-    minHeight: 48, // Accessibility: minimum touch target
+    minHeight: 48,
   },
   navItemInner: {
     alignItems: 'center',
