@@ -123,68 +123,87 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseKey)
     
-    // Fetch sessions
-    let sessionsQuery = supabase
-      .from('pairing_sessions')
-      .select('*')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-    
-    if (deviceId) {
-      sessionsQuery = sessionsQuery.or(`device_id.eq.${deviceId},partner_device_id.eq.${deviceId}`)
+    // Fetch sessions (gracefully handle errors)
+    let sessions: any[] = []
+    try {
+      let sessionsQuery = supabase
+        .from('pairing_sessions')
+        .select('*')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+      
+      if (deviceId) {
+        sessionsQuery = sessionsQuery.or(`device_id.eq.${deviceId},partner_device_id.eq.${deviceId}`)
+      }
+      
+      const { data: sessionsData, error: sessionsError } = await sessionsQuery
+      if (sessionsError) {
+        console.error('Sessions query error:', sessionsError)
+      } else if (sessionsData) {
+        sessions = sessionsData
+      }
+    } catch (e) {
+      console.error('Sessions fetch error:', e)
     }
     
-    const { data: sessions, error: sessionsError } = await sessionsQuery
-    
-    if (sessionsError) {
-      throw sessionsError
+    // Fetch captures (gracefully handle errors)
+    let captures: any[] = []
+    try {
+      let capturesQuery = supabase
+        .from('captures')
+        .select('*')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+      
+      if (deviceId) {
+        capturesQuery = capturesQuery.eq('camera_device_id', deviceId)
+      }
+      
+      const { data: capturesData, error: capturesError } = await capturesQuery
+      if (capturesError) {
+        console.error('Captures query error:', capturesError)
+      } else if (capturesData) {
+        captures = capturesData
+      }
+    } catch (e) {
+      console.error('Captures fetch error:', e)
     }
     
-    // Fetch captures
-    let capturesQuery = supabase
-      .from('captures')
-      .select('*')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-    
-    if (deviceId) {
-      capturesQuery = capturesQuery.eq('camera_device_id', deviceId)
+    // Fetch session events for commands (gracefully handle if table doesn't exist)
+    let commandEvents: any[] = []
+    try {
+      let eventsQuery = supabase
+        .from('session_events')
+        .select('*')
+        .eq('event_type', 'direction_command')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+      
+      if (deviceId) {
+        eventsQuery = eventsQuery.eq('device_id', deviceId)
+      }
+      
+      const { data: eventsData, error: eventsError } = await eventsQuery
+      if (!eventsError && eventsData) {
+        commandEvents = eventsData
+      }
+    } catch (e) {
+      console.log('session_events table may not exist, skipping')
     }
     
-    const { data: captures, error: capturesError } = await capturesQuery
-    
-    if (capturesError) {
-      throw capturesError
-    }
-    
-    // Fetch session events for commands
-    let eventsQuery = supabase
-      .from('session_events')
-      .select('*')
-      .eq('event_type', 'direction_command')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString())
-    
-    if (deviceId) {
-      eventsQuery = eventsQuery.eq('device_id', deviceId)
-    }
-    
-    const { data: commandEvents, error: eventsError } = await eventsQuery
-    
-    if (eventsError) {
-      throw eventsError
-    }
-    
-    // Fetch devices
-    let devicesQuery = supabase
-      .from('devices')
-      .select('device_id, created_at, last_active_at')
-      .gte('last_active_at', start.toISOString())
-    
-    const { data: devices, error: devicesError } = await devicesQuery
-    
-    if (devicesError) {
-      throw devicesError
+    // Fetch devices (gracefully handle if table doesn't exist)
+    let devices: any[] = []
+    try {
+      const { data: devicesData, error: devicesError } = await supabase
+        .from('devices')
+        .select('device_id, created_at, last_active_at')
+        .gte('last_active_at', start.toISOString())
+      
+      if (!devicesError && devicesData) {
+        devices = devicesData
+      }
+    } catch (e) {
+      console.log('devices table may not exist, skipping')
     }
     
     // Calculate metrics
@@ -326,10 +345,13 @@ Deno.serve(async (req) => {
     
   } catch (error) {
     console.error('Get analytics error:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
+    const errorStack = error instanceof Error ? error.stack : undefined
     return new Response(
       JSON.stringify({
         success: false,
-        error: error instanceof Error ? error.message : 'Internal server error',
+        error: errorMessage,
+        details: errorStack,
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )

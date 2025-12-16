@@ -146,7 +146,13 @@ npx expo start
 │   ├── functions/        # Edge Functions (Deno)
 │   │   ├── create-pairing/   # Create pairing session
 │   │   ├── join-pairing/     # Join pairing session
-│   │   └── livekit-token/    # Generate LiveKit room tokens
+│   │   ├── livekit-token/    # Generate LiveKit room tokens
+│   │   ├── send-notification/  # Push notifications (Expo)
+│   │   ├── upload-photo/     # Cloud backup to Storage
+│   │   ├── analyze-photo/    # AI photo analysis (GPT-4o)
+│   │   ├── get-analytics/    # Dashboard metrics API
+│   │   ├── manage-album/     # Photo albums CRUD
+│   │   └── manage-friends/   # Social features
 │   └── migrations/       # SQL migrations for Supabase
 ├── assets/               # Images, icons, sounds
 └── scripts/              # Build & utility scripts
@@ -154,11 +160,12 @@ npx expo start
 
 ## 🗄️ Database Schema (Supabase)
 
+### Core Tables
 | Table | Purpose |
 |-------|---------|
 | `pairing_sessions` | 4-digit code pairing |
 | `devices` | Device registration |
-| `captures` | Photo metadata |
+| `captures` | Photo metadata + cloud URLs |
 | `user_stats` | Gamification (XP, levels) |
 | `user_settings` | User preferences |
 | `feedback` | Bug reports & feature requests |
@@ -167,6 +174,19 @@ npx expo start
 | `app_logs` | **Debug logging** |
 | `webrtc_signals` | **WebRTC signaling** |
 | `commands` | **Direction commands** |
+
+### Enhanced Features Tables (v2)
+| Table | Purpose |
+|-------|---------|
+| `notification_queue` | Push notification tracking |
+| `photo_albums` | Photo organization with sharing |
+| `ai_analyses` | AI composition scores & suggestions |
+| `session_recordings` | Session replay & direction stats |
+| `friend_connections` | Social connections |
+| `recent_partners` | Quick reconnect with frequent partners |
+| `rate_limits` | Database-backed rate limiting |
+| `analytics_daily` | Pre-computed daily metrics |
+| `pending_sync` | Offline-first sync queue |
 
 ## ⚡ Supabase Edge Functions
 
@@ -224,17 +244,129 @@ curl -X POST 'https://your-project.supabase.co/functions/v1/livekit-token' \
 }
 ```
 
+### send-notification
+Sends push notifications via Expo Push API.
+
+```bash
+# Request (by device ID and template)
+curl -X POST 'https://your-project.supabase.co/functions/v1/send-notification' \
+  -H 'Authorization: Bearer YOUR_ANON_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"deviceId": "uuid-here", "type": "partner_joined"}'
+
+# Available types: partner_joined, photo_captured, session_expiring, friend_request
+```
+
+### upload-photo
+Uploads photos to Supabase Storage with cloud backup.
+
+```bash
+# Request
+curl -X POST 'https://your-project.supabase.co/functions/v1/upload-photo' \
+  -H 'Authorization: Bearer YOUR_ANON_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"captureId": "uuid", "deviceId": "uuid", "imageData": "base64..."}'
+
+# Response
+{
+  "success": true,
+  "cloudUrl": "https://...supabase.co/storage/v1/object/public/captures/...",
+  "fileSize": 12345
+}
+```
+
+### analyze-photo
+AI-powered photo analysis using OpenAI GPT-4o Vision.
+
+```bash
+# Request
+curl -X POST 'https://your-project.supabase.co/functions/v1/analyze-photo' \
+  -H 'Authorization: Bearer YOUR_ANON_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"captureId": "uuid", "imageUrl": "https://..."}'
+
+# Response
+{
+  "success": true,
+  "analysis": {
+    "compositionScore": 9.0,
+    "compositionSuggestions": ["Consider rule of thirds", "..."],
+    "detectedObjects": [{"name": "mountains", "confidence": 0.98}],
+    "sceneType": "landscape",
+    "mood": "serene",
+    "lightingQuality": "excellent"
+  }
+}
+```
+
+### get-analytics
+Dashboard analytics API with daily metrics.
+
+```bash
+# Request
+curl -X GET 'https://your-project.supabase.co/functions/v1/get-analytics?period=7d' \
+  -H 'Authorization: Bearer YOUR_ANON_KEY'
+
+# Response
+{
+  "success": true,
+  "analytics": {
+    "totalSessions": 7,
+    "activeDevices": 11,
+    "totalPhotos": 25,
+    "avgAiScore": 7.5,
+    "dailyMetrics": [...]
+  }
+}
+```
+
+### manage-album
+Photo album CRUD with sharing capabilities.
+
+```bash
+# List albums
+curl -X POST '.../manage-album' -d '{"action": "list", "deviceId": "uuid"}'
+
+# Create album
+curl -X POST '.../manage-album' -d '{"action": "create", "deviceId": "uuid", "name": "Vacation 2025"}'
+
+# Share album (generates 8-char code)
+curl -X POST '.../manage-album' -d '{"action": "share", "deviceId": "uuid", "albumId": "uuid"}'
+```
+
+### manage-friends
+Social features for connecting with photo partners.
+
+```bash
+# List friends & pending requests
+curl -X POST '.../manage-friends' -d '{"action": "list", "deviceId": "uuid"}'
+
+# Recent partners (quick reconnect)
+curl -X POST '.../manage-friends' -d '{"action": "recent", "deviceId": "uuid"}'
+
+# Send friend request
+curl -X POST '.../manage-friends' -d '{"action": "request", "deviceId": "uuid", "friendDeviceId": "uuid"}'
+```
+
 ### Deploying Edge Functions
 
 ```bash
-# Deploy with JWT verification disabled (for anonymous access)
+# Deploy all functions
 supabase functions deploy create-pairing --no-verify-jwt
 supabase functions deploy join-pairing --no-verify-jwt
 supabase functions deploy livekit-token --no-verify-jwt
+supabase functions deploy send-notification
+supabase functions deploy upload-photo
+supabase functions deploy analyze-photo
+supabase functions deploy get-analytics
+supabase functions deploy manage-album
+supabase functions deploy manage-friends
 
-# Set LiveKit secrets (required for livekit-token)
+# Set required secrets
 supabase secrets set LIVEKIT_API_KEY=your-api-key
 supabase secrets set LIVEKIT_API_SECRET=your-api-secret
+supabase secrets set EXPO_ACCESS_TOKEN=your-expo-token      # For push notifications
+supabase secrets set OPENAI_API_KEY=your-openai-key          # For AI analysis
 ```
 
 ## 📊 Logging & Debugging
@@ -494,10 +626,28 @@ Available in dev builds via shake gesture or debug button:
 | `supabase.ts` | Supabase client with anonymous auth, session management |
 | `livekit.ts` | **LiveKit video streaming** (primary, more reliable) |
 | `webrtc.ts` | P2P video streaming (fallback) |
+| `realtimeCommands.ts` | **Supabase Realtime Broadcast** for instant direction commands |
 | `errorTracking.ts` | Sentry integration for crash reporting |
 | `logging.ts` | Structured logging with levels (debug/info/warn/error) |
 | `connectionManager.ts` | WebRTC connection state machine |
 | `api.ts` | Supabase database operations |
+
+### Realtime Commands (New)
+Uses Supabase Realtime Broadcast for instant direction delivery:
+
+```typescript
+import { useRealtimeCommands } from '@/services/realtimeCommands'
+
+// In your component
+const { isConnected, lastCommand, sendDirection } = useRealtimeCommands(
+  sessionId,
+  'viewer',  // or 'camera'
+  (cmd) => handleDirectionCommand(cmd)
+)
+
+// Send direction
+await sendDirection('up', deviceId)
+```
 
 ### Key Service Functions
 
