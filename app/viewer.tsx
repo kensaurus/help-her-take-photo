@@ -26,18 +26,30 @@ import * as Haptics from 'expo-haptics'
 import { usePairingStore } from '../src/stores/pairingStore'
 import { profileApi, connectionHistoryApi } from '../src/services/api'
 
-// Dynamically import RTCView to handle Expo Go gracefully
+// Dynamically import video components
 let RTCView: any = null
+let LiveKitVideoView: any = null
 try {
   const webrtc = require('react-native-webrtc')
   RTCView = webrtc.RTCView
 } catch {
   // WebRTC not available (Expo Go)
 }
+try {
+  const livekit = require('@livekit/react-native')
+  LiveKitVideoView = livekit.VideoView
+} catch {
+  // LiveKit not available
+}
 import { useLanguageStore } from '../src/stores/languageStore'
 import { pairingApi } from '../src/services/api'
 import { sessionLogger } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
+import { livekitService, isLiveKitAvailable } from '../src/services/livekit'
+
+// LiveKit temporarily disabled - native packages conflict
+// Use WebRTC until LiveKit build issues are resolved
+const USE_LIVEKIT = false
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
@@ -186,12 +198,14 @@ export default function ViewerScreen() {
   const [isConnected, setIsConnected] = useState(false)
   const [isReceiving, setIsReceiving] = useState(false)
   const [remoteStream, setRemoteStream] = useState<any>(null)
+  const [remoteTrack, setRemoteTrack] = useState<any>(null) // LiveKit video track
   const [connectionState, setConnectionState] = useState<string>('disconnected')
   const [webrtcError, setWebrtcError] = useState<string | null>(null)
   const [lastCommand, setLastCommand] = useState('')
   const [showSent, setShowSent] = useState(false)
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
   const [showSwitchToast, setShowSwitchToast] = useState(false)
+  const [usingLiveKit, setUsingLiveKit] = useState(USE_LIVEKIT && isLiveKitAvailable)
   
   // Ref to track if we should poll for stream
   const streamCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -253,13 +267,25 @@ export default function ViewerScreen() {
 
   useEffect(() => {
     if (isPaired && myDeviceId && pairedDeviceId && sessionId) {
-      if (!webrtcAvailable) {
+      // Check if video streaming is available
+      const canUseLiveKit = USE_LIVEKIT && isLiveKitAvailable
+      const canUseWebRTC = webrtcAvailable
+      
+      if (!canUseLiveKit && !canUseWebRTC) {
         setWebrtcError('Video streaming requires a development build.')
         setIsConnected(true)
         return
       }
 
-      sessionLogger.info('starting_webrtc_as_director', { myDeviceId, pairedDeviceId, sessionId })
+      const streamingMethod = canUseLiveKit ? 'livekit' : 'webrtc'
+      setUsingLiveKit(canUseLiveKit)
+      
+      sessionLogger.info('starting_video_as_director', { 
+        method: streamingMethod,
+        myDeviceId, 
+        pairedDeviceId, 
+        sessionId 
+      })
       sessionLogger.flush()
       setIsConnected(true)
       
@@ -290,60 +316,105 @@ export default function ViewerScreen() {
         },
       })
       
-      initDelayId = setTimeout(() => {
+      initDelayId = setTimeout(async () => {
         if (!isActive) return
         
-        webrtcService.init(
-          myDeviceId,
-          pairedDeviceId,
-          sessionId,
-          'director',
-          {
-            onRemoteStream: (stream) => {
-              if (!isActive) return
-              const videoTracks = stream?.getVideoTracks?.() ?? []
-              sessionLogger.info('director_remote_stream_received', {
-                trackCount: stream?.getTracks?.()?.length ?? 0,
-                videoTrackCount: videoTracks.length,
-                streamId: stream?.id?.substring(0, 8),
-                streamActive: stream?.active,
-              })
-              setRemoteStream(stream)
-              setIsReceiving(true)
-            },
-            onConnectionStateChange: (state) => {
-              if (!isActive) return
-              sessionLogger.info('director_webrtc_state', { connectionState: state, role: 'director' })
-              setConnectionState(state)
-              if (state === 'failed' || state === 'disconnected') {
-                setIsReceiving(false)
+        // Command handler for both LiveKit and WebRTC
+        const handleCommand = (command: string, data?: Record<string, unknown>) => {
+          if (!isActive) return
+          if (command === 'switch_role' && data?.newRole === 'photographer') {
+            sessionLogger.info('switch_role_received', { newRole: 'photographer' })
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+            setShowSwitchToast(true)
+            setTimeout(async () => {
+              if (canUseLiveKit) {
+                await livekitService.destroy()
+              } else {
+                await webrtcService.destroy()
               }
-            },
-            onError: (error) => {
-              if (!isActive) return
-              sessionLogger.error('director_webrtc_error', error, { role: 'director' })
-              // Don't set error for harmless duplicate offer issues
-              if (!error.message?.includes('wrong state')) {
-                setWebrtcError(error.message)
-              }
-            },
+              router.replace('/camera')
+            }, 1500)
           }
-        ).then(() => {
-          webrtcService.onCommand((command, data) => {
-            if (!isActive) return
-            if (command === 'switch_role' && data?.newRole === 'photographer') {
-              sessionLogger.info('switch_role_received', { newRole: 'photographer' })
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
-              // Show toast notification before switching
-              setShowSwitchToast(true)
-              setTimeout(() => {
-                webrtcService.destroy().then(() => {
-                  router.replace('/camera')
+        }
+        
+        if (canUseLiveKit) {
+          // Use LiveKit (more reliable)
+          try {
+            await livekitService.init(
+              myDeviceId,
+              pairedDeviceId,
+              sessionId,
+              'director',
+              {
+                onRemoteTrack: (track, participant) => {
+                  if (!isActive) return
+                  sessionLogger.info('director_livekit_track_received', {
+                    kind: track.kind,
+                    participantId: participant?.identity?.substring(0, 8),
+                  })
+                  setRemoteTrack(track)
+                  setIsReceiving(true)
+                },
+                onConnectionStateChange: (state) => {
+                  if (!isActive) return
+                  sessionLogger.info('director_livekit_state', { connectionState: state })
+                  setConnectionState(state)
+                  if (state === 'disconnected') {
+                    setIsReceiving(false)
+                  }
+                },
+                onError: (error) => {
+                  if (!isActive) return
+                  sessionLogger.error('director_livekit_error', error)
+                  setWebrtcError(error.message)
+                },
+              }
+            )
+            livekitService.onCommand(handleCommand)
+          } catch (error) {
+            sessionLogger.error('livekit_init_failed', error as Error)
+            setWebrtcError((error as Error).message)
+          }
+        } else {
+          // Fall back to WebRTC
+          webrtcService.init(
+            myDeviceId,
+            pairedDeviceId,
+            sessionId,
+            'director',
+            {
+              onRemoteStream: (stream) => {
+                if (!isActive) return
+                const videoTracks = stream?.getVideoTracks?.() ?? []
+                sessionLogger.info('director_remote_stream_received', {
+                  trackCount: stream?.getTracks?.()?.length ?? 0,
+                  videoTrackCount: videoTracks.length,
+                  streamId: stream?.id?.substring(0, 8),
+                  streamActive: stream?.active,
                 })
-              }, 1500)
+                setRemoteStream(stream)
+                setIsReceiving(true)
+              },
+              onConnectionStateChange: (state) => {
+                if (!isActive) return
+                sessionLogger.info('director_webrtc_state', { connectionState: state, role: 'director' })
+                setConnectionState(state)
+                if (state === 'failed' || state === 'disconnected') {
+                  setIsReceiving(false)
+                }
+              },
+              onError: (error) => {
+                if (!isActive) return
+                sessionLogger.error('director_webrtc_error', error, { role: 'director' })
+                if (!error.message?.includes('wrong state')) {
+                  setWebrtcError(error.message)
+                }
+              },
             }
+          ).then(() => {
+            webrtcService.onCommand(handleCommand)
           })
-        })
+        }
       }, 300)
 
       return () => {
@@ -353,20 +424,34 @@ export default function ViewerScreen() {
           clearInterval(streamCheckIntervalRef.current)
           streamCheckIntervalRef.current = null
         }
-        webrtcService.destroy()
+        if (usingLiveKit) {
+          livekitService.destroy()
+        } else {
+          webrtcService.destroy()
+        }
         setIsConnected(false)
         setIsReceiving(false)
         setRemoteStream(null)
+        setRemoteTrack(null)
         void presenceSub.unsubscribe()
       }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar, setPartnerPresence])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, partnerDisplayName, partnerAvatar, setPartnerPresence, usingLiveKit])
+
+  // Send command via active service (LiveKit or WebRTC)
+  const sendCommand = async (command: string, data?: Record<string, unknown>) => {
+    if (usingLiveKit) {
+      await livekitService.sendCommand(command, data)
+    } else {
+      await webrtcService.sendCommand(command, data)
+    }
+  }
 
   const sendDirection = async (direction: keyof typeof t.viewer.directions) => {
     setLastCommand(t.viewer.directions[direction])
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1200)
-    await webrtcService.sendCommand('direction', { direction })
+    await sendCommand('direction', { direction })
     sessionLogger.info('direction_sent', { direction })
   }
 
@@ -374,7 +459,7 @@ export default function ViewerScreen() {
     setLastCommand('Capture')
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1500)
-    await webrtcService.sendCommand('capture')
+    await sendCommand('capture')
     sessionLogger.info('capture_command_sent')
   }
 
@@ -383,7 +468,7 @@ export default function ViewerScreen() {
     setLastCommand('Flip Camera')
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1200)
-    await webrtcService.sendCommand('flip')
+    await sendCommand('flip')
     sessionLogger.info('flip_command_sent')
   }
 
@@ -392,7 +477,7 @@ export default function ViewerScreen() {
     setLastCommand('Toggle Flash')
     setShowSent(true)
     setTimeout(() => setShowSent(false), 1200)
-    await webrtcService.sendCommand('flash')
+    await sendCommand('flash')
     sessionLogger.info('flash_command_sent')
   }
 
@@ -407,7 +492,16 @@ export default function ViewerScreen() {
                 <Text style={styles.waitingIcon}>!</Text>
                 <Text style={styles.waitingText}>{webrtcError}</Text>
               </View>
-            ) : isReceiving && remoteStream && RTCView ? (
+            ) : isReceiving && usingLiveKit && remoteTrack && LiveKitVideoView ? (
+              <View style={styles.videoWrapper}>
+                <LiveKitVideoView
+                  style={styles.video}
+                  videoTrack={remoteTrack}
+                  objectFit="cover"
+                  mirror={false}
+                />
+              </View>
+            ) : isReceiving && !usingLiveKit && remoteStream && RTCView ? (
               <View style={styles.videoWrapper}>
                 <RTCView
                   key={remoteStream?.id || 'remote-stream'}
@@ -566,9 +660,13 @@ export default function ViewerScreen() {
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
               ;(async () => {
-                await webrtcService.sendCommand('switch_role', { newRole: 'director' })
+                await sendCommand('switch_role', { newRole: 'director' })
                 sessionLogger.info('switch_role_command_sent', { partnerNewRole: 'director' })
-                await webrtcService.destroy()
+                if (usingLiveKit) {
+                  await livekitService.destroy()
+                } else {
+                  await webrtcService.destroy()
+                }
                 router.replace('/camera')
               })()
             }}

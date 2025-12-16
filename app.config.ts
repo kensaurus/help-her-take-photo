@@ -51,7 +51,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: 'com.helpher.takephoto',
-    buildNumber: '1',
+    buildNumber: '2',
     config: {
       usesNonExemptEncryption: false,
     },
@@ -87,7 +87,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#FAFAFA',
     },
     package: 'com.helpher.takephoto',
-    versionCode: 1,
+    versionCode: 2,
     permissions: [
       'CAMERA',
       'RECORD_AUDIO',
@@ -112,6 +112,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     bundler: 'metro',
   },
   plugins: [
+    [
+      'expo-build-properties',
+      {
+        android: {
+          minSdkVersion: 24,
+          compileSdkVersion: 35,
+          targetSdkVersion: 34,
+        },
+        ios: {
+          deploymentTarget: '15.1',
+        },
+      },
+    ],
     [
       '@sentry/react-native/expo',
       {

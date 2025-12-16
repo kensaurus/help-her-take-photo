@@ -11,7 +11,7 @@ A mobile app that helps couples take better photos by allowing one person to rem
 
 - 🔗 **Quick Pairing** - Connect devices with a simple 4-digit code
 - 📱 **Real-time Camera View** - See what your partner sees (WebRTC P2P)
-- 🎬 **Direction Commands** - Tell them to move left, right, up, down
+- 🎬 **Direction Commands** - Large, prominent arrow overlays (up, down, left, right, closer, back)
 - 📷 **Remote Capture** - Take the perfect shot from anywhere
 - 🖼️ **Instant Gallery** - Photo library with Supabase sync
 - 🌍 **Multi-language** - English, Thai, Chinese, Japanese (selectable in onboarding)
@@ -26,12 +26,12 @@ A mobile app that helps couples take better photos by allowing one person to rem
 
 | Category | Technology |
 |----------|------------|
-| Framework | Expo SDK 54, React Native 0.81 |
+| Framework | Expo SDK 54, React Native 0.81.5 |
 | Navigation | Expo Router v6 |
 | State | Zustand |
 | Animations | Reanimated 4 |
 | Camera | expo-camera, vision-camera |
-| Video Streaming | **react-native-webrtc** (P2P) |
+| Video Streaming | react-native-webrtc (P2P), LiveKit (planned) |
 | Storage | AsyncStorage, expo-secure-store |
 | Lists | @shopify/flash-list |
 | Images | expo-image |
@@ -78,21 +78,27 @@ npx expo start
 │  React Native + Zustand + Reanimated    │
 └─────────────────┬───────────────────────┘
                   │
-        ┌─────────┴─────────┐
-        │                   │
-        ▼                   ▼
-┌───────────────┐   ┌───────────────────┐
-│   SUPABASE    │   │     WEBRTC        │
-│   BACKEND     │   │   (P2P Video)     │
-├───────────────┤   ├───────────────────┤
-│ • PostgreSQL  │   │ • Video Stream    │
-│ • RLS Policies│   │ • Commands        │
-│ • Realtime    │◄──│ • Signaling       │
-│ • Logging     │   │   (via Supabase)  │
-└───────────────┘   └───────────────────┘
+        ┌─────────┼─────────┐
+        │         │         │
+        ▼         ▼         ▼
+┌───────────────┐ │ ┌───────────────────┐
+│   SUPABASE    │ │ │   LIVEKIT CLOUD   │
+│   BACKEND     │ │ │  (Video Service)  │
+├───────────────┤ │ ├───────────────────┤
+│ • PostgreSQL  │ │ │ • Video Rooms     │
+│ • RLS Policies│ │ │ • Auto-scaling    │
+│ • Realtime    │ │ │ • TURN/STUN       │
+│ • Logging     │ │ │ • Data Messages   │
+│ • Edge Funcs  │◄┘ └───────────────────┘
+│   (tokens)    │
+└───────────────┘
 ```
 
-**Note:** No separate API server required. Video streams peer-to-peer; signaling via Supabase Realtime.
+**Video Streaming Options:**
+- **Primary:** LiveKit Cloud - Reliable WebRTC-as-a-Service with built-in TURN servers
+- **Fallback:** Direct WebRTC P2P - For when LiveKit is unavailable
+
+**Note:** No separate API server required. Supabase Edge Functions generate LiveKit tokens.
 
 ## 📁 Project Structure
 
@@ -139,7 +145,8 @@ npx expo start
 ├── supabase/
 │   ├── functions/        # Edge Functions (Deno)
 │   │   ├── create-pairing/   # Create pairing session
-│   │   └── join-pairing/     # Join pairing session
+│   │   ├── join-pairing/     # Join pairing session
+│   │   └── livekit-token/    # Generate LiveKit room tokens
 │   └── migrations/       # SQL migrations for Supabase
 ├── assets/               # Images, icons, sounds
 └── scripts/              # Build & utility scripts
@@ -199,12 +206,35 @@ curl -X POST 'https://your-project.supabase.co/functions/v1/join-pairing' \
 }
 ```
 
+### livekit-token
+Generates JWT tokens for LiveKit video room access.
+
+```bash
+# Request
+curl -X POST 'https://your-project.supabase.co/functions/v1/livekit-token' \
+  -H 'Content-Type: application/json' \
+  -d '{"roomName": "session-uuid", "participantName": "device-uuid", "role": "camera"}'
+
+# Response
+{
+  "token": "eyJ...",
+  "room": "session-uuid",
+  "identity": "device-uuid",
+  "canPublish": true
+}
+```
+
 ### Deploying Edge Functions
 
 ```bash
 # Deploy with JWT verification disabled (for anonymous access)
 supabase functions deploy create-pairing --no-verify-jwt
 supabase functions deploy join-pairing --no-verify-jwt
+supabase functions deploy livekit-token --no-verify-jwt
+
+# Set LiveKit secrets (required for livekit-token)
+supabase secrets set LIVEKIT_API_KEY=your-api-key
+supabase secrets set LIVEKIT_API_SECRET=your-api-secret
 ```
 
 ## 📊 Logging & Debugging
@@ -339,17 +369,30 @@ eas update --branch preview --message "Your message"
 
 ## 🔐 Environment Variables
 
-Create `.env` in project root:
+Create `.env.local` in project root:
 
 ```env
+# Supabase (required)
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+
+# Sentry (optional but recommended)
 EXPO_PUBLIC_SENTRY_DSN=https://xxx@xxx.ingest.sentry.io/xxx
+
+# LiveKit (for video streaming)
+EXPO_PUBLIC_LIVEKIT_URL=wss://your-app.livekit.cloud
+LIVEKIT_API_KEY=your-api-key          # Server-side only
+LIVEKIT_API_SECRET=your-api-secret    # Server-side only
+
+# Metered TURN (fallback for WebRTC)
+EXPO_PUBLIC_METERED_API_KEY=your-metered-key
+EXPO_PUBLIC_METERED_API_URL=https://your-app.metered.live/api/v1/turn/credentials
 ```
 
 Get these from:
 - **Supabase:** Dashboard → Settings → API
 - **Sentry:** Dashboard → Settings → Projects → Client Keys (DSN)
+- **LiveKit:** Cloud Dashboard → Project Settings → Keys
 
 ## 🔒 Security Features
 
@@ -449,11 +492,12 @@ Available in dev builds via shake gesture or debug button:
 | Service | Purpose |
 |---------|---------|
 | `supabase.ts` | Supabase client with anonymous auth, session management |
+| `livekit.ts` | **LiveKit video streaming** (primary, more reliable) |
+| `webrtc.ts` | P2P video streaming (fallback) |
 | `errorTracking.ts` | Sentry integration for crash reporting |
 | `logging.ts` | Structured logging with levels (debug/info/warn/error) |
 | `connectionManager.ts` | WebRTC connection state machine |
 | `api.ts` | Supabase database operations |
-| `webrtc.ts` | P2P video streaming |
 
 ### Key Service Functions
 
@@ -462,6 +506,16 @@ Available in dev builds via shake gesture or debug button:
 await ensureAuthenticated()  // Anonymous auth for RLS
 await getDeviceId()          // From SecureStore
 await signOut()              // Clear session
+
+// LiveKit Video Streaming (livekit.ts)
+await livekitService.init(deviceId, peerId, sessionId, 'camera', callbacks)
+await livekitService.sendCommand('capture')
+livekitService.onCommand((cmd, data) => handleCommand(cmd, data))
+await livekitService.destroy()
+
+// WebRTC Fallback (webrtc.ts)
+await webrtcService.init(deviceId, peerId, sessionId, 'camera', callbacks)
+await webrtcService.sendCommand('direction', { direction: 'left' })
 
 // Error Tracking (errorTracking.ts)
 captureException(error, { context })
@@ -544,6 +598,26 @@ The capture button (`src/components/CaptureButton.tsx`) includes:
 - **Flash Effect** - White overlay flash
 - **Heavy Haptic** - Tactile feedback on capture
 - **3D Shadows** - Depth appearance
+
+### Direction Overlay (Photographer Screen)
+
+When the director sends positioning commands, the photographer sees a **large, prominent overlay**:
+
+| Direction | Icon | Color | Label |
+|-----------|------|-------|-------|
+| Up | ⬆ | Teal (#4ECDC4) | TILT UP |
+| Down | ⬇ | Red (#FF6B6B) | TILT DOWN |
+| Left | ⬅ | Yellow (#FFE66D) | PAN LEFT |
+| Right | ➡ | Yellow (#FFE66D) | PAN RIGHT |
+| Closer | ⊕ | Green (#95E1D3) | MOVE CLOSER |
+| Back | ⊖ | Coral (#F38181) | STEP BACK |
+
+Features:
+- **80px icons** - Large and impossible to miss
+- **Full-screen overlay** - Dims camera view to focus attention
+- **Color-coded borders** - Visual distinction per direction
+- **2.5 second display** - Auto-hides after showing
+- **Smooth animations** - Fade in/out with spring effect
 
 ## 🤝 Contributing
 

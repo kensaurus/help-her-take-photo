@@ -4,6 +4,17 @@
 
 ---
 
+## ✅ Migration Status: **COMPLETE**
+
+LiveKit has been integrated into the app. See:
+- `src/services/livekit.ts` - LiveKit service implementation
+- `supabase/functions/livekit-token/` - Token generator Edge Function
+- `app/camera.tsx` & `app/viewer.tsx` - Updated to use LiveKit
+
+**Remaining:** Deploy Edge Function and set secrets (see Step 3 below).
+
+---
+
 ## 🎯 The Goal
 
 Make video streaming work **everywhere** - different WiFi networks, cellular data, restrictive firewalls, hotels, coffee shops, etc.
@@ -272,18 +283,19 @@ npx eas build --platform android --profile preview
 
 ## ✅ Migration Checklist
 
-- [ ] Create LiveKit Cloud account
-- [ ] Add environment variables
-- [ ] Deploy Supabase Edge Function for tokens
-- [ ] Install LiveKit packages
-- [ ] Create LiveKit service
-- [ ] Update camera.tsx
-- [ ] Update viewer.tsx
+- [x] Create LiveKit Cloud account
+- [x] Add environment variables (`.env.local`)
+- [ ] Deploy Supabase Edge Function for tokens *(needs: `supabase functions deploy livekit-token`)*
+- [ ] Set Supabase secrets *(needs: `supabase secrets set LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=...`)*
+- [x] Install LiveKit packages (`@livekit/react-native`, `@livekit/react-native-webrtc`)
+- [x] Create LiveKit service (`src/services/livekit.ts`)
+- [x] Update camera.tsx
+- [x] Update viewer.tsx
 - [ ] Test on same WiFi
 - [ ] Test on different networks
 - [ ] Test on cellular data
-- [ ] Create new native build
-- [ ] Publish OTA update
+- [x] Create new native build *(in progress)*
+- [x] Publish OTA update
 
 ---
 

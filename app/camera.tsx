@@ -41,6 +41,11 @@ import { ConnectionDebugPanel } from '../src/components/ui/ConnectionDebugPanel'
 import { pairingApi, connectionHistoryApi } from '../src/services/api'
 import { sessionLogger, CAMERA_ERROR_MESSAGES, type CameraErrorType } from '../src/services/sessionLogger'
 import { webrtcService, webrtcAvailable } from '../src/services/webrtc'
+import { livekitService, isLiveKitAvailable } from '../src/services/livekit'
+
+// LiveKit temporarily disabled - native packages conflict
+// Use WebRTC until LiveKit build issues are resolved
+const USE_LIVEKIT = false
 
 // Helper to get user-friendly error message
 function getCameraErrorMessage(error: Error | unknown): string {
@@ -129,6 +134,35 @@ function EncouragementToast({ message, visible }: { message: string; visible: bo
       style={styles.toast}
     >
       <Text style={styles.toastText}>{message}</Text>
+    </Animated.View>
+  )
+}
+
+// Direction overlay - large, prominent arrows for camera positioning
+function DirectionOverlay({ direction, visible }: { direction: string | null; visible: boolean }) {
+  if (!visible || !direction) return null
+  
+  const directionConfig: Record<string, { icon: string; label: string; color: string }> = {
+    up: { icon: '⬆', label: 'TILT UP', color: '#4ECDC4' },
+    down: { icon: '⬇', label: 'TILT DOWN', color: '#FF6B6B' },
+    left: { icon: '⬅', label: 'PAN LEFT', color: '#FFE66D' },
+    right: { icon: '➡', label: 'PAN RIGHT', color: '#FFE66D' },
+    closer: { icon: '⊕', label: 'MOVE CLOSER', color: '#95E1D3' },
+    back: { icon: '⊖', label: 'STEP BACK', color: '#F38181' },
+  }
+  
+  const config = directionConfig[direction] || { icon: '📍', label: 'ADJUST', color: '#FFF' }
+  
+  return (
+    <Animated.View 
+      entering={FadeIn.duration(100).springify()} 
+      exiting={FadeOut.duration(200)}
+      style={styles.directionOverlay}
+    >
+      <View style={[styles.directionBox, { borderColor: config.color }]}>
+        <Text style={[styles.directionIcon, { color: config.color }]}>{config.icon}</Text>
+        <Text style={[styles.directionLabel, { color: config.color }]}>{config.label}</Text>
+      </View>
     </Animated.View>
   )
 }
@@ -333,11 +367,14 @@ export default function CameraScreen() {
   const [isSharing, setIsSharing] = useState(false)
   const [isConnected, setIsConnected] = useState(false)
   const [localStream, setLocalStream] = useState<any>(null)
+  const [usingLiveKit, setUsingLiveKit] = useState(USE_LIVEKIT && isLiveKitAvailable)
   const [photoCount, setPhotoCount] = useState(0)
   const [cameraReady, setCameraReady] = useState(false)
   const [showEncouragement, setShowEncouragement] = useState(false)
   const [encouragement, setEncouragement] = useState('')
   const [lastCommand, setLastCommand] = useState<string | null>(null)
+  const [currentDirection, setCurrentDirection] = useState<string | null>(null)
+  const [showDirection, setShowDirection] = useState(false)
   const [isLoadingPermission, setIsLoadingPermission] = useState(true)
   const [webrtcState, setWebrtcState] = useState<string>('idle')
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
@@ -448,13 +485,17 @@ export default function CameraScreen() {
       // Silent fail for history
     })
     
-    // Initialize WebRTC and handle errors properly
+    // Initialize video streaming (LiveKit or WebRTC)
     // ANDROID FIX: Add timeout to prevent indefinite hang on camera init
     const INIT_TIMEOUT_MS = 15000 // 15 second timeout
     let initTimedOut = false
+    const canUseLiveKit = USE_LIVEKIT && isLiveKitAvailable
+    const streamingMethod = canUseLiveKit ? 'livekit' : 'webrtc'
+    setUsingLiveKit(canUseLiveKit)
 
     const initWebRTC = async () => {
-      sessionLogger.info('photographer_calling_webrtc_init', {
+      sessionLogger.info('photographer_calling_video_init', {
+        method: streamingMethod,
         myDeviceId: myDeviceId?.substring(0, 8),
         pairedDeviceId: pairedDeviceId?.substring(0, 8),
         isMounted,
@@ -477,47 +518,105 @@ export default function CameraScreen() {
           setCameraError(CAMERA_ERROR_MESSAGES.TimeoutError)
           setIsSharing(false)
           // Attempt cleanup in case init is stuck
-          void webrtcService.destroy().catch(() => {})
+          if (canUseLiveKit) {
+            void livekitService.destroy().catch(() => {})
+          } else {
+            void webrtcService.destroy().catch(() => {})
+          }
         }
       }, INIT_TIMEOUT_MS)
       
       try {
-        await webrtcService.init(
-          myDeviceId,
-          pairedDeviceId,
-          sessionId,
-          'camera',
-          {
-            onConnectionStateChange: (state) => {
-              if (!isMounted) {
-                sessionLogger.info('photographer_state_after_unmount', { state })
-                return
+        // Command handler for both LiveKit and WebRTC
+        const handleCommand = (command: string, data?: Record<string, unknown>) => {
+          if (!isMounted) return
+          sessionLogger.info('command_received', { command, data })
+          
+          // Handle role switch command - auto-navigate to director mode
+          if (command === 'switch_role' && data?.newRole === 'director') {
+            sessionLogger.info('switch_role_received', { newRole: 'director' })
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+            setShowSwitchToast(true)
+            setTimeout(async () => {
+              if (canUseLiveKit) {
+                await livekitService.destroy()
+              } else {
+                await webrtcService.destroy()
               }
-              sessionLogger.info('photographer_webrtc_state', { 
-                connectionState: state,
-                role: 'camera',
-              })
-              setWebrtcState(state)
-              setIsConnected(state === 'connected')
-              
-              // If connection failed or disconnected, notify user
-              if (state === 'failed' || state === 'disconnected') {
-                sessionLogger.warn('photographer_connection_lost', { state })
-                // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
-              }
-            },
-            onError: (error) => {
-              if (!isMounted) return
-              sessionLogger.error('photographer_webrtc_error', error, {
-                role: 'camera',
-                myDeviceId,
-                pairedDeviceId,
-              })
-              setIsConnected(false)
-              // Do NOT unpair on transient WebRTC errors; Presence handles real disconnects.
-            },
+              router.replace('/viewer')
+            }, 1500)
+            return
           }
-        )
+          
+          setLastCommand(command)
+          handleRemoteCommand(command, data)
+          setTimeout(() => setLastCommand(null), 2000)
+        }
+
+        if (canUseLiveKit) {
+          // Use LiveKit (more reliable)
+          await livekitService.init(
+            myDeviceId,
+            pairedDeviceId,
+            sessionId,
+            'camera',
+            {
+              onConnectionStateChange: (state) => {
+                if (!isMounted) return
+                sessionLogger.info('photographer_livekit_state', { connectionState: state })
+                setWebrtcState(state)
+                setIsConnected(state === 'connected')
+                if (state === 'disconnected') {
+                  sessionLogger.warn('photographer_connection_lost', { state })
+                }
+              },
+              onError: (error) => {
+                if (!isMounted) return
+                sessionLogger.error('photographer_livekit_error', error)
+                setIsConnected(false)
+              },
+            }
+          )
+          livekitService.onCommand(handleCommand)
+        } else {
+          // Fall back to WebRTC
+          await webrtcService.init(
+            myDeviceId,
+            pairedDeviceId,
+            sessionId,
+            'camera',
+            {
+              onConnectionStateChange: (state) => {
+                if (!isMounted) {
+                  sessionLogger.info('photographer_state_after_unmount', { state })
+                  return
+                }
+                sessionLogger.info('photographer_webrtc_state', { 
+                  connectionState: state,
+                  role: 'camera',
+                })
+                setWebrtcState(state)
+                setIsConnected(state === 'connected')
+                
+                // If connection failed or disconnected, notify user
+                if (state === 'failed' || state === 'disconnected') {
+                  sessionLogger.warn('photographer_connection_lost', { state })
+                  // Do NOT unpair on transient WebRTC failures; Presence handles real disconnects.
+                }
+              },
+              onError: (error) => {
+                if (!isMounted) return
+                sessionLogger.error('photographer_webrtc_error', error, {
+                  role: 'camera',
+                  myDeviceId,
+                  pairedDeviceId,
+                })
+                setIsConnected(false)
+                // Do NOT unpair on transient WebRTC errors; Presence handles real disconnects.
+              },
+            }
+          )
+        } // End of else block (WebRTC fallback)
         
         // Clear timeout on successful init
         clearTimeout(timeoutId)
@@ -540,82 +639,74 @@ export default function CameraScreen() {
           return
         }
 
-        // NOW that the channel exists, attach command listener (direction/capture/etc.)
-        webrtcService.onCommand((command, data) => {
-          if (!isMounted) return
-          sessionLogger.info('command_received', { command, data })
-          
-          // Handle role switch command - auto-navigate to director mode
-          if (command === 'switch_role' && data?.newRole === 'director') {
-            sessionLogger.info('switch_role_received', { newRole: 'director' })
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
-            // Show toast notification before switching
-            setShowSwitchToast(true)
-            setTimeout(() => {
-              webrtcService.destroy().then(() => {
-                router.replace('/viewer')
-              })
-            }, 1500)
-            return
-          }
-          
-          setLastCommand(command)
-          handleRemoteCommand(command, data)
-          setTimeout(() => setLastCommand(null), 2000)
-        })
-        sessionLogger.info('photographer_command_listener_attached')
+        // Command listener already attached in handler above for LiveKit
+        if (!canUseLiveKit) {
+          webrtcService.onCommand(handleCommand)
+        }
+        sessionLogger.info('photographer_command_listener_attached', { method: streamingMethod })
         
-        // Get local stream for preview AFTER init completes
-        const stream = webrtcService.getLocalStream()
-        if (stream && isMounted) {
-          // Validate stream has active video tracks before rendering
-          const videoTracks = stream.getVideoTracks()
-          const hasActiveVideo = videoTracks.length > 0 && videoTracks.some(
-            (track: { readyState: string; enabled: boolean }) => track.readyState === 'live' && track.enabled
-          )
-          
-          if (hasActiveVideo) {
-            setLocalStream(stream)
-            setStreamReady(true)
-            setCameraError(null)
-            sessionLogger.logCamera('stream_ready', {
-              trackCount: stream.getTracks().length,
-              videoTracks: videoTracks.length,
-              streamId: stream.id?.substring(0, 8),
-              hasActiveVideo,
-              role: 'photographer',
-              trackDetails: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string; label?: string }) => ({
-                readyState: t.readyState,
-                enabled: t.enabled,
-                id: t.id?.substring(0, 8),
-                label: t.label,
-              })),
-            })
-          } else {
+        // For LiveKit, camera is managed by the service
+        // For WebRTC, get local stream for preview AFTER init completes
+        if (canUseLiveKit) {
+          // LiveKit manages the camera internally
+          setStreamReady(true)
+          setCameraError(null)
+          sessionLogger.info('livekit_camera_ready', {
+            role: 'photographer',
+          })
+        } else {
+          // WebRTC - get local stream for preview
+          const stream = webrtcService.getLocalStream()
+          if (stream && isMounted) {
+            // Validate stream has active video tracks before rendering
+            const videoTracks = stream.getVideoTracks()
+            const hasActiveVideo = videoTracks.length > 0 && videoTracks.some(
+              (track: { readyState: string; enabled: boolean }) => track.readyState === 'live' && track.enabled
+            )
+            
+            if (hasActiveVideo) {
+              setLocalStream(stream)
+              setStreamReady(true)
+              setCameraError(null)
+              sessionLogger.logCamera('stream_ready', {
+                trackCount: stream.getTracks().length,
+                videoTracks: videoTracks.length,
+                streamId: stream.id?.substring(0, 8),
+                hasActiveVideo,
+                role: 'photographer',
+                trackDetails: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string; label?: string }) => ({
+                  readyState: t.readyState,
+                  enabled: t.enabled,
+                  id: t.id?.substring(0, 8),
+                  label: t.label,
+                })),
+              })
+            } else {
+              sessionLogger.logCamera('stream_failed', {
+                reason: 'no_active_video_tracks',
+                trackCount: stream.getTracks().length,
+                videoTracksCount: videoTracks.length,
+                trackStates: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string }) => ({
+                  readyState: t.readyState,
+                  enabled: t.enabled,
+                  id: t.id?.substring(0, 8),
+                })),
+                role: 'photographer',
+              })
+              setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
+              setIsSharing(false)
+              void webrtcService.destroy()
+            }
+          } else if (!stream) {
             sessionLogger.logCamera('stream_failed', {
-              reason: 'no_active_video_tracks',
-              trackCount: stream.getTracks().length,
-              videoTracksCount: videoTracks.length,
-              trackStates: videoTracks.map((t: { readyState: string; enabled: boolean; id?: string }) => ({
-                readyState: t.readyState,
-                enabled: t.enabled,
-                id: t.id?.substring(0, 8),
-              })),
+              reason: 'no_stream_returned',
+              isMounted,
               role: 'photographer',
             })
             setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
             setIsSharing(false)
             void webrtcService.destroy()
           }
-        } else if (!stream) {
-          sessionLogger.logCamera('stream_failed', {
-            reason: 'no_stream_returned',
-            isMounted,
-            role: 'photographer',
-          })
-          setCameraError(CAMERA_ERROR_MESSAGES.StreamError)
-          setIsSharing(false)
-          void webrtcService.destroy()
         }
       } catch (error) {
         // Clear timeout on error
@@ -639,7 +730,11 @@ export default function CameraScreen() {
         setIsConnected(false)
         setIsSharing(false)
         setCameraError(userMessage)
-        void webrtcService.destroy()
+        if (canUseLiveKit) {
+          void livekitService.destroy()
+        } else {
+          void webrtcService.destroy()
+        }
       }
     }
     
@@ -670,9 +765,13 @@ export default function CameraScreen() {
       // Reset stream state on cleanup
       setStreamReady(false)
       // Best-effort cleanup; don't set state here (avoids effect loops).
-      void webrtcService.destroy()
+      if (usingLiveKit) {
+        void livekitService.destroy()
+      } else {
+        void webrtcService.destroy()
+      }
     }
-  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, isSharing])
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, permission?.granted, isSharing, usingLiveKit])
 
   // Handle commands from director
   const handleRemoteCommand = (command: string, data?: Record<string, unknown>) => {
@@ -695,18 +794,12 @@ export default function CameraScreen() {
         setTimeout(() => setShowEncouragement(false), 1500)
         break
       case 'direction':
-        setShowEncouragement(true)
-        // Show clear direction with arrow
-        const directionMap: Record<string, string> = {
-          up: '↑ Tilt Up',
-          down: '↓ Tilt Down', 
-          left: '← Pan Left',
-          right: '→ Pan Right',
-          closer: '⊕ Move Closer',
-          back: '⊖ Step Back',
-        }
-        setEncouragement(directionMap[data?.direction as string] || 'Adjust position')
-        setTimeout(() => setShowEncouragement(false), 2000)
+        // Show large prominent direction overlay
+        const dir = data?.direction as string
+        setCurrentDirection(dir)
+        setShowDirection(true)
+        // Auto-hide after 2.5 seconds
+        setTimeout(() => setShowDirection(false), 2500)
         break
     }
   }
@@ -1097,6 +1190,7 @@ export default function CameraScreen() {
         )}
         
         <EncouragementToast message={encouragement} visible={showEncouragement} />
+        <DirectionOverlay direction={currentDirection} visible={showDirection} />
         <SwitchRoleToast visible={showSwitchToast} partnerName={partnerDisplayName || 'Partner'} />
       </View>
 
@@ -1508,6 +1602,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.7)',
     textAlign: 'center',
+  },
+  // Direction overlay - large prominent arrows
+  directionOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 100,
+  },
+  directionBox: {
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    paddingVertical: 32,
+    paddingHorizontal: 48,
+    borderRadius: 24,
+    borderWidth: 3,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 20,
+  },
+  directionIcon: {
+    fontSize: 80,
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 8,
+  },
+  directionLabel: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: 3,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 4,
   },
   // Switch role toast
   switchToast: {
