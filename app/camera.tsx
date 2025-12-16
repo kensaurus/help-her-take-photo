@@ -14,6 +14,8 @@ import {
   Linking,
   useWindowDimensions,
   Platform,
+  AppState,
+  AppStateStatus,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -382,6 +384,11 @@ export default function CameraScreen() {
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [streamReady, setStreamReady] = useState(false) // Track if stream has active video
+  const [isReconnecting, setIsReconnecting] = useState(false) // Track background/foreground reconnection
+  
+  // Track app state for background/foreground handling
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const wasConnectedRef = useRef(false) // Track if we had a connection before backgrounding
   
   const encouragements = t.camera.encouragements
 
@@ -442,6 +449,111 @@ export default function CameraScreen() {
       setIsLoadingPermission(false)
     }
   }, [permission])
+
+  // Handle app state changes (background/foreground) for WebRTC lifecycle
+  // Best practices:
+  // - Pause video tracks when backgrounded (saves battery)
+  // - Resume and potentially reconnect when returning to foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      const prevState = appStateRef.current
+      appStateRef.current = nextState
+      
+      sessionLogger.info('camera_app_state_change', {
+        from: prevState,
+        to: nextState,
+        isConnected,
+        isSharing,
+        wasConnected: wasConnectedRef.current,
+      })
+      
+      // App going to background - pause video to save battery
+      if (nextState === 'background' && prevState === 'active') {
+        // Mark that we had an active connection
+        if (isConnected) {
+          wasConnectedRef.current = true
+        }
+        
+        // Pause local video tracks (saves battery, keeps connection alive)
+        const localStream = webrtcService.getLocalStream()
+        if (localStream) {
+          const videoTracks = localStream.getVideoTracks?.() ?? []
+          videoTracks.forEach((track: { enabled: boolean }) => {
+            track.enabled = false
+          })
+          sessionLogger.info('camera_video_paused_background', { trackCount: videoTracks.length })
+        }
+      }
+      
+      // App coming to foreground - resume and potentially reconnect
+      if (nextState === 'active' && prevState !== 'active') {
+        // Resume local video tracks first (quick operation)
+        const localStream = webrtcService.getLocalStream()
+        if (localStream) {
+          const videoTracks = localStream.getVideoTracks?.() ?? []
+          videoTracks.forEach((track: { enabled: boolean }) => {
+            track.enabled = true
+          })
+          sessionLogger.info('camera_video_resumed_foreground', { trackCount: videoTracks.length })
+        }
+        
+        // If we were connected before and now aren't, trigger reconnect
+        if (wasConnectedRef.current && !isConnected && isPaired && isSharing) {
+          sessionLogger.info('camera_foreground_reconnect_needed', {
+            wasConnected: wasConnectedRef.current,
+            isConnected,
+          })
+          
+          setIsReconnecting(true)
+          
+          // Small delay to let system stabilize, then reinit WebRTC
+          setTimeout(async () => {
+            if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) {
+              setIsReconnecting(false)
+              return
+            }
+            
+            try {
+              // Destroy and reinit to get fresh connection
+              await webrtcService.destroy()
+              await new Promise(resolve => setTimeout(resolve, 500))
+              
+              await webrtcService.init(
+                myDeviceId,
+                pairedDeviceId,
+                sessionId,
+                'camera',
+                {
+                  onConnectionStateChange: (state) => {
+                    setWebrtcState(state)
+                    setIsConnected(state === 'connected')
+                    if (state === 'connected') {
+                      setIsReconnecting(false)
+                      wasConnectedRef.current = true
+                      sessionLogger.info('camera_reconnect_success')
+                    }
+                  },
+                  onError: (error) => {
+                    sessionLogger.error('camera_reconnect_error', error)
+                    setIsReconnecting(false)
+                  },
+                }
+              )
+            } catch (error) {
+              sessionLogger.error('camera_foreground_reconnect_failed', error as Error)
+              setIsReconnecting(false)
+            }
+          }, 1500)
+        }
+      }
+    }
+    
+    const subscription = AppState.addEventListener('change', handleAppStateChange)
+    
+    return () => {
+      subscription.remove()
+    }
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, isConnected, isSharing])
 
   // Auto-start sharing only when we know the partner is online.
   useEffect(() => {
@@ -615,6 +727,11 @@ export default function CameraScreen() {
                 })
                 setWebrtcState(state)
                 setIsConnected(state === 'connected')
+                
+                // Track connection state for background/foreground reconnection
+                if (state === 'connected') {
+                  wasConnectedRef.current = true
+                }
                 
                 // If connection failed or disconnected, notify user
                 if (state === 'failed' || state === 'disconnected') {
@@ -1179,11 +1296,12 @@ export default function CameraScreen() {
           <View style={[
             styles.statusDot, 
             isConnected ? styles.statusDotLive : 
+            isReconnecting ? styles.statusDotReconnecting :
             isPaired ? (partnerOnline === false ? styles.statusDotOff : styles.statusDotOn) : styles.statusDotOff
           ]} />
           <View style={styles.statusTextContainer}>
             <Text style={styles.statusText}>
-              {isConnected ? '🔴 LIVE' : isPaired ? (partnerOnline === false ? '📴 Offline' : isSharing ? '⏳ Connecting...' : '✓ Paired') : t.camera.notConnected}
+              {isReconnecting ? '🔄 Reconnecting...' : isConnected ? '🔴 LIVE' : isPaired ? (partnerOnline === false ? '📴 Offline' : isSharing ? '⏳ Connecting...' : '✓ Paired') : t.camera.notConnected}
             </Text>
             {isPaired && pairedDeviceId && (
               <Text style={styles.partnerText}>
@@ -1220,10 +1338,11 @@ export default function CameraScreen() {
             entering={FadeIn.duration(200)}
             style={styles.connectionIndicator}
           >
-            <View style={[styles.liveIndicator, isConnected && styles.liveIndicatorActive]}>
+            <View style={[styles.liveIndicator, isConnected && styles.liveIndicatorActive, isReconnecting && styles.liveIndicatorReconnecting]}>
               {isConnected && <View style={styles.recordingDot} />}
+              {isReconnecting && <View style={[styles.recordingDot, { backgroundColor: '#ff9800' }]} />}
               <Text style={styles.liveIndicatorText}>
-                {isConnected ? 'STREAMING TO PARTNER' : '⏳ Connecting...'}
+                {isReconnecting ? 'RECONNECTING...' : isConnected ? 'STREAMING TO PARTNER' : '⏳ Connecting...'}
               </Text>
             </View>
             {isConnected && (
@@ -1553,6 +1672,9 @@ const styles = StyleSheet.create({
   statusDotLive: {
     backgroundColor: '#e53935',
   },
+  statusDotReconnecting: {
+    backgroundColor: '#ff9800', // Orange for reconnecting
+  },
   statusTextContainer: {
     flexDirection: 'column',
   },
@@ -1704,6 +1826,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(229, 57, 53, 0.25)',
     borderWidth: 1,
     borderColor: 'rgba(229, 57, 53, 0.4)',
+  },
+  liveIndicatorReconnecting: {
+    backgroundColor: 'rgba(255, 152, 0, 0.25)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 152, 0, 0.4)',
   },
   recordingDot: {
     width: 8,

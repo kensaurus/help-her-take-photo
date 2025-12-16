@@ -11,6 +11,8 @@ import {
   Pressable, 
   Dimensions,
   Alert,
+  AppState,
+  AppStateStatus,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -208,6 +210,11 @@ export default function ViewerScreen() {
   const [partnerOnline, setPartnerOnline] = useState<boolean | null>(null)
   const [showSwitchToast, setShowSwitchToast] = useState(false)
   const [usingLiveKit, setUsingLiveKit] = useState(USE_LIVEKIT && isLiveKitAvailable)
+  const [isReconnecting, setIsReconnecting] = useState(false) // Track background/foreground reconnection
+  
+  // Track app state for background/foreground handling
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState)
+  const wasReceivingRef = useRef(false) // Track if we had video before backgrounding
   
   // Use Supabase Realtime as backup channel for sending commands
   // This ensures commands reach the camera even if WebRTC data channel has issues
@@ -228,6 +235,100 @@ export default function ViewerScreen() {
       sessionLogger.info('viewer_screen_closed')
     }
   }, [myDeviceId, sessionId, pairedDeviceId])
+
+  // Handle app state changes (background/foreground) for WebRTC lifecycle
+  // Director doesn't have video tracks to pause, but needs to reconnect on foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextState: AppStateStatus) => {
+      const prevState = appStateRef.current
+      appStateRef.current = nextState
+      
+      sessionLogger.info('viewer_app_state_change', {
+        from: prevState,
+        to: nextState,
+        isReceiving,
+        connectionState,
+        wasReceiving: wasReceivingRef.current,
+      })
+      
+      // Track if we were receiving video before backgrounding
+      if (nextState === 'background' && prevState === 'active') {
+        if (isReceiving) {
+          wasReceivingRef.current = true
+        }
+      }
+      
+      // App coming to foreground - check if reconnect needed
+      if (nextState === 'active' && prevState !== 'active') {
+        // If we were receiving video and now aren't, reconnect
+        if (wasReceivingRef.current && !isReceiving && isPaired) {
+          sessionLogger.info('viewer_foreground_reconnect_needed', {
+            wasReceiving: wasReceivingRef.current,
+            isReceiving,
+            connectionState,
+          })
+          
+          setIsReconnecting(true)
+          
+          // Small delay to let system stabilize, then reinit WebRTC
+          setTimeout(async () => {
+            if (!isPaired || !myDeviceId || !pairedDeviceId || !sessionId) {
+              setIsReconnecting(false)
+              return
+            }
+            
+            try {
+              // Destroy and reinit to get fresh connection
+              await webrtcService.destroy()
+              await new Promise(resolve => setTimeout(resolve, 500))
+              
+              await webrtcService.init(
+                myDeviceId,
+                pairedDeviceId,
+                sessionId,
+                'director',
+                {
+                  onRemoteStream: (stream) => {
+                    const videoTracks = stream?.getVideoTracks?.() ?? []
+                    if (videoTracks.length > 0) {
+                      setRemoteStream(stream)
+                      setIsReceiving(true)
+                      setIsReconnecting(false)
+                      wasReceivingRef.current = true
+                      sessionLogger.info('viewer_reconnect_stream_received', {
+                        trackCount: videoTracks.length,
+                      })
+                    }
+                  },
+                  onConnectionStateChange: (state) => {
+                    setConnectionState(state)
+                    if (state === 'connected') {
+                      sessionLogger.info('viewer_reconnect_connected')
+                    } else if (state === 'failed') {
+                      setIsReconnecting(false)
+                    }
+                  },
+                  onError: (error) => {
+                    sessionLogger.error('viewer_reconnect_error', error)
+                    setIsReconnecting(false)
+                  },
+                }
+              )
+            } catch (error) {
+              sessionLogger.error('viewer_foreground_reconnect_failed', error as Error)
+              setIsReconnecting(false)
+            }
+          }, 1500)
+        }
+      }
+    }
+    
+    const subscription = AppState.addEventListener('change', handleAppStateChange)
+    
+    return () => {
+      subscription.remove()
+    }
+  }, [isPaired, myDeviceId, pairedDeviceId, sessionId, isReceiving, connectionState])
 
   useEffect(() => {
     if (isPaired && pairedDeviceId && !partnerDisplayName) {
@@ -403,6 +504,7 @@ export default function ViewerScreen() {
                 })
                 setRemoteStream(stream)
                 setIsReceiving(true)
+                wasReceivingRef.current = true // Track for background/foreground reconnection
               },
               onConnectionStateChange: (state) => {
                 if (!isActive) return
@@ -586,9 +688,13 @@ export default function ViewerScreen() {
         {/* Centered LIVE indicator - separate from top bar */}
         <View style={styles.liveIndicatorContainer}>
           <View style={styles.statusPill}>
-            <View style={[styles.statusDot, isReceiving && styles.statusDotLive]} />
+            <View style={[
+              styles.statusDot, 
+              isReceiving && styles.statusDotLive,
+              isReconnecting && styles.statusDotReconnecting
+            ]} />
             <Text style={styles.statusText}>
-              {isReceiving ? 'LIVE' : connectionState.toUpperCase()}
+              {isReconnecting ? 'RECONNECTING...' : isReceiving ? 'LIVE' : connectionState.toUpperCase()}
             </Text>
           </View>
         </View>
@@ -850,6 +956,9 @@ const styles = StyleSheet.create({
   },
   statusDotLive: {
     backgroundColor: '#e53935',
+  },
+  statusDotReconnecting: {
+    backgroundColor: '#ff9800', // Orange for reconnecting
   },
   statusText: {
     fontSize: 12,
