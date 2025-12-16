@@ -1027,6 +1027,7 @@ const styles = StyleSheet.create({
   },
   grid: {
     padding: GAP,
+    paddingBottom: 100, // Extra space for ZenDock
   },
   photoItem: {
     margin: GAP / 2,

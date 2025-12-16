@@ -902,7 +902,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: 100, // Extra space for ZenDock
   },
   section: {
     marginTop: 24,

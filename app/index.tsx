@@ -209,56 +209,6 @@ function ActionCard({
 
 
 /**
- * Animated nav item with press feedback
- */
-function NavItem({ 
-  icon, 
-  label, 
-  active = false,
-  onPress,
-}: { 
-  icon: 'user' | 'settings'
-  label: string
-  active?: boolean
-  onPress: () => void
-}) {
-  const { colors } = useThemeStore()
-  const scale = useSharedValue(1)
-  
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }))
-  
-  const handlePressIn = () => {
-    scale.value = withSpring(0.9, { damping: 15, stiffness: 400 })
-  }
-  
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 12, stiffness: 300 })
-  }
-
-  return (
-    <Pressable 
-      style={styles.navItem}
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      accessibilityLabel={label}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: active }}
-    >
-      <Animated.View style={[styles.navItemInner, animatedStyle]}>
-        <Icon name={icon} size={20} color={active ? colors.text : colors.textMuted} />
-        <Text style={[styles.navLabel, { color: active ? colors.text : colors.textMuted }]}>
-          {label}
-        </Text>
-      </Animated.View>
-    </Pressable>
-  )
-}
-
-
-/**
  * Status badge component - Soft pill design (distinct from buttons)
  * Uses badge styling: rounded pill, no glow, muted colors
  */
@@ -583,31 +533,6 @@ export default function HomeScreen() {
             accessibilityHint="Opens the photo gallery to view saved photos"
           />
         </View>
-
-        {/* Bottom nav bar - minimal with animated feedback */}
-        <Animated.View 
-          entering={FadeIn.delay(350).duration(400)}
-          style={[styles.bottomNav, { backgroundColor: colors.surface, borderTopColor: colors.border }]}
-        >
-          <NavItem 
-            icon="user" 
-            label={t.profile.title} 
-            active
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              router.push('/profile')
-            }}
-          />
-          
-          <NavItem 
-            icon="settings" 
-            label={t.settings.title}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
-              router.push('/settings')
-            }}
-          />
-        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   )
@@ -620,7 +545,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingBottom: 100, // Extra space for ZenDock
   },
   header: {
     paddingTop: 24,
@@ -801,29 +726,5 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 18,
-  },
-  // Bottom nav with artistic styling
-  bottomNav: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 8,
-    marginTop: 16,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 12,
-    minHeight: 48,
-  },
-  navItemInner: {
-    alignItems: 'center',
-    gap: 4,
-  },
-  navLabel: {
-    fontSize: 11,
-    fontWeight: '500',
   },
 })

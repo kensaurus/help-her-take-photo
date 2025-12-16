@@ -45,6 +45,8 @@ type IconName =
   | 'loading'
   | 'download'
   | 'external'
+  | 'home'
+  | 'capture'
 
 interface IconProps {
   name: IconName
@@ -1352,6 +1354,98 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
                   width: stroke,
                   height: quarter,
                   backgroundColor: iconColor,
+                },
+              ]}
+            />
+          </View>
+        )
+
+      case 'home':
+        // Cute house icon
+        return (
+          <View style={baseStyle}>
+            {/* Roof - triangle */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke,
+                  left: half - quarter - stroke,
+                  width: 0,
+                  height: 0,
+                  borderLeftWidth: quarter + stroke * 2,
+                  borderRightWidth: quarter + stroke * 2,
+                  borderBottomWidth: quarter,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderBottomColor: iconColor,
+                },
+              ]}
+            />
+            {/* House body */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: quarter + stroke,
+                  left: quarter - stroke,
+                  width: half + stroke * 2,
+                  height: half - stroke,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke,
+                },
+              ]}
+            />
+            {/* Door */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  bottom: stroke,
+                  left: half - stroke * 1.5,
+                  width: stroke * 3,
+                  height: quarter,
+                  backgroundColor: 'transparent',
+                  borderWidth: stroke * 0.8,
+                  borderColor: iconColor === '#FFFFFF' ? '#4A3B47' : '#FFFFFF',
+                  borderTopLeftRadius: stroke * 1.5,
+                  borderTopRightRadius: stroke * 1.5,
+                },
+              ]}
+            />
+          </View>
+        )
+
+      case 'capture':
+        // Capture/shutter icon - circular with inner circle
+        return (
+          <View style={baseStyle}>
+            {/* Outer ring */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke / 2,
+                  left: stroke / 2,
+                  width: size - stroke,
+                  height: size - stroke,
+                  borderWidth: stroke * 1.5,
+                  borderColor: iconColor,
+                  borderRadius: size,
+                },
+              ]}
+            />
+            {/* Inner filled circle */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: quarter,
+                  left: quarter,
+                  width: half,
+                  height: half,
+                  backgroundColor: iconColor,
+                  borderRadius: size,
                 },
               ]}
             />

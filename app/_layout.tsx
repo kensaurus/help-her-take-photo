@@ -47,6 +47,7 @@ import { AuthProvider } from '../src/contexts/AuthContext'
 import { AppUpdatePrompt } from '../src/components/ui/AppUpdatePrompt'
 import { DebugMenu } from '../src/components/ui/DebugMenu'
 import { ErrorBoundary } from '../src/components/ErrorBoundary'
+import { ZenDock } from '../src/components/ui/ZenDock'
 
 // Keep splash screen visible while loading
 SplashScreen.preventAutoHideAsync()
@@ -319,6 +320,7 @@ export default Sentry.wrap(function RootLayout() {
             }} 
           />
           </Stack>
+            <ZenDock />
           </ErrorBoundary>
         </AuthProvider>
       </SafeAreaProvider>
