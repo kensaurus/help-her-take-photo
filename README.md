@@ -787,14 +787,15 @@ pastelLavender: '#E8D5F5' // Soft purple accents
 | Component | Description |
 |-----------|-------------|
 | `Icon` | Custom vector icons using View shapes |
+| `ZenDock` | Floating dock navigation with microinteractions |
 | `Skeleton` | Loading placeholder with shimmer |
 | `PressableScale` | Pressable with scale animation & haptics |
 | `AnimatedButton` | Button with spring animation |
 | `AnimatedPressable` | Physics-based pressable with configurable presets |
 | `FadeView` | View with fade-in animation |
-| `ArtisticButton` | **NEW** - Asymmetric button with glow effect for clickability |
-| `ArtisticCard` | **NEW** - Asymmetric card with decorative blobs |
-| `CutesBadge` | **NEW** - Soft pill badge for informational elements |
+| `ArtisticButton` | Asymmetric button with glow effect for clickability |
+| `ArtisticCard` | Asymmetric card with decorative blobs |
+| `CutesBadge` | Soft pill badge for informational elements |
 
 ### Artistic Components (New)
 
@@ -848,9 +849,31 @@ import { ArtisticCard } from '@/components/ui/ArtisticCard'
 |-----------|-------------|
 | `CaptureButton` | Photo capture with ring pulse, flash effect, spring physics |
 
+### ZenDock Navigation
+
+Floating dock navigation with pastel zen styling:
+
+```typescript
+// Automatically shown on main screens (home, gallery, profile, settings)
+// Hidden on camera, viewer, onboarding, pairing screens
+
+// Navigation items:
+// Home → /
+// Gallery → /gallery  
+// Capture (center, elevated) → /pairing
+// Profile → /profile
+// Settings → /settings
+```
+
+Features:
+- Floating pill shape with soft shadow
+- Center button elevated with pink glow
+- Microinteractions with bouncy springs
+- Active states with pastel pink backgrounds
+
 ### Icon Names
 
-Available icons: `camera`, `eye`, `image`, `user`, `settings`, `check`, `close`, `arrow-right`, `arrow-left`, `chevron-right`, `chevron-left`, `chevron-down`, `sun`, `moon`, `link`, `unlink`, `send`, `star`, `heart`, `flash`, `grid`, `share`, `trash`, `refresh`, `plus`, `minus`, `dot`, `loading`
+Available icons: `camera`, `eye`, `image`, `user`, `settings`, `check`, `close`, `arrow-right`, `arrow-left`, `chevron-right`, `chevron-left`, `chevron-down`, `sun`, `moon`, `link`, `unlink`, `send`, `star`, `heart`, `flash`, `grid`, `share`, `trash`, `refresh`, `plus`, `minus`, `dot`, `loading`, `home`, `capture`
 
 ## ✨ Micro-interactions & Animations
 

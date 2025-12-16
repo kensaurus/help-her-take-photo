@@ -1,7 +1,7 @@
 # Help Her Take Photo - Developer Handoff
 
 > **Last Updated:** December 16, 2025  
-> **Session Focus:** Cutesy pastel UI redesign with artistic asymmetric shapes, Sentry fix
+> **Session Focus:** ZenDock navigation, gallery fix, WebRTC reconnection reliability
 
 ---
 
@@ -365,7 +365,76 @@ Diff Network:  Phone A → LiveKit → Phone B
 
 ---
 
-## ✅ Session Summary (December 16, 2025)
+## ✅ Latest Session (December 16, 2025 - Evening)
+
+### ZenDock Floating Navigation
+
+Created a beautiful floating dock navigation with pastel zen styling:
+
+**New Files:**
+| File | Purpose |
+|------|---------|
+| `src/components/ui/ZenDock.tsx` | Floating pill-shaped dock navigation |
+
+**Updated Files:**
+| File | Changes |
+|------|---------|
+| `src/components/ui/Icon.tsx` | Added 'home' and 'capture' icons |
+| `app/_layout.tsx` | Integrated ZenDock component |
+| `app/index.tsx` | Removed old bottom nav, added dock padding |
+| `app/gallery.tsx` | Added dock padding |
+| `app/profile.tsx` | Added dock padding |
+| `app/settings.tsx` | Added dock padding |
+
+**ZenDock Features:**
+- Floating pill shape with soft shadow
+- 5 navigation items: Home, Gallery, Capture (center), Profile, Settings
+- Center capture button elevated with pink glow
+- Microinteractions with bouncy spring animations
+- Active states with pastel pink pill backgrounds
+- Hidden on camera/viewer/onboarding/pairing screens
+
+### Gallery Photos Not Showing - FIXED
+
+**Root Cause:** Photos saved to device MediaLibrary but NOT to Supabase `captures` table.
+
+**Fix:** Added `capturesApi.save()` call after MediaLibrary save in `app/camera.tsx`:
+```typescript
+// Now saves to BOTH:
+const asset = await MediaLibrary.createAssetAsync(photo.uri)
+await capturesApi.save({
+  cameraDeviceId: myDeviceId,
+  storagePath: asset.uri,
+  capturedBy: 'camera',
+})
+```
+
+### Role Switching Reliability - FIXED
+
+**Root Cause:** `subscribeToSignaling()` called `.subscribe()` but didn't wait for `SUBSCRIBED` status before `sendDirectorReadySignal()` was called.
+
+**Fix:** Made `subscribeToSignaling()` return a Promise that resolves when channel reaches `SUBSCRIBED` status:
+```typescript
+private async subscribeToSignaling(): Promise<void> {
+  return new Promise((resolve) => {
+    this.channel!
+      .on('broadcast', ...)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') resolve()
+      })
+  })
+}
+```
+
+### Icon Improvements
+
+Redesigned icons to be cleaner and more minimal:
+- **Home icon**: Clean house outline with angled roof and chimney
+- **Capture icon**: Simple ring with center dot (record button style)
+
+---
+
+## ✅ Session Summary (December 16, 2025 - Earlier)
 
 ### Part 1: Build Fixes & UX
 | Task | Status |
