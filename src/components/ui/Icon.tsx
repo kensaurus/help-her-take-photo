@@ -1361,55 +1361,66 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'home':
-        // Cute house icon
+        // Minimal house icon - clean outline style
         return (
           <View style={baseStyle}>
-            {/* Roof - triangle */}
+            {/* House base - rounded square */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: stroke,
-                  left: half - quarter - stroke,
-                  width: 0,
-                  height: 0,
-                  borderLeftWidth: quarter + stroke * 2,
-                  borderRightWidth: quarter + stroke * 2,
-                  borderBottomWidth: quarter,
-                  borderLeftColor: 'transparent',
-                  borderRightColor: 'transparent',
-                  borderBottomColor: iconColor,
+                  top: half - stroke,
+                  left: stroke * 1.5,
+                  width: size - stroke * 3,
+                  height: half,
+                  borderWidth: stroke,
+                  borderColor: iconColor,
+                  borderTopWidth: 0,
+                  borderBottomLeftRadius: stroke * 2,
+                  borderBottomRightRadius: stroke * 2,
                 },
               ]}
             />
-            {/* House body */}
+            {/* Roof - two angled lines */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: quarter + stroke,
-                  left: quarter - stroke,
-                  width: half + stroke * 2,
-                  height: half - stroke,
+                  top: stroke * 0.5,
+                  left: stroke,
+                  width: half - stroke,
+                  height: stroke,
                   backgroundColor: iconColor,
-                  borderRadius: stroke,
+                  transform: [{ rotate: '35deg' }],
+                  transformOrigin: 'right center',
                 },
               ]}
             />
-            {/* Door */}
             <View
               style={[
                 styles.absolute,
                 {
-                  bottom: stroke,
-                  left: half - stroke * 1.5,
-                  width: stroke * 3,
-                  height: quarter,
-                  backgroundColor: 'transparent',
-                  borderWidth: stroke * 0.8,
-                  borderColor: iconColor === '#FFFFFF' ? '#4A3B47' : '#FFFFFF',
-                  borderTopLeftRadius: stroke * 1.5,
-                  borderTopRightRadius: stroke * 1.5,
+                  top: stroke * 0.5,
+                  right: stroke,
+                  width: half - stroke,
+                  height: stroke,
+                  backgroundColor: iconColor,
+                  transform: [{ rotate: '-35deg' }],
+                  transformOrigin: 'left center',
+                },
+              ]}
+            />
+            {/* Chimney */}
+            <View
+              style={[
+                styles.absolute,
+                {
+                  top: stroke * 2,
+                  right: stroke * 2.5,
+                  width: stroke * 2,
+                  height: stroke * 3,
+                  backgroundColor: iconColor,
+                  borderRadius: stroke * 0.5,
                 },
               ]}
             />
@@ -1417,7 +1428,7 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
         )
 
       case 'capture':
-        // Capture/shutter icon - circular with inner circle
+        // Minimal shutter/record icon - clean circle design
         return (
           <View style={baseStyle}>
             {/* Outer ring */}
@@ -1425,25 +1436,25 @@ export function Icon({ name, size = 20, color, animated = false }: IconProps) {
               style={[
                 styles.absolute,
                 {
-                  top: stroke / 2,
-                  left: stroke / 2,
-                  width: size - stroke,
-                  height: size - stroke,
-                  borderWidth: stroke * 1.5,
+                  top: stroke,
+                  left: stroke,
+                  width: size - stroke * 2,
+                  height: size - stroke * 2,
+                  borderWidth: stroke * 1.2,
                   borderColor: iconColor,
                   borderRadius: size,
                 },
               ]}
             />
-            {/* Inner filled circle */}
+            {/* Inner filled dot */}
             <View
               style={[
                 styles.absolute,
                 {
-                  top: quarter,
-                  left: quarter,
-                  width: half,
-                  height: half,
+                  top: size * 0.3,
+                  left: size * 0.3,
+                  width: size * 0.4,
+                  height: size * 0.4,
                   backgroundColor: iconColor,
                   borderRadius: size,
                 },
